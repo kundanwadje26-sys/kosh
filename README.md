@@ -145,8 +145,8 @@ The dashboard shows a short *Get KOSH ready in three steps* checklist until you'
 | Withdrew cash at an ATM | Transfer, from bank to *Cash in hand* |
 | Paid the credit card bill | Accounts → the card → **Pay bill** (a transfer from bank to card, prefilled with the outstanding amount) |
 | Bought something on no-cost EMI | Add it under **EMIs & loans** only, don't also log the purchase as an expense. Each month's installment is recorded as an expense on the card, and the unpaid principal blocks the card's limit. |
-| A SIP is due on the 1st | Nothing on the day, if it's set to record automatically. A few days later, when the units show in your fund app, press **Enter units** on the Portfolio page or dashboard. |
-| Bought more shares or a lump sum in a fund | **+** on that holding (a transfer from your bank), then **Enter units** when it appears for review. |
+| A SIP is due on the 1st | Nothing. It's recorded on the day and its units are added once the NAV is out. Compare with your statement if you like (list icon on the holding). |
+| Bought more shares or a lump sum in a fund | **+** on that holding (a transfer from your bank). Fund units are added automatically; for shares, enter them when asked under *Units to confirm*. |
 | Mutual fund or stock price changed | Nothing, if it's linked; the value updates itself. |
 | FD, PPF or gold value went up | Accounts → the investment → **Update value** (records a balance adjustment, not income) |
 | Put money into a mutual fund / FD | Transfer, from bank to the investment account |
@@ -191,15 +191,19 @@ The app fills in the amount invested (units × average cost) and the current val
 - **When prices update:** automatically when you open the app (funds at most every 3 hours, stocks once a day), or with **Refresh prices** on the Portfolio page. You can turn automatic updates off in Settings.
 - **How it's recorded:** changes in market value are saved as one *Market value* entry per holding per month. They change your profit and net worth, never your income, spending or amount invested, and are hidden from the dashboard's recent list.
 
-**SIP review.** On each SIP date the SIP amount goes out of your bank as money spent (shown as *Invested* on the dashboard) and the instalment is **marked for review**. Until you review it, it counts in the fund at its rupee cost. You have 5 days to enter the **units allotted** and the **NAV** from your statement, email or fund app (they usually appear 2–3 working days after the SIP date):
+**SIP units are worked out automatically.** On each SIP date the SIP amount goes out of your bank as money spent (shown as *Invested* on the dashboard). The app then adds the units to your holding by itself:
 
-- The **Portfolio** menu item shows a badge with the number waiting, the Portfolio page lists them under **Needs your review**, and the dashboard shows them in *Due in the next 30 days*. Overdue ones turn red.
-- Click **Enter units**. Fill either the units or the NAV; the other is worked out from the amount. For linked mutual funds the app also shows that day's NAV with a **Use this** button. Your statement may show slightly fewer units because of stamp duty; use its figure when you have it.
-- Once saved, the units are added to the holding and its value is updated at the latest price.
-- Lump sums added with the **+** button, and withdrawals, go through the same review.
+- **Order time:** each SIP has a setting *Units are allotted at the NAV of*: the SIP date, or 1, 2 or 3 working days later. Set it to match how long your platform takes to place the order. The app uses the first NAV published on or after that day, so weekends and market holidays are handled.
+- **Units** = SIP amount × (1 − 0.005% stamp duty) ÷ that NAV. The stamp duty deduction can be switched off in Settings, where you can also set the default order time for lump sums and new SIPs.
+- **Expense ratio:** add the fund's expense ratio (TER, from its factsheet) on the holding or SIP. A fund's NAV is already published after its expenses, so the app doesn't subtract it again (that would count it twice). Instead it shows what it costs you, e.g. *about ₹1,240 a year*, on the holding and as *Fund costs* on the Portfolio page.
+- Until the NAV for the allotment day is out, the instalment counts at its rupee amount and the holding shows *waiting for NAV*.
+- **Check or change any time:** the list icon on a holding opens **Units**, a table of every SIP, purchase and withdrawal with its NAV (and date), units, and whether the app (*Auto*) or you (*You*) set them. Click **Change** to type your statement's figures (fill units or NAV; the other is worked out). **Clear units** there lets the app work them out again. The *units* tag on a transaction opens the same editor.
+- **Units to confirm:** anything the app can't work out by itself (stocks, funds not linked to a live NAV, or a NAV still missing 3 days after it was due) goes on this list on the Portfolio page and the dashboard, with a badge on the Portfolio menu item.
+- Lump sums added with the **+** button, and withdrawals, are handled the same way.
 
 **SIPs.** Click **Add SIP** and fill in:
 
+- **Units are allotted at the NAV of** (order time) and **Expense ratio** (optional): see above.
 - **SIP into**: a fund you already hold, or *A fund not added yet*. For a new fund, search for it by name; the SIP and the holding both take the fund's official name. If you already hold units, enter them and the average cost.
 - **SIP amount**, **How often** (monthly, weekly or every 3 months) and **Next SIP date**. A monthly SIP keeps that day, e.g. the 1st of every month (even after short months like February).
 - **Paid from**: your bank account.
@@ -216,7 +220,7 @@ By default SIPs also count as *money going out* in the "Where the money went" ch
 
 **EMIs & loans.** Card EMIs and loans (home, car, personal, education, other) with principal, interest rate, tenure, EMI amount, EMIs paid, remaining months and remaining principal. **Record payment** records that month's installment as an expense. **Schedule** shows the full month-by-month amortisation table. If you tick *Record each EMI automatically*, the app logs each EMI when you open the app on or after its due date.
 
-**Subscriptions.** Recurring payments with weekly, monthly, quarterly, half-yearly or yearly frequency and a linked account or card. Monthly and yearly totals are shown. Can also be recorded automatically.
+**Subscriptions.** Well-known services (Spotify, Netflix, Amazon Prime, YouTube, Apple, Google, Microsoft, JioHotstar, Airtel, Zomato, Swiggy, LinkedIn and many more) get their brand icon or colours automatically from the name you type; others get a coloured tile with their initials. The dashboard has a Subscriptions card with the monthly and yearly total. Recurring payments with weekly, monthly, quarterly, half-yearly or yearly frequency and a linked account or card. Monthly and yearly totals are shown. Can also be recorded automatically.
 
 **Budgets.** A monthly limit per category, with progress bars that turn amber near the limit and red when over.
 
@@ -263,7 +267,7 @@ All GitHub logic is in `app.js` and heavily commented. Search for these names:
 | `commit()` | Every change in the app goes through this. It applies the change locally, saves it to the pending queue and schedules a sync. |
 | `buildPortfolio()`, `fdInfo()` | Portfolio value, invested amount, gains, allocation and FD estimates. |
 | `refreshPrices()`, `mfSearch()`, `stockSearch()`, `mfLatest()`, `stockLatest()`, `holdingUnits()` | Fund / company search, live NAV and stock prices, units held, and the monthly market-value entry. API addresses are at the top of that section. |
-| `unitReviews()`, `openReview()` | The SIP review list and the Enter units form. |
+| `autoAllotUnits()`, `unitReviews()`, `openReview()`, `openUnitsHistory()` | Automatic SIP units, the Units to confirm list, the units editor and the per-holding units table. |
 | `CHART_TYPES`, `CHART_VALUES`, `PERIODS`, `openChartBuilder()`, `colorFor()`, `kLabelsPlugin` | The chart builder, its data sources, shared colours and data labels. To add a new kind of value, add an entry to `CHART_VALUES` with a `build` function. |
 | `sipTxn()`, `advanceSip()`, `processAutoPayments()` | SIP instalments and automatic recording of SIPs, EMIs and subscriptions. |
 | `runSync()` | The fetch → merge → commit loop. If someone else (another device) committed in between, GitHub answers `409 Conflict`; the app re-downloads and re-applies your changes, retrying up to 4 times. |
@@ -310,7 +314,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 | Changes don't appear on another device | Open **Data → Reload from GitHub** on that device, or just refresh the page. |
 | Holding shows "Couldn't reach the price service" | No internet, or MFapi.in / Alpha Vantage is briefly down. Try **Refresh prices** later; values stay as they were. |
 | "Daily limit of the free stock price key reached" | The free stock key allows 25 checks a day. Prices refresh again tomorrow. |
-| A SIP stays in "Needs your review" | It waits until you enter its units. Open it with **Enter units**; the figures are in your fund app or the statement email. |
+| An entry stays in "Units to confirm" | The app couldn't find its NAV or price. Click **Enter units** and type the figures from your fund app or statement email. |
 | Holding asks you to enter units | Live value needs the units or shares you hold. Edit the holding (or use **Update value**) and enter them. |
 | Page looks unstyled | A CDN failed to load (network, ad-blocker or firewall). Refresh, or try another network. |
 
@@ -327,6 +331,8 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 - **Portfolio page** laid out like a broker app: units, average cost, invested, latest price, current value and profit/loss per holding.
 - **Search by name** when adding a fund, stock or SIP; holdings take the official fund or company name.
 - **Units and average cost** entered once, then the value is **live** (mutual funds free; stocks with an optional free key).
+- **SIP units added automatically** from the NAV of the allotment day (order time you choose, stamp duty deducted), editable any time; expense ratio shown as a yearly cost.
+- **Subscription brand icons** and a Subscriptions card on the dashboard; a new logo (no more rainbow border).
 - **Net worth switches** on the dashboard to leave out investments or card dues (can be hidden in Settings).
 - **Your own charts:** 18 chart types and 45 kinds of values (including money with me, expenses by category and much more), data labels, filters shown on each chart, and consistent colours you can change; save, pin to the dashboard, unpin, reorder, edit.
 - **SIP review:** each SIP goes out as money spent on its date and waits for you to enter the units and NAV within 5 days (badge, list and dashboard reminders, with a suggested NAV).

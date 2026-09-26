@@ -78,6 +78,8 @@ const DEFAULT_SETTINGS = {
   autoPrices: true,          // refresh mutual fund NAVs / stock prices when the app opens
   stockApiKey: '',           // optional Alpha Vantage key for live stock prices
   showNwToggles: true,       // small switches on the net worth card
+  navLagDays: 1,             // SIP/lump sum units use the NAV this many working days after payment
+  stampDuty: true,           // deduct 0.005% stamp duty when working out mutual fund units
   nwInvestments: true,       // net worth includes investments / portfolio
   nwCardDues: true,          // net worth subtracts credit card dues
   expenseCategories: ['Food & dining', 'Groceries', 'Transport', 'Fuel', 'Utilities', 'Rent', 'Shopping',
@@ -1137,7 +1139,9 @@ function txnRow(t, withActions = true) {
       <div class="text-xs text-ink-3 flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
         <span>${fmtDate(t.date)}</span>
         ${t.category ? `<span class="pill">${esc(t.category)}</span>` : ''}
-        ${M?.reviews?.some((r) => r.t.id === t.id) ? '<span class="pill" style="background:var(--violet-tint);color:var(--violet)">Units pending</span>' : ''}
+        ${t.units !== undefined && t.units !== null && t.units !== '' && (accountById(t.toAccountId)?.type === 'investment' || accountById(t.fromAccountId)?.type === 'investment')
+          ? `<button class="pill blue" data-action="review-units" data-id="${t.id}" title="Units and NAV (click to change)">${num(t.units).toLocaleString('en-IN', { maximumFractionDigits: 3 })} units${t.unitNav ? ` at ${money(t.unitNav)}` : ''}</button>`
+          : M?.reviews?.some((r) => r.t.id === t.id) ? `<button class="pill" style="background:var(--violet-tint);color:var(--violet)" data-action="review-units" data-id="${t.id}">Units to confirm</button>` : ''}
         <span class="truncate">${esc(flow)}</span>
       </div>
     </div>
@@ -1204,10 +1208,13 @@ function renderDashboard() {
         ${upcoming.length ? `<div class="divider">${upcoming.map(upcomingRow).join('')}</div>`
           : emptyState('fa-calendar-check', 'Nothing due. SIPs, EMIs, subscriptions and card bills will show up here.')}
       </section>
-      <section class="panel p-5">
-        <div class="panel-head"><h2 class="panel-title">Budgets</h2><a href="#budgets" class="text-sm text-royal">Manage</a></div>
-        ${budgetMini()}
-      </section>
+      <div class="space-y-6">
+        <section class="panel p-5">
+          <div class="panel-head"><h2 class="panel-title">Budgets</h2><a href="#budgets" class="text-sm text-royal">Manage</a></div>
+          ${budgetMini()}
+        </section>
+        ${subscriptionPanel()}
+      </div>
     </div>
 
     <section class="panel p-5 mt-6">
@@ -1308,7 +1315,7 @@ function portfolioMini() {
   }
   return `<section class="panel p-5 accent-leaf">
     <div class="panel-head"><h2 class="panel-title">Portfolio</h2><a href="#portfolio" class="text-sm link">Open</a></div>
-    ${M.reviews.length ? `<a href="#portfolio" class="callout block mb-3 text-sm" style="background:var(--violet-tint)"><i class="fa-solid fa-clipboard-check mr-1" style="color:var(--violet)"></i>${M.reviews.length} SIP instalment${M.reviews.length === 1 ? '' : 's'} waiting for units</a>` : ''}
+    ${M.reviews.length ? `<a href="#portfolio" class="callout block mb-3 text-sm" style="background:var(--violet-tint)"><i class="fa-solid fa-clipboard-check mr-1" style="color:var(--violet)"></i>${M.reviews.length} instalment${M.reviews.length === 1 ? '' : 's'}: units to confirm</a>` : ''}
     <div class="stat-label">Current value</div>
     <div class="display text-3xl font-semibold num">${money(P.value)}</div>
     <div class="mt-1 text-sm num ${P.gain >= 0 ? 'text-gain' : 'text-loss'}">${money(P.gain, { sign: true })} (${pct(P.gainPct)}) on ${money(P.invested)} invested</div>
@@ -1333,7 +1340,7 @@ function upcomingRow(it) {
       <div class="text-xs text-ink-3">${d.toLocaleDateString(locale(), { month: 'short' })}</div>
     </div>
     <div class="min-w-0 flex-1">
-      <div class="font-medium truncate"><i class="fa-solid ${icon} kind-${it.kind} text-xs mr-1"></i>${esc(it.title)}</div>
+      <div class="font-medium truncate">${it.kind === 'subscription' ? brandLogo(it.title, 'sm') : `<i class="fa-solid ${icon} kind-${it.kind} text-xs mr-1"></i>`}${esc(it.title)}</div>
       <div class="text-xs text-ink-3 truncate mt-0.5">${esc(it.sub)}</div>
     </div>
     <div class="text-right">
@@ -1398,9 +1405,9 @@ function drawDashboardCharts() {
     data: {
       labels: months.map((m) => fmtMonth(m, true)),
       datasets: [
-        { label: 'Income', data: sums.map((s) => s.income), backgroundColor: colorFor('Money in'), borderRadius: 5, maxBarThickness: 26, stack: 'in' },
-        { label: 'Spent', data: sums.map((s) => s.spent), backgroundColor: colorFor('Spent'), borderRadius: 5, maxBarThickness: 26, stack: 'out' },
-        { label: 'Invested', data: sums.map((s) => s.invested), backgroundColor: colorFor('Invested'), borderRadius: 5, maxBarThickness: 26, stack: 'out' },
+        { label: 'Income', data: sums.map((s) => s.income), backgroundColor: colorFor('Money in'), borderRadius: 5, maxBarThickness: 34, stack: 'in' },
+        { label: 'Spent', data: sums.map((s) => s.spent), backgroundColor: colorFor('Spent'), borderRadius: 5, maxBarThickness: 34, stack: 'out' },
+        { label: 'Invested', data: sums.map((s) => s.invested), backgroundColor: colorFor('Invested'), borderRadius: 5, maxBarThickness: 34, stack: 'out' },
       ],
     },
     options: {
@@ -1657,7 +1664,7 @@ function subRow(s) {
   const pill = !s.active ? '<span class="pill">Paused</span>'
     : `<span class="pill ${days < 0 ? 'out' : days <= 7 ? 'due' : ''}">${relDays(s.nextRenewal)}</span>`;
   return `<div class="row ${s.active ? '' : 'opacity-60'}">
-    <div class="row-icon"><i class="fa-solid fa-rotate"></i></div>
+    ${brandLogo(s.name)}
     <div class="min-w-0 flex-1">
       <div class="font-medium truncate">${esc(s.name)} ${s.autoLog && s.active ? '<span class="pill" title="Recorded automatically on the renewal date">Auto</span>' : ''}</div>
       <div class="text-xs text-ink-3 truncate mt-0.5">${esc([f.label, accountName(s.accountId), s.nextRenewal ? `renews ${fmtDate(s.nextRenewal)}` : ''].filter(Boolean).join(', '))}</div>
@@ -1707,6 +1714,87 @@ function renderBudgets() {
     </section>` : ''}`;
 }
 
+/* ----- Brand icons for well-known subscriptions -----
+   Uses Font Awesome's brand icons where it has one; otherwise a tile with the
+   brand's initials in its colour. Matching is by the subscription's name. */
+const BRAND_ICONS = [
+  [/spotify/i, { fa: 'spotify', bg: '#1DB954' }],
+  [/netflix/i, { mono: 'N', bg: '#E50914' }],
+  [/prime|amazon|kindle/i, { fa: 'amazon', bg: '#232F3E' }],
+  [/audible/i, { fa: 'audible', bg: '#F8991C' }],
+  [/youtube/i, { fa: 'youtube', bg: '#FF0000' }],
+  [/apple|icloud|itunes/i, { fa: 'apple', bg: '#111827' }],
+  [/google play/i, { fa: 'google-play', bg: '#01875F' }],
+  [/google|gemini/i, { fa: 'google', bg: '#4285F4' }],
+  [/xbox|game pass/i, { fa: 'xbox', bg: '#107C10' }],
+  [/microsoft|office|365|outlook|onedrive/i, { fa: 'microsoft', bg: '#0078D4' }],
+  [/playstation|ps plus/i, { fa: 'playstation', bg: '#003791' }],
+  [/hotstar|disney/i, { mono: 'H', bg: '#0C1A4B' }],
+  [/jio ?cinema|jio/i, { mono: 'Jio', bg: '#0A2885' }],
+  [/airtel/i, { mono: 'A', bg: '#E40000' }],
+  [/vodafone|\bvi\b/i, { mono: 'Vi', bg: '#EE1C25' }],
+  [/sony ?liv/i, { mono: 'SL', bg: '#111827' }],
+  [/zee ?5/i, { mono: 'Z5', bg: '#8230C6' }],
+  [/zomato/i, { mono: 'Z', bg: '#E23744' }],
+  [/swiggy/i, { mono: 'S', bg: '#FC8019' }],
+  [/linkedin/i, { fa: 'linkedin-in', bg: '#0A66C2' }],
+  [/dropbox/i, { fa: 'dropbox', bg: '#0061FF' }],
+  [/github|copilot/i, { fa: 'github', bg: '#181717' }],
+  [/slack/i, { fa: 'slack', bg: '#4A154B' }],
+  [/figma/i, { fa: 'figma', bg: '#1E1E1E' }],
+  [/discord/i, { fa: 'discord', bg: '#5865F2' }],
+  [/twitch/i, { fa: 'twitch', bg: '#9146FF' }],
+  [/steam/i, { fa: 'steam', bg: '#171A21' }],
+  [/patreon/i, { fa: 'patreon', bg: '#000000' }],
+  [/medium/i, { fa: 'medium', bg: '#000000' }],
+  [/twitter|x premium/i, { fa: 'x-twitter', bg: '#000000' }],
+  [/telegram/i, { fa: 'telegram', bg: '#26A5E4' }],
+  [/deezer/i, { fa: 'deezer', bg: '#A238FF' }],
+  [/soundcloud/i, { fa: 'soundcloud', bg: '#FF5500' }],
+  [/evernote/i, { fa: 'evernote', bg: '#00A82D' }],
+  [/trello/i, { fa: 'trello', bg: '#0052CC' }],
+  [/chatgpt|openai/i, { mono: 'AI', bg: '#10A37F' }],
+  [/claude|anthropic/i, { mono: 'C', bg: '#D97757' }],
+  [/canva/i, { mono: 'C', bg: '#00C4CC' }],
+  [/notion/i, { mono: 'N', bg: '#191919' }],
+  [/adobe|photoshop|lightroom|acrobat/i, { mono: 'A', bg: '#FA0F00' }],
+  [/gym|cult|fitness/i, { solid: 'dumbbell', bg: '#F97316' }],
+  [/electric|power|mseb|bescom/i, { solid: 'bolt', bg: '#EAB308' }],
+  [/internet|wifi|wi-fi|broadband|fiber|fibre/i, { solid: 'wifi', bg: '#0B84C6' }],
+  [/mobile|recharge|postpaid|prepaid/i, { solid: 'mobile-screen', bg: '#475569' }],
+  [/insurance|\blic\b|policy|term plan/i, { solid: 'shield-heart', bg: '#0F766E' }],
+  [/news|times|hindu|express/i, { solid: 'newspaper', bg: '#334155' }],
+];
+function brandFor(name) {
+  const hit = BRAND_ICONS.find(([re]) => re.test(name || ''));
+  if (hit) return hit[1];
+  const words = String(name || '?').trim().split(/\s+/);
+  return { mono: (words[0][0] + (words[1]?.[0] || '')).toUpperCase(), bg: colorFor(name) };
+}
+function brandLogo(name, size = '') {
+  const b = brandFor(name);
+  const inner = b.fa ? `<i class="fa-brands fa-${b.fa}"></i>` : b.solid ? `<i class="fa-solid fa-${b.solid}"></i>` : esc(b.mono);
+  return `<span class="brand-logo ${b.mono ? 'mono' : ''} ${size}" style="background:${b.bg}" aria-hidden="true">${inner}</span>`;
+}
+
+/** Dashboard card: every subscription with its brand icon, monthly total and next renewal. */
+function subscriptionPanel() {
+  const subs = db.subscriptions.slice().sort((a, b) => (b.active - a.active) || (a.nextRenewal || '').localeCompare(b.nextRenewal || ''));
+  if (!subs.length) return '';
+  const monthly = subs.filter((s) => s.active).reduce((t, s) => t + num(s.amount) * (FREQUENCIES[s.frequency]?.perMonth || 1), 0);
+  return `<section class="panel p-5">
+    <div class="panel-head"><h2 class="panel-title">Subscriptions</h2><a href="#subscriptions" class="text-sm link">Manage</a></div>
+    <div class="flex items-baseline gap-2 mb-4"><span class="display text-2xl font-semibold num">${money(Math.round(monthly))}</span><span class="text-sm text-ink-3">a month, <span class="num">${money(Math.round(monthly * 12))}</span> a year</span></div>
+    <div class="divider">${subs.slice(0, 6).map((s) => `<div class="row ${s.active ? '' : 'opacity-60'}">
+      ${brandLogo(s.name)}
+      <div class="min-w-0 flex-1"><div class="font-medium truncate">${esc(s.name)}</div>
+        <div class="text-xs text-ink-3">${s.active ? `renews ${esc(relDays(s.nextRenewal).toLowerCase())}` : 'Paused'}</div></div>
+      <div class="num font-semibold text-sm">${money(s.amount)}<span class="text-ink-3 font-normal text-xs">/${{ weekly: 'wk', monthly: 'mo', quarterly: 'qtr', half_yearly: '6 mo', yearly: 'yr' }[s.frequency] || 'mo'}</span></div>
+    </div>`).join('')}</div>
+    ${subs.length > 6 ? `<a href="#subscriptions" class="text-sm link block mt-3">and ${subs.length - 6} more</a>` : ''}
+  </section>`;
+}
+
 /* ===== Investments & SIPs (portfolio) =====
    Holdings are investment accounts (one per fund, stock, FD...).
    SIPs live in db.sips and create a bank -> fund transfer on each date. */
@@ -1747,7 +1835,8 @@ function renderPortfolio() {
           <div class="text-sm hero-dim mb-1">Current value</div>
           <div class="display text-4xl sm:text-5xl font-semibold num">${money(Math.round(T.value))}</div>
         </div>
-        <div><div class="text-sm hero-dim mb-1">Invested</div><div class="display text-2xl font-semibold num">${money(Math.round(T.invested))}</div></div>
+        <div><div class="text-sm hero-dim mb-1">Invested</div><div class="display text-2xl font-semibold num">${money(Math.round(T.invested))}</div>
+          ${(() => { const cost = P.holdings.reduce((s, h) => s + (num(h.a.expenseRatio) ? h.value * num(h.a.expenseRatio) / 100 : 0), 0); return cost ? `<div class="text-sm hero-dim" title="Fund expense ratios are already taken out of the NAV">Fund costs about ${money(Math.round(cost))} a year</div>` : ''; })()}</div>
         <div><div class="text-sm hero-dim mb-1">Total ${up ? 'profit' : 'loss'}</div>
           <div class="display text-2xl font-semibold num">${money(Math.round(T.gain), { sign: true })}</div>
           <div class="text-sm num hero-dim">${pct(T.gainPct)}</div></div>
@@ -1806,8 +1895,8 @@ function renderPortfolio() {
 
 function reviewPanel() {
   return `<section class="panel p-5 mt-6 review-panel">
-    <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-clipboard-check mr-1.5" style="color:var(--violet)"></i>Needs your review</h2>
-      <span class="text-sm text-ink-3">Enter the units allotted within ${REVIEW_DAYS} days</span></div>
+    <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-clipboard-check mr-1.5" style="color:var(--violet)"></i>Units to confirm</h2>
+      <span class="text-sm text-ink-3">The app couldn't work these out by itself. Enter them from your statement.</span></div>
     <div class="divider">${M.reviews.map(reviewRow).join('')}</div>
   </section>`;
 }
@@ -1836,7 +1925,7 @@ function holdingRow(h) {
   const live = hasLivePrice(a) && num(a.unitPrice);
   const problem = priceState.problems[a.id];
   const sips = db.sips.filter((x) => x.active && x.fundAccountId === a.id);
-  const sub = [a.institution, h.fd ? `${num(a.interestRate)}% p.a., ${h.fd.matured ? 'matured' : 'matures'} ${fmtDate(h.fd.maturityDate)} (about ${money(h.fd.maturityValue)})` : a.maturityDate ? `matures ${fmtDate(a.maturityDate)}` : '']
+  const sub = [a.institution, num(a.expenseRatio) ? `expense ratio ${num(a.expenseRatio)}% (about ${money(Math.round(h.value * num(a.expenseRatio) / 100))} a year, already in the NAV)` : '', h.fd ? `${num(a.interestRate)}% p.a., ${h.fd.matured ? 'matured' : 'matures'} ${fmtDate(h.fd.maturityDate)} (about ${money(h.fd.maturityValue)})` : a.maturityDate ? `matures ${fmtDate(a.maturityDate)}` : '']
     .filter(Boolean).map(esc).join(', ');
   const dash = '<span class="text-ink-3">—</span>';
   return `<tr class="${a.archived ? 'opacity-60' : ''}">
@@ -1845,7 +1934,8 @@ function holdingRow(h) {
       <div class="flex flex-wrap gap-1 mt-1">
         ${live ? '<span class="pill blue"><i class="fa-solid fa-bolt"></i> Live</span>' : ''}
         ${sips.map((x) => `<span class="pill invest">SIP ${money(sipAmountOn(x, todayStr()))}</span>`).join('')}
-        ${waiting ? `<button class="pill" style="background:var(--violet-tint);color:var(--violet)" data-action="review-units" data-id="${(U.pendingBuys[0] || U.missing[0]).id}">${waiting} to review</button>` : ''}
+        ${(() => { const wn = waitingForNav(a).length, conf = waiting - wn; return (wn ? `<button class="pill due" data-action="units-history" data-id="${a.id}" title="Units are added automatically once the NAV is published">${wn} waiting for NAV</button>` : '')
+          + (conf > 0 ? `<button class="pill" style="background:var(--violet-tint);color:var(--violet)" data-action="units-history" data-id="${a.id}">${conf} to confirm</button>` : ''); })()}
         ${a.archived ? '<span class="pill">Archived</span>' : ''}
       </div>
       ${sub ? `<div class="text-xs text-ink-3 mt-1">${sub}</div>` : ''}
@@ -1860,6 +1950,7 @@ function holdingRow(h) {
     <td class="num ${h.gain >= 0 ? 'text-gain' : 'text-loss'}">${h.invested > 0 ? `${money(Math.round(h.gain), { sign: true })}<div class="text-xs">${pct(h.gainPct)}</div>` : dash}</td>
     <td><div class="row-actions justify-end">
       <button class="icon-btn sm" data-action="invest-more" data-id="${a.id}" title="Add money" aria-label="Add money to ${esc(a.name)}"><i class="fa-solid fa-plus"></i></button>
+      ${tracked ? `<button class="icon-btn sm" data-action="units-history" data-id="${a.id}" title="Units and NAV of each instalment" aria-label="Units history"><i class="fa-solid fa-list-ol"></i></button>` : ''}
       ${live ? '' : `<button class="icon-btn sm" data-action="adjust-balance" data-id="${a.id}" title="Update value" aria-label="Update value"><i class="fa-solid fa-scale-balanced"></i></button>`}
       <button class="icon-btn sm" data-action="edit-account" data-id="${a.id}" title="Edit" aria-label="Edit holding"><i class="fa-regular fa-pen-to-square"></i></button>
     </div></td>
@@ -1924,9 +2015,11 @@ function openSipForm(existing, presetFundId) {
     ${twoCol(field('SIP amount', moneyInput('amount', x.amount, 'required min="1"')), field('How often', select('frequency', freqOpts, x.frequency)))}
     ${twoCol(field('Next SIP date', input('nextDate', x.nextDate, 'type="date" required'), 'Monthly SIPs repeat on this day, e.g. the 1st of every month.'),
       field('Paid from', accountSelect('fromAccountId', x.fromAccountId || firstAccountOf(['bank']), { types: ['bank', 'cash'], placeholder: 'Choose a bank account' })))}
+    ${twoCol(field('Units are allotted at the NAV of', select('navLagDays', [['0', 'The SIP date'], ['1', '1 working day later'], ['2', '2 working days later'], ['3', '3 working days later']], String(x.navLagDays ?? db.settings.navLagDays ?? 1)), 'How long your platform takes to place the order. The app uses the NAV of that day to work out the units.'),
+      field('Expense ratio % (optional)', input('expenseRatio', existing ? accountById(x.fundAccountId)?.expenseRatio ?? '' : '', 'type="number" step="0.01" min="0" max="5" placeholder="e.g. 0.63"'), 'From the fund\'s factsheet. Already inside the NAV; shown as a yearly cost.'))}
     ${twoCol(field('Yearly step-up % (optional)', input('stepUpPercent', x.stepUpPercent || '', 'type="number" min="0" max="100" step="0.5" placeholder="e.g. 10"'), 'Raises the SIP amount once a year.'),
       field('Stop after (optional)', input('endDate', x.endDate, 'type="date"')))}
-    ${checkbox('autoLog', x.autoLog, 'Record automatically on the SIP date', `The amount goes out of your bank as money spent on the SIP date and is marked for review. Within ${REVIEW_DAYS} days you enter the units allotted and the NAV, and they are added to your holding. A date in the past fills in missed instalments.`)}
+    ${checkbox('autoLog', x.autoLog, 'Record automatically on the SIP date', 'The amount goes out of your bank as money spent on the SIP date. Once the NAV of the allotment day is published, the app works out the units and adds them to your holding. You can check or change the units and NAV any time. A date in the past fills in missed instalments.')}
     ${isNew ? '' : checkbox('active', x.active, 'Active', 'Untick to pause without deleting.')}
     ${field('Notes (optional)', textarea('notes', x.notes, 'rows="2" placeholder="Folio number, goal..."'))}`;
 
@@ -1957,10 +2050,15 @@ function openSipForm(existing, presetFundId) {
           units: units > 0 ? units : null, unitsDate: units > 0 ? todayStr() : '',
           schemeCode: d.schemeCode || '', schemeName: d.schemeCode ? d.schemeName || fundName : '',
           unitPrice: price || null, priceDate: price ? d.latestDate || todayStr() : '',
+          expenseRatio: d.expenseRatio === '' ? null : num(d.expenseRatio),
         };
         ops.push(opUpsert('accounts', fund));
         fundId = fund.id;
-      } else fundName = accountName(fundId);
+      } else {
+        fundName = accountName(fundId);
+        const fa = accountById(fundId);
+        if (fa && d.expenseRatio !== '' && num(d.expenseRatio) !== num(fa.expenseRatio)) ops.push(opUpsert('accounts', { ...fa, expenseRatio: num(d.expenseRatio) }));
+      }
       const sameDate = existing && existing.nextDate === d.nextDate;
       const rec = {
         ...(existing || {}), id: existing?.id || uid('sip'),
@@ -1968,7 +2066,7 @@ function openSipForm(existing, presetFundId) {
         amount: round2(num(d.amount)), frequency: d.frequency,
         day: sameDate && existing.day ? existing.day : parseDate(d.nextDate).getDate(),
         startDate: existing?.startDate || d.nextDate, nextDate: d.nextDate, endDate: d.endDate || '',
-        stepUpPercent: num(d.stepUpPercent) || 0,
+        stepUpPercent: num(d.stepUpPercent) || 0, navLagDays: int(d.navLagDays),
         autoLog: !!d.autoLog, active: isNew ? true : !!d.active, notes: d.notes || '',
       };
       ops.push(opUpsert('sips', rec));
@@ -1997,7 +2095,7 @@ function paySip(id) {
     title: `Record ${x.name} SIP`,
     body: `${twoCol(field('Amount', moneyInput('amount', txn.amount, 'required min="0.01"')), field('Date', input('date', due, 'type="date" required')))}
       ${field('Paid from', accountSelect('fromAccountId', x.fromAccountId, { types: ['bank', 'cash'] }))}
-      <p class="callout">Records the payment into <b>${esc(accountName(x.fundAccountId))}</b> and marks it for review, so you can enter the units once they're allotted. The next SIP moves to ${fmtDate(next)}.</p>`,
+      <p class="callout">Records the payment into <b>${esc(accountName(x.fundAccountId))}</b>. The units are added automatically once the NAV of the allotment day is out. The next SIP moves to ${fmtDate(next)}.</p>`,
     submitLabel: 'Record SIP',
     onSubmit: (d) => {
       commit([
@@ -2005,6 +2103,7 @@ function paySip(id) {
         opUpsert('sips', { ...x, nextDate: next, ...(sipEnded(x, next) ? { active: false } : {}) }),
       ], `Record SIP ${x.name}`);
       toast('SIP recorded', 'success');
+      setTimeout(() => autoAllotUnits({ onlyId: x.fundAccountId }), 200);
     },
   });
 }
@@ -2159,6 +2258,8 @@ async function refreshPrices({ auto = false, onlyId = null } = {}) {
     return;
   }
 
+  // First give new SIP instalments their units, so the value below includes them.
+  if (targets.some(isMF)) await autoAllotUnits({ onlyId });
   priceState.busy = true;
   renderPriceStatus();
   M = buildModel();
@@ -2315,12 +2416,34 @@ function bindInstrumentPicker(form, { onPick } = {}) {
   results.addEventListener('click', (e) => { const b = e.target.closest('.pick-item'); if (b) pick(b.dataset.code, b.dataset.name); }, signal);
 }
 
-/* ----- Units review -----
-   Every purchase (SIP instalment, lump sum) or withdrawal in a holding whose
-   units you track waits here until you enter the units and NAV/price from
-   your statement. Due 5 days after the transaction date. */
-const REVIEW_DAYS = 5;
+/* ----- Units: automatic for mutual funds, editable any time -----
+   When a SIP instalment (or lump sum / withdrawal) goes through a linked
+   mutual fund, the app works out the units by itself:
+     allotment date = transaction date + the SIP's "order takes N working days"
+     NAV            = the first NAV published on or after that date (MFapi)
+     units          = amount x (1 - stamp duty 0.005%) / NAV   (purchases)
+   The result is saved on the transaction (units, unitNav, navDate,
+   unitsSource 'auto'). You can open any entry and change the units or NAV;
+   your figures are then kept (unitsSource 'you').
+   The expense ratio is NOT subtracted again: a fund's NAV is already
+   published after its expenses. The app only shows what it costs you a year.
+   Anything that can't be worked out (stocks, unlinked funds, NAV not found
+   a few days after it was due) goes on the "Units to confirm" list. */
+const REVIEW_DAYS = 5;          // manual entries: remind after 5 days
+const AUTO_GRACE_DAYS = 3;      // auto entries: remind if the NAV still isn't found 3 days after the allotment date
+const STAMP_DUTY = 0.00005;     // 0.005% on mutual fund purchases (India, since July 2020)
 const isUnitTracked = (a) => a.type === 'investment' && (hasLivePrice(a) || num(a.units) > 0);
+function addWorkingDays(date, n) {
+  let d = date, left = int(n);
+  while (left > 0) { d = addDays(d, 1); const wd = parseDate(d).getDay(); if (wd !== 0 && wd !== 6) left--; }
+  return d;
+}
+function navLagFor(t) {
+  const sip = t.relatedType === 'sip' ? db.sips.find((x) => x.id === t.relatedId) : null;
+  return int(sip?.navLagDays ?? db.settings.navLagDays ?? 1);
+}
+const allotDateFor = (t) => addWorkingDays(t.date, navLagFor(t));
+
 function unitReviews() {
   const today = todayStr();
   const out = [];
@@ -2329,11 +2452,63 @@ function unitReviews() {
     const { pendingBuys, missing } = holdingUnits(a);
     for (const t of [...pendingBuys, ...missing]) {
       if ((t.date || '') > today) continue;
-      out.push({ t, a, due: addDays(t.date, REVIEW_DAYS), sell: t.fromAccountId === a.id });
+      // Linked mutual funds fill themselves in; only nag if that hasn't happened in time.
+      const due = isMF(a) ? addDays(allotDateFor(t), AUTO_GRACE_DAYS) : addDays(t.date, REVIEW_DAYS);
+      if (isMF(a) && due > today) continue;
+      out.push({ t, a, due, sell: t.fromAccountId === a.id });
     }
   }
   return out.sort((x, y) => x.due.localeCompare(y.due));
 }
+/** Units still waiting for their NAV in a linked fund (shown quietly on the holding). */
+function waitingForNav(a) {
+  if (!isMF(a)) return [];
+  const today = todayStr();
+  const { pendingBuys, missing } = holdingUnits(a);
+  return [...pendingBuys, ...missing].filter((t) => t.date <= today && addDays(allotDateFor(t), AUTO_GRACE_DAYS) > today);
+}
+function unitsFor(t, a, nav) {
+  const sell = t.fromAccountId === a.id;
+  const stamp = !sell && db.settings.stampDuty !== false ? STAMP_DUTY : 0;
+  return Math.round(((num(t.amount) * (1 - stamp)) / nav) * 1000) / 1000;
+}
+
+/** Work out units for linked mutual funds from the NAV of each allotment date. */
+const allotState = { busy: false };
+async function autoAllotUnits({ onlyId = null, quiet = true } = {}) {
+  if (allotState.busy || !navigator.onLine) return 0;
+  const today = todayStr();
+  const work = db.accounts.filter((a) => isMF(a) && !a.archived && (!onlyId || a.id === onlyId)).map((a) => {
+    const { pendingBuys, missing } = holdingUnits(a);
+    return { a, items: [...pendingBuys, ...missing].filter((t) => t.date <= today && allotDateFor(t) <= today) };
+  }).filter((w) => w.items.length);
+  if (!work.length) return 0;
+  allotState.busy = true;
+  M = buildModel();
+  const ops = [];
+  let count = 0;
+  for (const { a, items } of work) {
+    try {
+      const from = items.reduce((m, t) => { const d = allotDateFor(t); return d < m ? d : m; }, today);
+      const hist = await mfHistory(a.schemeCode, from, today);
+      const overrides = {};
+      for (const t of items) {
+        const target = allotDateFor(t);
+        const row = hist.find((r) => r.date >= target);
+        if (!row) continue; // NAV for that day not published yet
+        overrides[t.id] = unitsFor(t, a, row.nav);
+        ops.push(opUpsert('transactions', { ...t, units: overrides[t.id], unitNav: row.nav, navDate: row.date, unitsSource: 'auto' }));
+        count++;
+      }
+      if (Object.keys(overrides).length) ops.push(...revalueOps(a, overrides));
+    } catch (e) { if (!quiet) toast(e.message, 'error'); }
+  }
+  allotState.busy = false;
+  if (ops.length) commit(ops, `Units added automatically (${count})`);
+  if (count && !quiet) toast(`Units worked out for ${count} instalment${count === 1 ? '' : 's'}.`, 'success');
+  return count;
+}
+
 /** Market-value ops for a holding at its last known price (no network). */
 function revalueOps(a, overrides = {}) {
   if (!num(a.unitPrice)) return [];
@@ -2343,45 +2518,95 @@ function revalueOps(a, overrides = {}) {
   return marketValueOps(a, round2(units * num(a.unitPrice) + waiting), `${isMF(a) ? 'NAV' : 'Price'} ${a.unitPrice} on ${a.priceDate || ''}, ${units} units`);
 }
 
+/** Enter or change the units / NAV of any purchase or withdrawal. */
 function openReview(txnId) {
-  const r = M.reviews.find((x) => x.t.id === txnId);
-  if (!r) return;
-  const { t, a, sell } = r;
+  const t = db.transactions.find((x) => x.id === txnId);
+  if (!t) return;
+  const a = [accountById(t.toAccountId), accountById(t.fromAccountId)].find((x) => x && x.type === 'investment');
+  if (!a) return;
+  const sell = t.fromAccountId === a.id;
   const amt = num(t.amount);
   const what = t.relatedType === 'sip' ? 'SIP instalment' : sell ? 'withdrawal' : 'purchase';
+  const has = t.units !== undefined && t.units !== null && t.units !== '';
+  const target = allotDateFor(t);
   openModal({
-    title: `Enter units: ${a.name}`,
-    body: `<p class="callout">${money(amt)} ${what} on <b>${fmtDate(t.date)}</b>${sell ? ' from' : ' into'} <b>${esc(a.name)}</b>. Enter the ${sell ? 'units sold' : 'units allotted'} and the ${isMF(a) ? 'NAV' : 'price'} from your statement, email or fund app. They usually appear 2 to 3 working days after the ${t.relatedType === 'sip' ? 'SIP date' : 'payment'}.</p>
-      ${twoCol(field(sell ? 'Units sold' : 'Units allotted', input('units', '', 'type="number" step="any" min="0.0001" required placeholder="e.g. 58.914"')),
-        field(`${isMF(a) ? 'NAV' : 'Price'} per unit`, moneyInput('nav', '', 'min="0" placeholder="e.g. 84.60"'), 'Fill either box; the other is worked out from the amount.'))}
+    title: `${has ? 'Units' : 'Enter units'}: ${a.name}`,
+    body: `<p class="callout">${money(amt)} ${what} on <b>${fmtDate(t.date)}</b>${sell ? ' from' : ' into'} <b>${esc(a.name)}</b>.
+      ${has ? (t.unitsSource === 'auto' ? `Worked out automatically from the NAV of ${fmtDate(t.navDate || target)}${!sell && db.settings.stampDuty !== false ? ', after 0.005% stamp duty' : ''}. Change it if your statement shows different figures.` : 'You entered these figures.')
+        : `Enter the ${sell ? 'units sold' : 'units allotted'} and the ${isMF(a) ? 'NAV' : 'price'} from your statement or fund app.`}</p>
+      ${twoCol(field(sell ? 'Units sold' : 'Units allotted', input('units', has ? t.units : '', 'type="number" step="any" min="0.0001" required placeholder="e.g. 58.914"')),
+        field(`${isMF(a) ? 'NAV' : 'Price'} per unit`, moneyInput('nav', t.unitNav ?? '', 'min="0" placeholder="e.g. 84.60"'), 'Fill either box; the other is worked out from the amount.'))}
       <div data-suggest class="text-sm text-ink-2"></div>`,
     submitLabel: 'Save units',
+    deleteLabel: 'Clear units',
     onOpen: (form) => {
       const u = form.elements.units, n = form.elements.nav;
       const sig = { signal: modalSignal() };
-      u.addEventListener('input', () => { if (num(u.value) > 0) n.value = round2(amt / num(u.value)); }, sig);
-      n.addEventListener('input', () => { if (num(n.value) > 0) u.value = Math.round((amt / num(n.value)) * 1000) / 1000; }, sig);
+      const stamp = !sell && db.settings.stampDuty !== false ? STAMP_DUTY : 0;
+      u.addEventListener('input', () => { if (num(u.value) > 0) n.value = Math.round(((amt * (1 - stamp)) / num(u.value)) * 10000) / 10000; }, sig);
+      n.addEventListener('input', () => { if (num(n.value) > 0) u.value = unitsFor(t, a, num(n.value)); }, sig);
       if (isMF(a) && navigator.onLine) {
         const box = $('[data-suggest]', form);
-        box.textContent = 'Looking up the NAV for that day…';
-        mfHistory(a.schemeCode, t.date, addDays(t.date, 10)).then((hist) => {
-          const row = hist.find((x) => x.date >= t.date);
-          if (!row || !box.isConnected) { if (box.isConnected) box.textContent = ''; return; }
-          const est = Math.round((amt / row.nav) * 1000) / 1000;
-          box.innerHTML = `NAV on ${fmtDate(row.date)} was <b class="num">${money(row.nav)}</b>, about <b class="num">${est}</b> units. <button type="button" class="btn btn-sm ml-1" data-use>Use this</button><span class="hint">Your statement may show slightly fewer units because of stamp duty; use its figure if you have it.</span>`;
-          $('[data-use]', box).addEventListener('click', () => { n.value = row.nav; u.value = est; }, sig);
+        box.textContent = 'Looking up the NAV…';
+        mfHistory(a.schemeCode, target, addDays(target, 10)).then((hist) => {
+          const row = hist.find((x) => x.date >= target);
+          if (!box.isConnected) return;
+          if (!row) { box.textContent = `The NAV for ${fmtDate(target)} isn't published yet.`; return; }
+          const est = unitsFor(t, a, row.nav);
+          box.innerHTML = `NAV on ${fmtDate(row.date)} (${navLagFor(t)} working day${navLagFor(t) === 1 ? '' : 's'} after the ${t.relatedType === 'sip' ? 'SIP date' : 'payment'}) was <b class="num">${money(row.nav)}</b>, so about <b class="num">${est}</b> units. <button type="button" class="btn btn-sm ml-1" data-use>Use this</button>`;
+          $('[data-use]', box).addEventListener('click', () => { n.value = row.nav; u.value = est; form.dataset.auto = row.date; }, sig);
         }).catch(() => { if (box.isConnected) box.textContent = ''; });
       }
     },
-    onSubmit: (d) => {
+    onSubmit: (d, form) => {
       const units = num(d.units);
       if (units <= 0) { toast('Enter the units.', 'error'); return false; }
       const nav = num(d.nav) || round2(amt / units);
-      const ops = [opUpsert('transactions', { ...t, units, unitNav: nav, reviewedAt: new Date().toISOString() })];
+      const auto = form.dataset.auto && Math.abs(nav - num(form.elements.nav.value)) < 1e-9;
+      const ops = [opUpsert('transactions', { ...t, units, unitNav: nav, navDate: auto ? form.dataset.auto : t.navDate || '', unitsSource: auto ? 'auto' : 'you', reviewedAt: new Date().toISOString() })];
       ops.push(...revalueOps(a, { [t.id]: units }));
       commit(ops, `Units for ${a.name} on ${t.date}`);
       toast('Units saved. The live value now includes them.', 'success');
     },
+    onDelete: has ? () => {
+      const rest = { ...t }; delete rest.units; delete rest.unitNav; delete rest.navDate; delete rest.unitsSource;
+      commit([opUpsert('transactions', rest)], `Clear units for ${a.name} on ${t.date}`);
+      toast(isMF(a) ? 'Cleared. The app will work them out again from the NAV.' : 'Units cleared.');
+      if (isMF(a)) setTimeout(() => autoAllotUnits({ onlyId: a.id }), 200);
+    } : null,
+  });
+}
+
+/** Every purchase and withdrawal of a holding, with its units and NAV. */
+function openUnitsHistory(accountId) {
+  const a = accountById(accountId);
+  if (!a) return;
+  const since = a.unitsDate || '';
+  const list = db.transactions.filter((t) => t.type !== 'adjustment' && (t.toAccountId === a.id || t.fromAccountId === a.id)
+    && (since ? t.date > since : t.date >= (a.openingDate || ''))).sort((x, y) => y.date.localeCompare(x.date));
+  const U = holdingUnits(a);
+  const status = (t) => {
+    if (t.units !== undefined && t.units !== null && t.units !== '') return t.unitsSource === 'auto' ? '<span class="pill blue">Auto</span>' : '<span class="pill">You</span>';
+    return isMF(a) && addDays(allotDateFor(t), AUTO_GRACE_DAYS) > todayStr() ? `<span class="pill due" title="Units come from the NAV of ${fmtDate(allotDateFor(t))}">Waiting for NAV</span>` : '<span class="pill out">To confirm</span>';
+  };
+  openModal({
+    title: `Units: ${a.name}`,
+    wide: true,
+    body: `<div class="kv"><div><dt>Units held now</dt><dd>${U.units.toLocaleString('en-IN', { maximumFractionDigits: 3 })}</dd></div>
+        <div><dt>Latest ${isMF(a) ? 'NAV' : 'price'}</dt><dd>${num(a.unitPrice) ? `${money(a.unitPrice)} <span class="text-ink-3 font-normal text-xs">${a.priceDate ? fmtDate(a.priceDate) : ''}</span>` : '—'}</dd></div>
+        ${num(a.expenseRatio) ? `<div><dt>Expense ratio</dt><dd>${num(a.expenseRatio)}% a year</dd></div>` : ''}</div>
+      <div class="overflow-x-auto mt-4"><table class="sched">
+        <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>${isMF(a) ? 'NAV' : 'Price'} (date)</th><th>Units</th><th>Source</th><th></th></tr></thead>
+        <tbody>
+          ${list.map((t) => `<tr><td>${fmtDate(t.date)}</td><td>${t.relatedType === 'sip' ? 'SIP' : t.fromAccountId === a.id ? 'Withdrawal' : 'Purchase'}</td><td>${money(t.amount)}</td>
+            <td>${t.unitNav ? `${money(t.unitNav)}${t.navDate ? ` <span class="text-ink-3">(${parseDate(t.navDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })})</span>` : ''}` : '—'}</td>
+            <td>${t.units !== undefined && t.units !== null && t.units !== '' ? `${t.fromAccountId === a.id ? '−' : '+'}${num(t.units).toLocaleString('en-IN', { maximumFractionDigits: 3 })}` : '—'}</td>
+            <td>${status(t)}</td><td><button type="button" class="link text-sm" data-action="review-units" data-id="${t.id}">${t.units !== undefined && t.units !== null && t.units !== '' ? 'Change' : 'Enter'}</button></td></tr>`).join('')}
+          <tr class="done"><td>${fmtDate(a.unitsDate || a.openingDate)}</td><td colspan="3">Units you entered for the holding</td><td>${num(a.units).toLocaleString('en-IN', { maximumFractionDigits: 3 })}</td><td><span class="pill">You</span></td><td><button type="button" class="link text-sm" data-action="edit-account" data-id="${a.id}">Change</button></td></tr>
+        </tbody></table></div>`,
+    submitLabel: 'Done',
+    cancelLabel: 'Close',
+    onSubmit: () => {},
   });
 }
 
@@ -2867,7 +3092,7 @@ const kLabelsPlugin = {
         const barLen = Math.abs(horizontal ? x - base : y - base);
         const thick = horizontal ? height : width;
         if (o.stacked) {
-          if ((horizontal ? barLen < w + 8 : barLen < 15 || thick < w + 2)) return;
+          if ((horizontal ? barLen < w + 8 : barLen < 15 || thick < w - 8)) return;
           ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
           ctx.fillText(text, horizontal ? (x + base) / 2 : x, horizontal ? y : (y + base) / 2);
           return;
@@ -3432,6 +3657,7 @@ function openAccountForm(existing, presetType = 'bank') {
       `<div data-sub="Mutual Stocks ETF Gold Crypto">${twoCol(
         field('Units you hold', input('units', a.units ?? '', 'type="number" step="any" min="0" placeholder="e.g. 152.347"'), existing && num(a.units) ? `As on ${fmtDate(a.unitsDate || a.openingDate)}. Units from later SIPs you review are added on top.` : 'From your statement or the Groww / Zerodha / fund app.'),
         field('Average cost per unit', moneyInput('avgCost', existing && num(a.units) > 0 ? round2(num(a.investedAmount ?? a.openingBalance) / num(a.units)) : '', 'min="0" placeholder="e.g. 64.20"'), 'Shown as "avg. NAV" or "avg. price" in most apps.'))}</div>` +
+      `<div data-sub="Mutual">${field('Expense ratio % (optional)', input('expenseRatio', a.expenseRatio ?? '', 'type="number" step="0.01" min="0" max="5" placeholder="e.g. 0.63"'), 'From the fund\'s factsheet (TER). It is already taken out of the NAV, so the app shows it as a yearly cost and does not subtract it again.')}</div>` +
       `<div data-sub="Fixed Recurring PPF Bonds NPS Gold Other" class="space-y-4">${twoCol(field('Interest rate % (optional)', input('interestRate', a.interestRate, 'type="number" step="0.01" min="0"'), 'For FDs, RDs, PPF and bonds.'),
         field('Maturity date (optional)', input('maturityDate', a.maturityDate, 'type="date"')))}</div>` +
       `<div data-sub="Fixed">${field('FD start date (optional)', input('depositDate', a.depositDate, 'type="date"'), 'The day the deposit was made. Used with the rate and maturity date to estimate its value.')}</div>`)}
@@ -3480,6 +3706,7 @@ function openAccountForm(existing, presetType = 'bank') {
           unitPrice: num(d.latestPrice) || (d.schemeCode || d.ticker ? existing?.unitPrice ?? null : null),
           priceDate: num(d.latestPrice) ? d.latestDate || todayStr() : (d.schemeCode || d.ticker ? existing?.priceDate || '' : ''),
           depositDate: d.depositDate || '',
+          expenseRatio: d.subtype === 'Mutual fund' && d.expenseRatio !== '' && d.expenseRatio !== undefined ? num(d.expenseRatio) : null,
           // Units entered here are "as on" the balance date for a new holding, or today when edited.
           unitsDate: d.units === '' || d.units === undefined ? (existing?.unitsDate ?? '') : num(d.units) === num(existing?.units) && existing?.unitsDate !== undefined ? existing.unitsDate : (isNew ? d.openingDate : todayStr()),
           schemeCode: d.subtype === 'Mutual fund' ? d.schemeCode || '' : '',
@@ -4031,6 +4258,8 @@ function openSettings() {
       ${checkbox('autoPrices', s.autoPrices !== false, 'Update fund and stock prices when the app opens', 'Mutual fund NAVs come from MFapi.in (free, AMFI data). Checked at most every 3 hours.')}
       ${field('Stock price key (optional)', input('stockApiKey', s.stockApiKey, 'autocomplete="off" spellcheck="false" placeholder="Alpha Vantage free key"'), 'Only needed for live stock and ETF prices. Get a free key at alphavantage.co (25 price checks a day).')}
       ${Object.keys(s.colors || {}).length ? `<p class="text-sm">You have picked your own colours for ${Object.keys(s.colors).length} chart item(s). <button type="button" class="link" data-action="reset-colors">Reset chart colours</button></p>` : ''}
+      ${twoCol(field('Units are allotted at the NAV of', select('navLagDays', [['0', 'The same day'], ['1', '1 working day later'], ['2', '2 working days later'], ['3', '3 working days later']], String(s.navLagDays ?? 1)), 'Default for lump sums and new SIPs. Each SIP can have its own.'),
+        '<div class="pt-6">' + checkbox('stampDuty', s.stampDuty !== false, 'Deduct 0.005% stamp duty', 'Mutual fund purchases in India lose 0.005% to stamp duty, so a few fewer units are allotted.') + '</div>')}
       ${checkbox('showNwToggles', s.showNwToggles !== false, 'Show the net worth switches on the dashboard', 'Small switches on the net worth card to leave out investments or credit card dues.')}
       ${checkbox('sipAsSpending', s.sipAsSpending, 'Count SIPs as money going out', 'Shows SIPs and other money you invest in the spending chart and monthly totals. Net worth is not affected, because the money is still yours in the fund.')}
       ${field('Expense categories', textarea('expenseCategories', s.expenseCategories.join('\n'), 'rows="6"'), 'One per line. Renaming a category here does not change past transactions.')}
@@ -4106,6 +4335,8 @@ function openSettings() {
         sipAsSpending: !!d.sipAsSpending,
         autoPrices: !!d.autoPrices,
         showNwToggles: !!d.showNwToggles,
+        navLagDays: int(d.navLagDays),
+        stampDuty: !!d.stampDuty,
         stockApiKey: d.stockApiKey || '',
         currency: d.currency,
         expenseCategories: splitLines(d.expenseCategories),
@@ -4193,6 +4424,7 @@ const ACTIONS = {
   'invest-more': (d) => investMore(d.id),
   'refresh-prices': () => refreshPrices(),
   'review-units': (d) => openReview(d.id),
+  'units-history': (d) => openUnitsHistory(d.id),
   'chart-new': () => openChartBuilder(null),
   'reset-colors': (d, el) => {
     if (!confirm('Go back to the standard colours in all charts?')) return;
@@ -4271,7 +4503,11 @@ function init() {
 
   // Order on start: pull the latest data from GitHub, record anything that fell due
   // (SIPs, EMIs, subscriptions), then refresh fund and stock prices.
-  const afterStart = () => { processAutoPayments(); setTimeout(() => refreshPrices({ auto: true }), 300); };
+  const afterStart = () => {
+    processAutoPayments();
+    // Units for SIP instalments whose NAV is out, then (if due) fresh prices.
+    setTimeout(async () => { await autoAllotUnits(); refreshPrices({ auto: true }); }, 300);
+  };
   if (isConfigured()) runSync().then(afterStart);
   else { setSyncStatus('local'); afterStart(); }
 }
