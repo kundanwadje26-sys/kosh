@@ -158,7 +158,22 @@ The dashboard shows a short *Get KOSH ready in three steps* checklist until you'
 
 ## Part 4 — What each module does
 
-**Dashboard.** A greeting for you, then net worth shown as an equation: *Cash + Bank + Investments − Card dues − Loans − Card EMIs = Net worth*, with bars sized to each figure. Below it: this month's money in, spent, invested and left over; a portfolio card (value, profit, monthly SIPs, next SIP date, SIPs waiting for review); a chart of where the money went; a 6-month chart of money in vs spent and invested; everything due in the next 30 days (SIPs, SIP reviews, EMIs, subscriptions, card bills and FD maturities, each colour-coded); and your budgets.
+**Dashboard.** A greeting for you, then net worth shown as an equation: *Cash + Bank + Investments − Card dues − Loans − Card EMIs = Net worth*, with bars sized to each figure. Two small switches at the top right of that card let you leave out **Investments** (your portfolio) or **Card dues** (unpaid credit card bills). The figure and the equation update straight away, a small label shows what's left out, and the choice is saved so every device shows the same. Card EMIs and loans always count. To hide the switches, untick **Settings → Show the net worth switches on the dashboard**. Below it: this month's money in, spent, invested and left over; a portfolio card (value, profit, monthly SIPs, next SIP date, SIPs waiting for review); a chart of where the money went; a 6-month chart of money in vs spent and invested; everything due in the next 30 days (SIPs, SIP reviews, EMIs, subscriptions, card bills and FD maturities, each colour-coded); and your budgets. At the bottom are **Your charts** (below).
+
+**Charts (your own graphs).** Click **New chart** (on the dashboard or the **Charts** page):
+
+1. **Pick the type of chart:** pie, doughnut, polar area, bar, horizontal bar, stacked bar, line, area, radar or heatmap.
+2. **Pick what it shows.** The list only offers values that suit that chart type:
+   - Money over a period: spending by category, by account or card, top expenses by description, income by source.
+   - Right now: account balances today, portfolio by type, holdings by current value, profit or loss by holding.
+   - Budgets: budget vs spent by category.
+   - Month by month: money in, spent and invested; spending; spending by category; money left over; invested (SIPs and lump sums); credit card spending per card; net worth at each month end; assets vs liabilities.
+   - Heatmaps: spending by category by month, spending by weekday by month, and a daily spending calendar.
+3. **Choose the period** (this month, last month, last 3/6/12 months, this year, this or last financial year April to March, or all time). Where it applies, also choose how many of the biggest items to show; the rest are grouped as *Other*.
+4. Optionally give it a **title** and a **size** (half or full width). A live preview shows the result as you change things.
+5. Leave **Pin to the dashboard** ticked and **Save**.
+
+Pinned charts appear at the bottom of the dashboard every time the app is opened, on any device, because they're saved in your data file. Use the pin icon on a chart to unpin it (it stays on the Charts page) or pin it again. The pencil opens it for changes or deletion. On the Charts page, the arrows change the order. Make as many as you like.
 
 **Portfolio (its own page, like a broker app).** Shows current value at live prices, amount invested, total profit or loss, and monthly SIPs. Below that is a holdings table with name, units, average cost, invested, latest NAV or price, current value and profit/loss, grouped into mutual funds, stocks & ETFs, deposits and so on. On a phone, units and cost appear under each name. An **Allocation** chart shows how your money is split between mutual funds, stocks & ETFs, deposits, retirement (PPF/EPF, NPS), gold and so on. For **fixed deposits**, add the interest rate, FD start date and maturity date and the app estimates the maturity amount (quarterly compounding, as Indian banks use), shown on the dashboard in the 30 days before maturity.
 
@@ -247,6 +262,7 @@ All GitHub logic is in `app.js` and heavily commented. Search for these names:
 | `buildPortfolio()`, `fdInfo()` | Portfolio value, invested amount, gains, allocation and FD estimates. |
 | `refreshPrices()`, `mfSearch()`, `stockSearch()`, `mfLatest()`, `stockLatest()`, `holdingUnits()` | Fund / company search, live NAV and stock prices, units held, and the monthly market-value entry. API addresses are at the top of that section. |
 | `unitReviews()`, `openReview()` | The SIP review list and the Enter units form. |
+| `CHART_TYPES`, `CHART_VALUES`, `PERIODS`, `openChartBuilder()` | The chart builder. To add a new kind of value, add an entry to `CHART_VALUES` with a `build` function. |
 | `sipTxn()`, `advanceSip()`, `processAutoPayments()` | SIP instalments and automatic recording of SIPs, EMIs and subscriptions. |
 | `runSync()` | The fetch → merge → commit loop. If someone else (another device) committed in between, GitHub answers `409 Conflict`; the app re-downloads and re-applies your changes, retrying up to 4 times. |
 | `scheduleSync()` | Batches rapid changes into one commit (waits 700 ms after the last change). |
@@ -309,6 +325,8 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 - **Portfolio page** laid out like a broker app: units, average cost, invested, latest price, current value and profit/loss per holding.
 - **Search by name** when adding a fund, stock or SIP; holdings take the official fund or company name.
 - **Units and average cost** entered once, then the value is **live** (mutual funds free; stocks with an optional free key).
+- **Net worth switches** on the dashboard to leave out investments or card dues (can be hidden in Settings).
+- **Your own charts:** 10 chart types and 20 kinds of values with periods including Indian financial years; save, pin to the dashboard, unpin, reorder, edit.
 - **SIP review:** each SIP goes out as money spent on its date and waits for you to enter the units and NAV within 5 days (badge, list and dashboard reminders, with a suggested NAV).
 - Holding form now shows only the fields that fit the kind of investment (FD fields for deposits, NAV search for mutual funds, symbol for stocks).
 - Fully compatible with data from the earlier version.
