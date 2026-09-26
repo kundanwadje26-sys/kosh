@@ -162,16 +162,18 @@ The dashboard shows a short *Get KOSH ready in three steps* checklist until you'
 
 **Charts (your own graphs).** Click **New chart** (on the dashboard or the **Charts** page):
 
-1. **Pick the type of chart:** pie, doughnut, polar area, bar, horizontal bar, stacked bar, line, area, radar or heatmap.
-2. **Pick what it shows.** The list only offers values that suit that chart type:
-   - Money over a period: spending by category, by account or card, top expenses by description, income by source.
-   - Right now: account balances today, portfolio by type, holdings by current value, profit or loss by holding.
-   - Budgets: budget vs spent by category.
-   - Month by month: money in, spent and invested; spending; spending by category; money left over; invested (SIPs and lump sums); credit card spending per card; net worth at each month end; assets vs liabilities.
-   - Heatmaps: spending by category by month, spending by weekday by month, and a daily spending calendar.
-3. **Choose the period** (this month, last month, last 3/6/12 months, this year, this or last financial year April to March, or all time). Where it applies, also choose how many of the biggest items to show; the rest are grouped as *Other*.
-4. Optionally give it a **title** and a **size** (half or full width). A live preview shows the result as you change things.
-5. Leave **Pin to the dashboard** ticked and **Save**.
+1. **Pick the type of chart** (18): bar, horizontal bar, stacked bar, 100% stacked bar, line, area, stacked area, bar + line, pie, doughnut, polar area, radar, treemap, waterfall, progress bars, heatmap, big number, and table.
+2. **Pick what it shows** (45 options, grouped). The list only offers what suits the chart type:
+   - *Money with me:* money with me now (cash and bank) by account, money with me at each month end, what I own and what I owe by kind, all balances, net worth and assets vs liabilities over time.
+   - *Spending:* by category (with or without SIPs), number of expenses per category, by account or card, by payment mode (cash, bank, card), by description (shop or merchant), biggest single expenses, by day of the week, by month, by category month by month, average per day, this month vs last month day by day, and card spending per card.
+   - *Income and savings:* income by source and by month; money in, spent and invested; money left over; savings rate (%); a waterfall of money in → spent → invested → left over; invested by month.
+   - *Budgets, bills and loans:* budget vs spent, budget used (%), card dues and limit used (%) per card, loan amount left, EMI per loan, subscription costs, and fixed monthly outgoings (EMIs, subscriptions, SIPs).
+   - *Portfolio:* by type, holdings by value, invested vs current value, profit or loss, return (%), monthly SIP by fund.
+   - *Heatmaps:* spending by category, account or weekday against months, and a daily spending calendar.
+3. **Set the details:** period (including Indian financial years), how many of the biggest items to show (the rest become *Other*), and **data labels**: values, % of total, both, or none.
+4. **Filters on the chart:** tick Period, Category, Account or card, or Investment type (only the ones that suit the chart are offered). They appear as small drop-downs at the chart's top right, so you can switch, say, a spending chart to one card or one category without editing it. Each device remembers what you last picked.
+5. **Colours:** every category, account, holding and series has one colour that is used in every chart, including the built-in dashboard charts and the portfolio. The builder lists the colours in the chart; click one to change it. Your choice then applies everywhere that item appears (use *reset* to go back). Heatmaps and big-number charts have a single colour of their own. **Settings → Reset chart colours** undoes all your colour picks.
+6. Give it a title and size if you like, leave **Pin to the dashboard** ticked, and **Save**. A live preview shows the result as you go.
 
 Pinned charts appear at the bottom of the dashboard every time the app is opened, on any device, because they're saved in your data file. Use the pin icon on a chart to unpin it (it stays on the Charts page) or pin it again. The pencil opens it for changes or deletion. On the Charts page, the arrows change the order. Make as many as you like.
 
@@ -262,7 +264,7 @@ All GitHub logic is in `app.js` and heavily commented. Search for these names:
 | `buildPortfolio()`, `fdInfo()` | Portfolio value, invested amount, gains, allocation and FD estimates. |
 | `refreshPrices()`, `mfSearch()`, `stockSearch()`, `mfLatest()`, `stockLatest()`, `holdingUnits()` | Fund / company search, live NAV and stock prices, units held, and the monthly market-value entry. API addresses are at the top of that section. |
 | `unitReviews()`, `openReview()` | The SIP review list and the Enter units form. |
-| `CHART_TYPES`, `CHART_VALUES`, `PERIODS`, `openChartBuilder()` | The chart builder. To add a new kind of value, add an entry to `CHART_VALUES` with a `build` function. |
+| `CHART_TYPES`, `CHART_VALUES`, `PERIODS`, `openChartBuilder()`, `colorFor()`, `kLabelsPlugin` | The chart builder, its data sources, shared colours and data labels. To add a new kind of value, add an entry to `CHART_VALUES` with a `build` function. |
 | `sipTxn()`, `advanceSip()`, `processAutoPayments()` | SIP instalments and automatic recording of SIPs, EMIs and subscriptions. |
 | `runSync()` | The fetch → merge → commit loop. If someone else (another device) committed in between, GitHub answers `409 Conflict`; the app re-downloads and re-applies your changes, retrying up to 4 times. |
 | `scheduleSync()` | Batches rapid changes into one commit (waits 700 ms after the last change). |
@@ -326,7 +328,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 - **Search by name** when adding a fund, stock or SIP; holdings take the official fund or company name.
 - **Units and average cost** entered once, then the value is **live** (mutual funds free; stocks with an optional free key).
 - **Net worth switches** on the dashboard to leave out investments or card dues (can be hidden in Settings).
-- **Your own charts:** 10 chart types and 20 kinds of values with periods including Indian financial years; save, pin to the dashboard, unpin, reorder, edit.
+- **Your own charts:** 18 chart types and 45 kinds of values (including money with me, expenses by category and much more), data labels, filters shown on each chart, and consistent colours you can change; save, pin to the dashboard, unpin, reorder, edit.
 - **SIP review:** each SIP goes out as money spent on its date and waits for you to enter the units and NAV within 5 days (badge, list and dashboard reminders, with a suggested NAV).
 - Holding form now shows only the fields that fit the kind of investment (FD fields for deposits, NAV search for mutual funds, symbol for stocks).
 - Fully compatible with data from the earlier version.

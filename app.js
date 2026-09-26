@@ -1020,6 +1020,9 @@ function openModal({ title, body, submitLabel = 'Save', onSubmit, onOpen, onDele
   setTimeout(() => (first || $('#modalFooter .btn', form))?.focus(), 30);
 }
 function closeModal() {
+  // The chart builder's preview and unsaved colour picks end with the modal.
+  if (typeof previewChart !== 'undefined' && previewChart) { previewChart.destroy(); previewChart = null; }
+  if (typeof colorDraft !== 'undefined') colorDraft = null;
   $('#modal').classList.add('hidden');
   document.body.style.overflow = '';
   $('#modalBody').innerHTML = '';
@@ -1373,15 +1376,16 @@ function drawDashboardCharts() {
   } else {
     const top = cats.slice(0, 9);
     const rest = cats.slice(9).reduce((a, c) => a + c.amount, 0);
-    if (rest > 0) top.push({ category: 'Everything else', amount: rest });
+    if (rest > 0) top.push({ category: 'Other', amount: rest });
     charts.push(new Chart($('#catChart'), {
       type: 'doughnut',
-      data: { labels: top.map((c) => c.category), datasets: [{ data: top.map((c) => c.amount), backgroundColor: top.map((c, i) => (c.category === INVEST_SLICE ? '#F59E0B' : CHART_COLORS[i % CHART_COLORS.length])), borderColor: '#fff', borderWidth: 3, hoverOffset: 6 }] },
+      data: { labels: top.map((c) => c.category), datasets: [{ data: top.map((c) => c.amount), backgroundColor: top.map((c) => colorFor(c.category)), borderColor: '#fff', borderWidth: 3, hoverOffset: 6 }] },
       options: {
         maintainAspectRatio: false, cutout: '62%',
         plugins: {
           legend: { position: window.innerWidth < 640 ? 'bottom' : 'right', labels: { boxWidth: 10, boxHeight: 10, padding: 10 } },
           tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${money(ctx.parsed)}` } },
+          kLabels: { mode: 'percent' },
         },
       },
     }));
@@ -1394,23 +1398,25 @@ function drawDashboardCharts() {
     data: {
       labels: months.map((m) => fmtMonth(m, true)),
       datasets: [
-        { label: 'Income', data: sums.map((s) => s.income), backgroundColor: '#12A150', borderRadius: 5, maxBarThickness: 26, stack: 'in' },
-        { label: 'Spent', data: sums.map((s) => s.spent), backgroundColor: '#E0306E', borderRadius: 5, maxBarThickness: 26, stack: 'out' },
-        { label: 'Invested', data: sums.map((s) => s.invested), backgroundColor: '#F59E0B', borderRadius: 5, maxBarThickness: 26, stack: 'out' },
+        { label: 'Income', data: sums.map((s) => s.income), backgroundColor: colorFor('Money in'), borderRadius: 5, maxBarThickness: 26, stack: 'in' },
+        { label: 'Spent', data: sums.map((s) => s.spent), backgroundColor: colorFor('Spent'), borderRadius: 5, maxBarThickness: 26, stack: 'out' },
+        { label: 'Invested', data: sums.map((s) => s.invested), backgroundColor: colorFor('Invested'), borderRadius: 5, maxBarThickness: 26, stack: 'out' },
       ],
     },
     options: {
       maintainAspectRatio: false,
+      layout: { padding: { top: 18 } },
       scales: {
         x: { stacked: true, grid: { display: false } },
         y: { stacked: true, beginAtZero: true, grid: { color: '#EEF1F8' }, ticks: { callback: (v) => money(v, { compact: true }) } },
       },
-      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10 } }, tooltip: tooltipMoney },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10 } }, tooltip: tooltipMoney, kLabels: { mode: 'value', stacked: true } },
     },
   }));
 }
 
 function chartDefaults() {
+  ensureChartPlugins(); // data labels
   Chart.defaults.font.family = "'Plus Jakarta Sans', system-ui, sans-serif";
   Chart.defaults.color = '#475569';
 }
@@ -1766,7 +1772,7 @@ function renderPortfolio() {
           const list = byGroup(g);
           const tv = list.reduce((x, h) => x + h.value, 0), ti = list.reduce((x, h) => x + h.invested, 0);
           return `<tbody>
-            <tr class="group-row"><td><i class="fa-solid ${GROUP_ICONS[g] || 'fa-shapes'} mr-1.5" style="color:${GROUP_COLORS[g]}"></i>${esc(g)}</td><td></td><td></td>
+            <tr class="group-row"><td><i class="fa-solid ${GROUP_ICONS[g] || 'fa-shapes'} mr-1.5" style="color:${colorFor(g)}"></i>${esc(g)}</td><td></td><td></td>
               <td class="num">${money(Math.round(ti))}</td><td></td><td class="num">${money(Math.round(tv))}</td>
               <td class="num ${tv - ti >= 0 ? 'text-gain' : 'text-loss'}">${money(Math.round(tv - ti), { sign: true })}</td><td></td></tr>
             ${list.map(holdingRow).join('')}
@@ -1791,7 +1797,7 @@ function renderPortfolio() {
             const share = T.value > 0 ? g.value / T.value : 0;
             return `<div><div class="flex justify-between text-sm mb-1 gap-2"><span class="font-medium">${esc(g.group)}</span>
               <span class="num text-ink-2">${money(Math.round(g.value))} <span class="text-ink-3">${Math.round(share * 100)}%</span></span></div>
-              <div class="bar"><span style="width:${share * 100}%;background:${GROUP_COLORS[g.group] || '#94A3B8'}"></span></div></div>`;
+              <div class="bar"><span style="width:${share * 100}%;background:${colorFor(g.group)}"></span></div></div>`;
           }).join('')}</div>`
         : emptyState('fa-chart-pie', 'Add a holding to see how your money is spread.')}
       </section>
@@ -1892,7 +1898,7 @@ function drawPortfolioChart() {
   const A = M.P.allocation;
   charts.push(new Chart(canvas, {
     type: 'doughnut',
-    data: { labels: A.map((g) => g.group), datasets: [{ data: A.map((g) => g.value), backgroundColor: A.map((g) => GROUP_COLORS[g.group] || '#94A3B8'), borderColor: '#fff', borderWidth: 3, hoverOffset: 6 }] },
+    data: { labels: A.map((g) => g.group), datasets: [{ data: A.map((g) => g.value), backgroundColor: A.map((g) => colorFor(g.group)), borderColor: '#fff', borderWidth: 3, hoverOffset: 6 }] },
     options: { maintainAspectRatio: false, cutout: '66%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${money(ctx.parsed)}` } } } },
   }));
 }
@@ -2383,29 +2389,60 @@ function openReview(txnId) {
    YOUR CHARTS (custom chart builder)
    ---------------------------------------------------------------------
    A saved chart is a small record in db.charts:
-     { id, title, type, value, period, top, size, pinned, order }
-   - type   : how it is drawn (pie, bar, line, heatmap...) -> CHART_TYPES
-   - value  : what it shows (spending by category...)   -> CHART_VALUES
-   - period : which dates it covers                       -> PERIODS
+     { id, title, type, value, period, top, size, pinned, order,
+       filters: ['period','category','account','group'],  // shown on the chart
+       labels: 'value' | 'percent' | 'both' | 'none',     // data labels
+       color }                                             // single-colour charts
+   - type   : how it is drawn (pie, bar, treemap, KPI...) -> CHART_TYPES
+   - value  : what it shows (spending by category...)     -> CHART_VALUES
+   - period : which dates it covers                         -> PERIODS
    Pinned charts appear on the dashboard for everyone who opens the app,
    because they are saved in data.json like everything else.
-   Each data source returns one of three shapes:
+   Data sources return one of these shapes:
      cat    { labels, series: [{ name, data }] }       one value per label
-     series { labels (months), series: [...] }         values over time
-     matrix { rows, cols, cells: [[{ v, title }]] }     for heatmaps
+     cat2   same, with two series (e.g. budget vs spent)
+     series { labels (months/days), series: [...] }    values over time
+     matrix { rows, cols, cells: [[{ v, title }]] }     heatmaps
+   COLOURS: every category, account, holding and series has ONE colour
+   everywhere (colorFor). You can change any of them in the chart builder;
+   the choice is saved in settings.colors and used by every chart.
    --------------------------------------------------------------------- */
-const CHART_TYPES = {
-  pie:       { label: 'Pie',            icon: 'fa-chart-pie',        shapes: ['cat'] },
-  doughnut:  { label: 'Doughnut',       icon: 'fa-circle-notch',     shapes: ['cat'] },
-  polarArea: { label: 'Polar area',     icon: 'fa-bullseye',         shapes: ['cat'] },
-  bar:       { label: 'Bar',            icon: 'fa-chart-column',     shapes: ['cat', 'cat2', 'series'] },
-  hbar:      { label: 'Horizontal bar', icon: 'fa-bars-staggered',   shapes: ['cat', 'cat2', 'series'] },
-  stacked:   { label: 'Stacked bar',    icon: 'fa-layer-group',      shapes: ['series'] },
-  line:      { label: 'Line',           icon: 'fa-chart-line',       shapes: ['series'] },
-  area:      { label: 'Area',           icon: 'fa-chart-area',       shapes: ['series'] },
-  radar:     { label: 'Radar',          icon: 'fa-spider',           shapes: ['cat', 'cat2'] },
-  heatmap:   { label: 'Heatmap',        icon: 'fa-table-cells',      shapes: ['matrix'] },
+
+/* ----- Colours ----- */
+const PALETTE = ['#0B84C6', '#E0306E', '#F59E0B', '#12A150', '#7C3AED', '#06B6D4', '#F97316', '#DB2777', '#2563EB', '#EAB308',
+  '#0F766E', '#A855F7', '#65A30D', '#DC2626', '#0891B2', '#C026D3', '#4F46E5', '#CA8A04', '#059669', '#9333EA'];
+const FIXED_COLORS = {
+  'Money in': '#12A150', Income: '#12A150', Spent: '#E0306E', Expenses: '#E0306E', Invested: '#F59E0B',
+  'SIP & investments': '#F59E0B', 'Net worth': '#0A6FB0', Assets: '#12A150', Liabilities: '#E0306E',
+  Budget: '#94A3B8', Other: '#94A3B8', 'Left over': '#0A6FB0', 'Money with me': '#0B84C6', 'Savings rate': '#12A150',
+  Cash: '#EAB308', Bank: '#0B84C6', 'Credit card': '#E0306E', Investments: '#12A150', 'Card credit': '#94A3B8',
+  'Card dues': '#E0306E', Loans: '#DB2777', 'Card EMIs': '#F97316', EMIs: '#DB2777', SIPs: '#F59E0B',
+  'Current value': '#12A150', 'This month': '#0A6FB0', 'Last month': '#94A3B8',
 };
+let colorDraft = null; // colours being edited in the builder (label -> hex, or null to reset)
+function hashStr(s) { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; }
+/** The one colour used for `label` in every chart. */
+function colorFor(label) {
+  if (colorDraft && label in colorDraft) { if (colorDraft[label]) return colorDraft[label]; }
+  else if (db.settings.colors?.[label]) return db.settings.colors[label];
+  if (FIXED_COLORS[label]) return FIXED_COLORS[label];
+  if (typeof GROUP_COLORS !== 'undefined' && GROUP_COLORS[label]) return GROUP_COLORS[label];
+  const ex = db.settings.expenseCategories.indexOf(label);
+  if (ex >= 0) return PALETTE[ex % PALETTE.length];
+  const inc = db.settings.incomeCategories.indexOf(label);
+  if (inc >= 0) return PALETTE[(inc + 3) % PALETTE.length];
+  const acc = db.accounts.findIndex((a) => a.name === label);
+  if (acc >= 0) return PALETTE[(acc * 7 + 4) % PALETTE.length];
+  return PALETTE[hashStr(label) % PALETTE.length];
+}
+function hexA(hex, a) { const n = parseInt(String(hex).slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+
+/* ----- Units ----- */
+function fmtVal(v, unit = 'money', compact = false) {
+  if (unit === 'pct') return `${(Math.round(num(v) * 10) / 10).toLocaleString('en-IN')}%`;
+  if (unit === 'count') return Math.round(num(v)).toLocaleString('en-IN');
+  return money(v, { compact });
+}
 
 const PERIODS = [
   ['this_month', 'This month'], ['last_month', 'Last month'], ['last_3', 'Last 3 months'],
@@ -2440,7 +2477,39 @@ function periodRange(key) {
   return { from: from + '-01', to, months: monthKeysBetween(from, to.slice(0, 7)) };
 }
 
-/* ----- helpers shared by the data sources ----- */
+
+/* ----- Filters shown on a chart (top right) ----- */
+const FILTER_KINDS = {
+  period:   { label: 'Period' },
+  category: { label: 'Category' },
+  account:  { label: 'Account or card' },
+  group:    { label: 'Investment type' },
+};
+const CHART_FILTER_KEY = 'kosh.chartFilters.v1';     // what each chart's filters are set to, per device
+let chartFilterState = readLS(CHART_FILTER_KEY, {});
+function filterOptions(kind) {
+  if (kind === 'period') return PERIODS;
+  if (kind === 'category') {
+    const cats = [...new Set([...db.settings.expenseCategories, ...(db.settings.sipAsSpending ? [INVEST_SLICE] : []), ...db.settings.incomeCategories])];
+    return [['', 'All categories'], ...cats.map((x) => [x, x])];
+  }
+  if (kind === 'account') return [['', 'All accounts'], ...db.accounts.filter((a) => !a.archived).map((a) => [a.id, a.name])];
+  if (kind === 'group') return [['', 'All types'], ...[...new Set(M.P.holdings.map((h) => h.group))].map((g) => [g, g])];
+  return [];
+}
+const supportedFilters = (v) => Object.keys(FILTER_KINDS).filter((k) => (k === 'period' ? v.period : k === 'group' ? v.pf : (k === 'category' || k === 'account') && v.tx));
+/** The chart with its on-chart filters applied. */
+function effectiveChart(c) {
+  const st = chartFilterState[c.id] || {};
+  const on = (k) => (c.filters || []).includes(k) && supportedFilters(CHART_VALUES[c.value] || {}).includes(k);
+  return {
+    ...c,
+    period: on('period') && st.period ? st.period : c.period || 'last_6',
+    flt: { category: on('category') ? st.category || '' : '', account: on('account') ? st.account || '' : '', group: on('group') ? st.group || '' : '' },
+  };
+}
+
+/* ----- Helpers shared by the data sources ----- */
 const inRange = (t, r) => t.date && t.date >= r.from && t.date <= r.to;
 /** What counts as spending: expenses, plus money invested when Settings > "Count SIPs as money going out" is on. */
 function spendKey(t) {
@@ -2448,30 +2517,42 @@ function spendKey(t) {
   if (db.settings.sipAsSpending && isInvestmentOutflow(t)) return INVEST_SLICE;
   return null;
 }
-function sumBy(r, keyFn) {
+const expenseKey = (t) => (t.type === 'expense' ? t.category || 'Other' : null);
+/** Does a transaction pass the chart's date range and category / account filters? */
+function passes(t, r, flt = {}) {
+  if (r && !inRange(t, r)) return false;
+  if (flt.account && t.fromAccountId !== flt.account && t.toAccountId !== flt.account) return false;
+  if (flt.category) {
+    const k = t.type === 'expense' || t.type === 'income' ? t.category || 'Other' : isInvestmentOutflow(t) ? INVEST_SLICE : t.category;
+    if (k !== flt.category) return false;
+  }
+  return true;
+}
+function sumBy(r, keyFn, flt, count = false) {
   const m = new Map();
   for (const t of db.transactions) {
-    if (!inRange(t, r)) continue;
+    if (!passes(t, r, flt)) continue;
     const k = keyFn(t);
     if (k === null || k === undefined) continue;
-    m.set(k, (m.get(k) || 0) + num(t.amount));
+    m.set(k, (m.get(k) || 0) + (count ? 1 : num(t.amount)));
   }
   return m;
 }
 /** Map -> cat shape, biggest first, everything after `top` folded into "Other". */
-function toCat(map, name, top = 0) {
-  let rows = [...map.entries()].filter(([, v]) => Math.abs(v) >= 0.5).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+function toCat(map, name, top = 0, keepOrder = false) {
+  let rows = [...map.entries()].filter(([, v]) => Math.abs(v) >= 0.005);
+  if (!keepOrder) rows.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   if (top && rows.length > top) {
     const rest = rows.slice(top - 1).reduce((s, [, v]) => s + v, 0);
     rows = [...rows.slice(0, top - 1), ['Other', rest]];
   }
   return { labels: rows.map(([k]) => k), series: [{ name, data: rows.map(([, v]) => round2(v)) }] };
 }
-function monthSeries(r, parts) { // parts: [{ name, color?, fn(t) -> amount|0 }]
+function monthSeries(r, parts, flt) { // parts: [{ name, fn(t) -> amount|0 }]
   const idx = new Map(r.months.map((m, i) => [m, i]));
-  const series = parts.map((p) => ({ name: p.name, color: p.color, data: r.months.map(() => 0) }));
+  const series = parts.map((p) => ({ name: p.name, data: r.months.map(() => 0) }));
   for (const t of db.transactions) {
-    if (!inRange(t, r)) continue;
+    if (!passes(t, r, flt)) continue;
     const i = idx.get(t.date.slice(0, 7));
     if (i === undefined) continue;
     parts.forEach((p, j) => { const v = p.fn(t); if (v) series[j].data[i] += v; });
@@ -2479,7 +2560,7 @@ function monthSeries(r, parts) { // parts: [{ name, color?, fn(t) -> amount|0 }]
   series.forEach((s) => { s.data = s.data.map(round2); });
   return { labels: r.months.map((m) => fmtMonth(m, true)), series };
 }
-/** Balances of every account and outstanding loan / card-EMI principal at the end of a day. */
+/** Balances by kind at the end of a day (for "over time" charts). */
 function snapshotAt(date) {
   const bal = new Map();
   for (const a of db.accounts) if ((a.openingDate || '') <= date) bal.set(a.id, num(a.openingBalance));
@@ -2489,19 +2570,20 @@ function snapshotAt(date) {
     if (bal.has(t.fromAccountId) && t.date >= (accountById(t.fromAccountId).openingDate || '')) bal.set(t.fromAccountId, bal.get(t.fromAccountId) - amt);
     if (bal.has(t.toAccountId) && t.date >= (accountById(t.toAccountId).openingDate || '')) bal.set(t.toAccountId, bal.get(t.toAccountId) + amt);
   }
-  let assets = 0, liab = 0;
+  const k = { cash: 0, bank: 0, investment: 0, cardDebt: 0, cardCredit: 0, loans: 0 };
   for (const [id, b] of bal) {
     const a = accountById(id);
-    if (a.type === 'credit_card') { if (b < 0) liab += -b; else assets += b; } else assets += b;
+    if (a.type === 'credit_card') { if (b < 0) k.cardDebt += -b; else k.cardCredit += b; } else if (k[a.type] !== undefined) k[a.type] += b;
   }
   for (const e of db.emis) {
     if (e.closed || !e.startDate || e.startDate > date) continue;
     const c = emiCalc(e);
     let due = 0;
-    for (let k = 0; k < c.n && addMonths(e.startDate, k) <= date; k++) due++;
-    liab += c.remainingAfter(Math.min(due, c.paid));
+    for (let n = 0; n < c.n && addMonths(e.startDate, n) <= date; n++) due++;
+    k.loans += c.remainingAfter(Math.min(due, c.paid));
   }
-  return { assets: round2(assets), liab: round2(liab), net: round2(assets - liab) };
+  const assets = k.cash + k.bank + k.investment + k.cardCredit, liab = k.cardDebt + k.loans;
+  return { ...k, liquid: round2(k.cash + k.bank), assets: round2(assets), liab: round2(liab), net: round2(assets - liab) };
 }
 function monthEnds(r) {
   const today = todayStr();
@@ -2511,192 +2593,493 @@ function monthEnds(r) {
     return { m, date: end > today ? today : end };
   });
 }
+const endsSeries = (r, parts) => {
+  const ends = monthEnds(r), snaps = ends.map((e) => snapshotAt(e.date));
+  return { labels: ends.map((e) => fmtMonth(e.m, true)), series: parts.map(([name, key]) => ({ name, data: snaps.map((s) => round2(s[key])) })) };
+};
 function heatFromMap(rowsKeys, colsKeys, get, titleFn) {
   return { rows: rowsKeys, cols: colsKeys.map((c) => c.label ?? c), cells: rowsKeys.map((rk, i) => colsKeys.map((ck, j) => { const v = get(i, j); return { v, title: titleFn(i, j, v) }; })) };
 }
+function heatBy(r, flt, rowKeyFn, rowsKeys) {
+  const grid = rowsKeys.map(() => r.months.map(() => 0));
+  for (const t of db.transactions) {
+    if (!passes(t, r, flt) || !spendKey(t)) continue;
+    const i = rowsKeys.indexOf(rowKeyFn(t)), j = r.months.indexOf(t.date.slice(0, 7));
+    if (i >= 0 && j >= 0) grid[i][j] += num(t.amount);
+  }
+  return heatFromMap(rowsKeys, r.months.map((m) => ({ label: fmtMonth(m, true) })), (i, j) => round2(grid[i][j]), (i, j, v) => `${rowsKeys[i]}, ${fmtMonth(r.months[j])}: ${money(v)}`);
+}
+const perMonthOf = (freq) => FREQUENCIES[freq]?.perMonth || 1;
+const holdingsF = (flt) => M.P.holdings.filter((h) => !h.a.archived && (!flt?.group || h.group === flt.group));
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const weekdayOf = (d) => WEEKDAYS[(parseDate(d).getDay() + 6) % 7];
 
-/* ----- What a chart can show ----- */
+/* ----- What a chart can show -----
+   group: heading in the list; shape: see top; period: uses a date range;
+   top: "show the biggest N"; tx: category/account filters apply;
+   pf: investment-type filter applies; unit: money | pct | count;
+   signed: can be negative; multi: always several series. */
 const CHART_VALUES = {
-  spend_category: { label: 'Spending by category', shape: 'cat', period: true, top: true,
-    build: (c, r) => toCat(sumBy(r, spendKey), 'Spent', c.top) },
-  spend_account: { label: 'Spending by account or card', shape: 'cat', period: true,
-    build: (c, r) => toCat(sumBy(r, (t) => (spendKey(t) ? accountName(t.fromAccountId) || 'Unknown' : null)), 'Spent', c.top) },
-  spend_merchant: { label: 'Top expenses by description', shape: 'cat', period: true, top: true,
-    build: (c, r) => toCat(sumBy(r, (t) => (t.type === 'expense' ? (t.description || t.category || 'Other').trim() : null)), 'Spent', c.top || 10) },
-  income_source: { label: 'Income by source', shape: 'cat', period: true, top: true,
-    build: (c, r) => toCat(sumBy(r, (t) => (t.type === 'income' ? t.category || 'Other' : null)), 'Income', c.top) },
-  balances_now: { label: 'Account balances today', shape: 'cat',
+  // Money with me
+  money_now: { group: 'Money with me', label: 'Money with me now (cash and bank), by account', shape: 'cat',
+    build: (c) => toCat(new Map(db.accounts.filter((a) => !a.archived && ['cash', 'bank'].includes(a.type)).map((a) => [a.name, M.balances.get(a.id) || 0])), 'Money with me', c.top) },
+  money_trend: { group: 'Money with me', label: 'Money with me (cash and bank) at each month end', shape: 'series', period: true,
+    build: (c, r) => endsSeries(r, [['Money with me', 'liquid']]) },
+  own_mix: { group: 'Money with me', label: 'What I own, by kind', shape: 'cat',
+    build: () => toCat(new Map([['Cash', M.T.cash], ['Bank', M.T.bank], ['Investments', M.T.investment], ['Card credit', M.T.cardCredit]]), 'Value') },
+  owe_mix: { group: 'Money with me', label: 'What I owe, by kind', shape: 'cat',
+    build: () => toCat(new Map([['Card dues', M.T.cardDebt], ['Loans', M.T.loans], ['Card EMIs', M.T.cardEmis]]), 'Owed') },
+  balances_now: { group: 'Money with me', label: 'All account balances today', shape: 'cat', top: true,
     build: (c) => toCat(new Map(db.accounts.filter((a) => !a.archived && a.type !== 'credit_card').map((a) => [a.name, M.balances.get(a.id) || 0])), 'Balance', c.top) },
-  portfolio_mix: { label: 'Portfolio by type', shape: 'cat',
-    build: () => toCat(new Map(M.P.allocation.map((g) => [g.group, g.value])), 'Value') },
-  holdings_value: { label: 'Holdings by current value', shape: 'cat', top: true,
-    build: (c) => toCat(new Map(M.P.holdings.filter((h) => !h.a.archived).map((h) => [h.a.name, h.value])), 'Value', c.top) },
-  holdings_pl: { label: 'Profit or loss by holding', shape: 'cat', top: true, signed: true,
-    build: (c) => toCat(new Map(M.P.holdings.filter((h) => !h.a.archived && h.invested > 0).map((h) => [h.a.name, h.gain])), 'Profit / loss', c.top) },
-  budget_actual: { label: 'Budget vs spent by category', shape: 'cat2', period: true,
+  networth_trend: { group: 'Money with me', label: 'Net worth at each month end', shape: 'series', period: true,
+    build: (c, r) => endsSeries(r, [['Net worth', 'net']]) },
+  assets_liab: { group: 'Money with me', label: 'Assets vs liabilities at each month end', shape: 'series', period: true, multi: true,
+    build: (c, r) => endsSeries(r, [['Assets', 'assets'], ['Liabilities', 'liab']]) },
+
+  // Spending
+  spend_category: { group: 'Spending', label: 'Spending by category (with SIPs if counted)', shape: 'cat', period: true, top: true, tx: true,
+    build: (c, r, f) => toCat(sumBy(r, spendKey, f), 'Spent', c.top) },
+  expense_category: { group: 'Spending', label: 'Expenses by category (without investments)', shape: 'cat', period: true, top: true, tx: true,
+    build: (c, r, f) => toCat(sumBy(r, expenseKey, f), 'Expenses', c.top) },
+  spend_count: { group: 'Spending', label: 'Number of expenses by category', shape: 'cat', period: true, top: true, tx: true, unit: 'count',
+    build: (c, r, f) => toCat(sumBy(r, expenseKey, f, true), 'Expenses', c.top) },
+  spend_account: { group: 'Spending', label: 'Spending by account or card', shape: 'cat', period: true, tx: true,
+    build: (c, r, f) => toCat(sumBy(r, (t) => (spendKey(t) ? accountName(t.fromAccountId) || 'Unknown' : null), f), 'Spent', c.top) },
+  spend_mode: { group: 'Spending', label: 'Spending by payment mode (cash, bank, card)', shape: 'cat', period: true, tx: true,
+    build: (c, r, f) => toCat(sumBy(r, (t) => (spendKey(t) ? ({ cash: 'Cash', bank: 'Bank', credit_card: 'Credit card' }[accountById(t.fromAccountId)?.type] || 'Other') : null), f), 'Spent') },
+  spend_merchant: { group: 'Spending', label: 'Spending by description (shop, merchant)', shape: 'cat', period: true, top: true, tx: true,
+    build: (c, r, f) => toCat(sumBy(r, (t) => (t.type === 'expense' ? (t.description || t.category || 'Other').trim() : null), f), 'Spent', c.top || 10) },
+  spend_largest: { group: 'Spending', label: 'Biggest single expenses', shape: 'cat', period: true, top: true, tx: true,
+    build: (c, r, f) => {
+      const list = db.transactions.filter((t) => t.type === 'expense' && passes(t, r, f)).sort((a, b) => num(b.amount) - num(a.amount)).slice(0, c.top || 10);
+      return { labels: list.map((t) => `${(t.description || t.category || 'Expense').slice(0, 28)} (${parseDate(t.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })})`), series: [{ name: 'Spent', data: list.map((t) => num(t.amount)) }] };
+    } },
+  spend_weekday: { group: 'Spending', label: 'Spending by day of the week', shape: 'cat', period: true, tx: true, ordered: true,
+    build: (c, r, f) => { const m = sumBy(r, (t) => (spendKey(t) ? weekdayOf(t.date) : null), f); return toCat(new Map(WEEKDAYS.map((d) => [d, m.get(d) || 0])), 'Spent', 0, true); } },
+  spend_trend: { group: 'Spending', label: 'Spending by month', shape: 'series', period: true, tx: true,
+    build: (c, r, f) => monthSeries(r, [{ name: 'Spent', fn: (t) => (spendKey(t) ? num(t.amount) : 0) }], f) },
+  spend_cat_trend: { group: 'Spending', label: 'Spending by category, month by month', shape: 'series', period: true, top: true, tx: true, multi: true,
+    build: (c, r, f) => {
+      const top = toCat(sumBy(r, spendKey, f), '', c.top || 6).labels;
+      const named = new Set(top.filter((k) => k !== 'Other'));
+      return monthSeries(r, top.map((k) => ({ name: k, fn: (t) => { const s = spendKey(t); if (!s) return 0; return (k === 'Other' ? !named.has(s) : s === k) ? num(t.amount) : 0; } })), f);
+    } },
+  spend_avg_daily: { group: 'Spending', label: 'Average spending per day, by month', shape: 'series', period: true, tx: true,
+    build: (c, r, f) => {
+      const d = monthSeries(r, [{ name: 'Spent', fn: (t) => (spendKey(t) ? num(t.amount) : 0) }], f);
+      const today = todayStr();
+      d.series[0].name = 'Per day';
+      d.series[0].data = d.series[0].data.map((v, i) => { const m = r.months[i]; const days = m === today.slice(0, 7) ? parseDate(today).getDate() : daysInMonth(+m.slice(0, 4), +m.slice(5) - 1); return round2(v / days); });
+      return d;
+    } },
+  spend_cumulative: { group: 'Spending', label: 'This month vs last month, day by day (running total)', shape: 'series', tx: true, multi: true,
+    build: (c, r, f) => {
+      const cur = thisMonth(), prev = addMonths(cur + '-01', -1).slice(0, 7), today = parseDate(todayStr()).getDate();
+      const run = (mk, upto) => { const days = Array(31).fill(0); for (const t of db.transactions) { if (!t.date?.startsWith(mk) || !spendKey(t) || !passes(t, null, f)) continue; days[parseDate(t.date).getDate() - 1] += num(t.amount); } let s = 0; return days.map((v, i) => (i < upto ? round2((s += v)) : null)); };
+      return { labels: Array.from({ length: 31 }, (_, i) => String(i + 1)), series: [{ name: 'This month', data: run(cur, today) }, { name: 'Last month', data: run(prev, daysInMonth(+prev.slice(0, 4), +prev.slice(5) - 1)) }] };
+    } },
+  card_trend: { group: 'Spending', label: 'Credit card spending by month, per card', shape: 'series', period: true, tx: true, multi: true,
+    build: (c, r, f) => monthSeries(r, db.accounts.filter((a) => a.type === 'credit_card' && !a.archived)
+      .map((a) => ({ name: a.name, fn: (t) => (t.type === 'expense' && t.fromAccountId === a.id ? num(t.amount) : 0) })), f) },
+
+  // Income and savings
+  income_source: { group: 'Income and savings', label: 'Income by source', shape: 'cat', period: true, top: true, tx: true,
+    build: (c, r, f) => toCat(sumBy(r, (t) => (t.type === 'income' ? t.category || 'Other' : null), f), 'Income', c.top) },
+  income_trend: { group: 'Income and savings', label: 'Income by month', shape: 'series', period: true, tx: true,
+    build: (c, r, f) => monthSeries(r, [{ name: 'Income', fn: (t) => (t.type === 'income' ? num(t.amount) : 0) }], f) },
+  cashflow: { group: 'Income and savings', label: 'Money in, spent and invested by month', shape: 'series', period: true, tx: true, multi: true,
+    build: (c, r, f) => monthSeries(r, [
+      { name: 'Money in', fn: (t) => (t.type === 'income' ? num(t.amount) : 0) },
+      { name: 'Spent', fn: (t) => (t.type === 'expense' ? num(t.amount) : 0) },
+      { name: 'Invested', fn: (t) => (isInvestmentOutflow(t) ? num(t.amount) : 0) },
+    ], f) },
+  leftover_trend: { group: 'Income and savings', label: 'Money left over by month', shape: 'series', period: true, signed: true,
+    build: (c, r) => monthSeries(r, [{ name: 'Left over', fn: (t) => (t.type === 'income' ? num(t.amount) : t.type === 'expense' || isInvestmentOutflow(t) ? -num(t.amount) : 0) }]) },
+  savings_rate: { group: 'Income and savings', label: 'Savings rate by month (% of income not spent)', shape: 'series', period: true, unit: 'pct', signed: true,
     build: (c, r) => {
-      const spent = sumBy(r, spendKey);
+      const d = monthSeries(r, [{ name: 'in', fn: (t) => (t.type === 'income' ? num(t.amount) : 0) }, { name: 'out', fn: (t) => (t.type === 'expense' ? num(t.amount) : 0) }]);
+      return { labels: d.labels, series: [{ name: 'Savings rate', data: d.series[0].data.map((inc, i) => (inc > 0 ? round2(((inc - d.series[1].data[i]) / inc) * 100) : 0)) }] };
+    } },
+  cashflow_waterfall: { group: 'Income and savings', label: 'Where the money went (money in, spent, invested, left)', shape: 'cat', period: true, signed: true, waterfall: true, ordered: true,
+    build: (c, r) => {
+      let inc = 0, sp = 0, inv = 0;
+      for (const t of db.transactions) { if (!inRange(t, r)) continue; if (t.type === 'income') inc += num(t.amount); else if (t.type === 'expense') sp += num(t.amount); else if (isInvestmentOutflow(t)) inv += num(t.amount); }
+      return { labels: ['Money in', 'Spent', 'Invested', 'Left over'], series: [{ name: 'Amount', data: [round2(inc), round2(-sp), round2(-inv), round2(inc - sp - inv)] }], totalLast: true };
+    } },
+  invest_trend: { group: 'Income and savings', label: 'Invested (SIPs and lump sums) by month', shape: 'series', period: true,
+    build: (c, r) => monthSeries(r, [{ name: 'Invested', fn: (t) => (isInvestmentOutflow(t) ? num(t.amount) : 0) }]) },
+
+  // Budgets, bills and loans
+  budget_actual: { group: 'Budgets, bills and loans', label: 'Budget vs spent by category', shape: 'cat2', period: true,
+    build: (c, r, f) => {
+      const spent = sumBy(r, spendKey, f);
       const months = r.months.length || 1;
       const rows = db.budgets.map((b) => [b.category, num(b.monthlyLimit) * months, spent.get(b.category) || 0]);
-      return { labels: rows.map((x) => x[0]), series: [
-        { name: `Budget${months > 1 ? ` (${months} months)` : ''}`, color: '#94A3B8', data: rows.map((x) => round2(x[1])) },
-        { name: 'Spent', color: '#E0306E', data: rows.map((x) => round2(x[2])) },
-      ] };
+      return { labels: rows.map((x) => x[0]), series: [{ name: 'Budget', data: rows.map((x) => round2(x[1])) }, { name: 'Spent', data: rows.map((x) => round2(x[2])) }] };
     } },
-  cashflow: { label: 'Money in, spent and invested by month', shape: 'series', period: true,
-    build: (c, r) => monthSeries(r, [
-      { name: 'Money in', color: '#12A150', fn: (t) => (t.type === 'income' ? num(t.amount) : 0) },
-      { name: 'Spent', color: '#E0306E', fn: (t) => (t.type === 'expense' ? num(t.amount) : 0) },
-      { name: 'Invested', color: '#F59E0B', fn: (t) => (isInvestmentOutflow(t) ? num(t.amount) : 0) },
-    ]) },
-  spend_trend: { label: 'Spending by month', shape: 'series', period: true,
-    build: (c, r) => monthSeries(r, [{ name: 'Spent', color: '#E0306E', fn: (t) => (spendKey(t) ? num(t.amount) : 0) }]) },
-  spend_cat_trend: { label: 'Spending by category, month by month', shape: 'series', period: true, top: true,
+  budget_used: { group: 'Budgets, bills and loans', label: 'Budget used (%) by category', shape: 'cat', period: true, unit: 'pct', ordered: true,
     build: (c, r) => {
-      const top = toCat(sumBy(r, spendKey), '', c.top || 6).labels;
-      const named = new Set(top.filter((k) => k !== 'Other'));
-      return monthSeries(r, top.map((k) => ({ name: k, fn: (t) => { const s = spendKey(t); if (!s) return 0; return (k === 'Other' ? !named.has(s) : s === k) ? num(t.amount) : 0; } })));
+      const spent = sumBy(r, spendKey), months = r.months.length || 1;
+      return toCat(new Map(db.budgets.filter((b) => num(b.monthlyLimit) > 0).map((b) => [b.category, ((spent.get(b.category) || 0) / (num(b.monthlyLimit) * months)) * 100])), 'Used');
     } },
-  leftover_trend: { label: 'Money left over by month', shape: 'series', period: true,
-    build: (c, r) => monthSeries(r, [{ name: 'Left over', color: '#0A6FB0', fn: (t) => (t.type === 'income' ? num(t.amount) : t.type === 'expense' || isInvestmentOutflow(t) ? -num(t.amount) : 0) }]) },
-  invest_trend: { label: 'Invested (SIPs and lump sums) by month', shape: 'series', period: true,
-    build: (c, r) => monthSeries(r, [{ name: 'Invested', color: '#F59E0B', fn: (t) => (isInvestmentOutflow(t) ? num(t.amount) : 0) }]) },
-  card_trend: { label: 'Credit card spending by month', shape: 'series', period: true,
-    build: (c, r) => monthSeries(r, db.accounts.filter((a) => a.type === 'credit_card' && !a.archived)
-      .map((a) => ({ name: a.name, fn: (t) => (t.type === 'expense' && t.fromAccountId === a.id ? num(t.amount) : 0) }))) },
-  networth_trend: { label: 'Net worth at each month end', shape: 'series', period: true,
-    build: (c, r) => { const ends = monthEnds(r); return { labels: ends.map((e) => fmtMonth(e.m, true)), series: [{ name: 'Net worth', color: '#0A6FB0', data: ends.map((e) => snapshotAt(e.date).net) }] }; } },
-  assets_liab: { label: 'Assets vs liabilities at each month end', shape: 'series', period: true,
-    build: (c, r) => {
-      const ends = monthEnds(r), snaps = ends.map((e) => snapshotAt(e.date));
-      return { labels: ends.map((e) => fmtMonth(e.m, true)), series: [
-        { name: 'Assets', color: '#12A150', data: snaps.map((s) => s.assets) },
-        { name: 'Liabilities', color: '#E0306E', data: snaps.map((s) => s.liab) },
-      ] };
-    } },
-  cat_month_heat: { label: 'Spending: category by month', shape: 'matrix', period: true, top: true,
-    build: (c, r) => {
-      const cats = toCat(sumBy(r, spendKey), '', c.top || 8).labels;
-      const named = new Set(cats.filter((k) => k !== 'Other'));
-      const grid = cats.map(() => r.months.map(() => 0));
-      for (const t of db.transactions) {
-        const s = inRange(t, r) && spendKey(t);
-        if (!s) continue;
-        const i = cats.indexOf(named.has(s) ? s : 'Other'), j = r.months.indexOf(t.date.slice(0, 7));
-        if (i >= 0 && j >= 0) grid[i][j] += num(t.amount);
-      }
-      return heatFromMap(cats, r.months.map((m) => ({ label: fmtMonth(m, true) })), (i, j) => round2(grid[i][j]), (i, j, v) => `${cats[i]}, ${fmtMonth(r.months[j])}: ${money(v)}`);
-    } },
-  weekday_heat: { label: 'Spending: weekday by month', shape: 'matrix', period: true,
-    build: (c, r) => {
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      const grid = days.map(() => r.months.map(() => 0));
-      for (const t of db.transactions) {
-        if (!inRange(t, r) || !spendKey(t)) continue;
-        const i = (parseDate(t.date).getDay() + 6) % 7, j = r.months.indexOf(t.date.slice(0, 7));
-        if (j >= 0) grid[i][j] += num(t.amount);
-      }
-      return heatFromMap(days, r.months.map((m) => ({ label: fmtMonth(m, true) })), (i, j) => round2(grid[i][j]), (i, j, v) => `${days[i]}s in ${fmtMonth(r.months[j])}: ${money(v)}`);
-    } },
-  daily_heat: { label: 'Daily spending calendar', shape: 'matrix', period: true,
-    build: (c, r) => {
-      const byDay = sumBy(r, (t) => (spendKey(t) ? t.date : null));
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      let start = r.from; while ((parseDate(start).getDay() + 6) % 7) start = addDays(start, -1); // back to Monday
+  card_dues: { group: 'Budgets, bills and loans', label: 'Credit card dues by card', shape: 'cat',
+    build: () => toCat(new Map(db.accounts.filter((a) => a.type === 'credit_card' && !a.archived).map((a) => [a.name, Math.max(0, cardMetrics(a).outstanding)])), 'Due') },
+  card_util: { group: 'Budgets, bills and loans', label: 'Credit card limit used (%) by card', shape: 'cat', unit: 'pct',
+    build: () => toCat(new Map(db.accounts.filter((a) => a.type === 'credit_card' && !a.archived && num(a.creditLimit) > 0).map((a) => [a.name, cardMetrics(a).utilization * 100])), 'Used') },
+  loans_left: { group: 'Budgets, bills and loans', label: 'Loans and EMIs: amount left to repay', shape: 'cat',
+    build: () => toCat(new Map(M.emis.filter(({ c }) => c.status === 'active').map(({ e, c }) => [e.name, c.remaining])), 'Left to repay') },
+  emi_monthly: { group: 'Budgets, bills and loans', label: 'Monthly EMI by loan', shape: 'cat',
+    build: () => toCat(new Map(M.emis.filter(({ c }) => c.status === 'active').map(({ e, c }) => [e.name, c.emi])), 'EMI') },
+  subs_cost: { group: 'Budgets, bills and loans', label: 'Subscriptions: cost per month each', shape: 'cat', top: true,
+    build: (c) => toCat(new Map(db.subscriptions.filter((x) => x.active).map((x) => [x.name, num(x.amount) * perMonthOf(x.frequency)])), 'Per month', c.top) },
+  fixed_costs: { group: 'Budgets, bills and loans', label: 'Fixed monthly outgoings (EMIs, subscriptions, SIPs)', shape: 'cat',
+    build: () => toCat(new Map([
+      ['EMIs', M.emis.filter(({ c }) => c.status === 'active').reduce((s, { c }) => s + c.emi, 0)],
+      ['Subscriptions', db.subscriptions.filter((x) => x.active).reduce((s, x) => s + num(x.amount) * perMonthOf(x.frequency), 0)],
+      ['SIPs', M.P.totals.sipMonthly],
+    ]), 'Per month') },
+
+  // Portfolio
+  portfolio_mix: { group: 'Portfolio', label: 'Portfolio by type', shape: 'cat',
+    build: () => toCat(new Map(M.P.allocation.map((g) => [g.group, g.value])), 'Value') },
+  holdings_value: { group: 'Portfolio', label: 'Holdings by current value', shape: 'cat', top: true, pf: true,
+    build: (c, r, f) => toCat(new Map(holdingsF(f).map((h) => [h.a.name, h.value])), 'Current value', c.top) },
+  holdings_cost_value: { group: 'Portfolio', label: 'Invested vs current value by holding', shape: 'cat2', pf: true,
+    build: (c, r, f) => { const hs = holdingsF(f).filter((h) => h.invested > 0).sort((a, b) => b.value - a.value); return { labels: hs.map((h) => h.a.name), series: [{ name: 'Invested', data: hs.map((h) => h.invested) }, { name: 'Current value', data: hs.map((h) => h.value) }] }; } },
+  holdings_pl: { group: 'Portfolio', label: 'Profit or loss by holding', shape: 'cat', top: true, signed: true, pf: true,
+    build: (c, r, f) => toCat(new Map(holdingsF(f).filter((h) => h.invested > 0).map((h) => [h.a.name, h.gain])), 'Profit / loss', c.top) },
+  holdings_return: { group: 'Portfolio', label: 'Return (%) by holding', shape: 'cat', signed: true, pf: true, unit: 'pct',
+    build: (c, r, f) => toCat(new Map(holdingsF(f).filter((h) => h.invested > 0).map((h) => [h.a.name, h.gainPct * 100])), 'Return') },
+  sip_by_fund: { group: 'Portfolio', label: 'Monthly SIP by fund', shape: 'cat',
+    build: () => { const m = new Map(); for (const x of db.sips.filter((s) => s.active)) m.set(accountName(x.fundAccountId) || x.name, (m.get(accountName(x.fundAccountId) || x.name) || 0) + sipAmountOn(x, todayStr()) * perMonthOf(x.frequency)); return toCat(m, 'SIP per month'); } },
+
+  // Heatmaps
+  cat_month_heat: { group: 'Heatmaps', label: 'Spending: category by month', shape: 'matrix', period: true, top: true, tx: true,
+    build: (c, r, f) => { const cats = toCat(sumBy(r, spendKey, f), '', c.top || 8).labels; const named = new Set(cats.filter((k) => k !== 'Other')); return heatBy(r, f, (t) => { const s = spendKey(t); return named.has(s) ? s : 'Other'; }, cats); } },
+  account_month_heat: { group: 'Heatmaps', label: 'Spending: account or card by month', shape: 'matrix', period: true, tx: true,
+    build: (c, r, f) => { const accs = toCat(sumBy(r, (t) => (spendKey(t) ? accountName(t.fromAccountId) || 'Unknown' : null), f), '').labels; return heatBy(r, f, (t) => accountName(t.fromAccountId) || 'Unknown', accs); } },
+  weekday_heat: { group: 'Heatmaps', label: 'Spending: weekday by month', shape: 'matrix', period: true, tx: true,
+    build: (c, r, f) => heatBy(r, f, (t) => weekdayOf(t.date), WEEKDAYS) },
+  daily_heat: { group: 'Heatmaps', label: 'Daily spending calendar', shape: 'matrix', period: true, tx: true,
+    build: (c, r, f) => {
+      const byDay = sumBy(r, (t) => (spendKey(t) ? t.date : null), f);
+      let start = r.from; while ((parseDate(start).getDay() + 6) % 7) start = addDays(start, -1);
       const weeks = [];
       for (let w = start; w <= r.to && weeks.length < 60; w = addDays(w, 7)) weeks.push(w);
       const dateAt = (i, j) => addDays(weeks[j], i);
-      const cols = weeks.map((w, j) => ({ label: j === 0 || parseDate(w).getDate() <= 7 ? parseDate(w).toLocaleDateString('en-IN', { month: 'short' }) : '' }));
-      const out = heatFromMap(days, cols, (i, j) => { const d = dateAt(i, j); return d < r.from || d > r.to ? null : round2(byDay.get(d) || 0); },
+      let lastM = '';
+      const cols = weeks.map((w) => { const mo = addDays(w, 6).slice(0, 7); const lab = mo !== lastM ? parseDate(mo + '-01').toLocaleDateString('en-IN', { month: 'short' }) : ''; lastM = mo; return { label: lab }; });
+      const out = heatFromMap(WEEKDAYS, cols, (i, j) => { const d = dateAt(i, j); return d < r.from || d > r.to ? null : round2(byDay.get(d) || 0); },
         (i, j, v) => (v === null ? '' : `${fmtDate(dateAt(i, j))}: ${money(v)}`));
       out.compact = true;
       return out;
     } },
 };
-const valuesFor = (type) => Object.entries(CHART_VALUES).filter(([, v]) => CHART_TYPES[type].shapes.includes(v.shape)
-  && !(v.signed && ['pie', 'doughnut', 'polarArea'].includes(type))); // a pie can't show losses
+
+/* ----- Chart types ----- */
+const CHART_TYPES = {
+  bar:         { label: 'Bar',            icon: 'fa-chart-column',   shapes: ['cat', 'cat2', 'series'] },
+  hbar:        { label: 'Horizontal bar', icon: 'fa-bars-staggered', shapes: ['cat', 'cat2', 'series'] },
+  stacked:     { label: 'Stacked bar',    icon: 'fa-layer-group',    shapes: ['series'], multi: true },
+  stacked100:  { label: '100% stacked',   icon: 'fa-percent',        shapes: ['series'], multi: true, noSigned: true },
+  line:        { label: 'Line',           icon: 'fa-chart-line',     shapes: ['series'] },
+  area:        { label: 'Area',           icon: 'fa-chart-area',     shapes: ['series'] },
+  stackedArea: { label: 'Stacked area',   icon: 'fa-mountain',       shapes: ['series'], multi: true, noSigned: true },
+  combo:       { label: 'Bar + line',     icon: 'fa-chart-simple',   shapes: ['series'], multi: true },
+  pie:         { label: 'Pie',            icon: 'fa-chart-pie',      shapes: ['cat'], noSigned: true },
+  doughnut:    { label: 'Doughnut',       icon: 'fa-circle-notch',   shapes: ['cat'], noSigned: true },
+  polarArea:   { label: 'Polar area',     icon: 'fa-bullseye',       shapes: ['cat'], noSigned: true },
+  radar:       { label: 'Radar',          icon: 'fa-spider',         shapes: ['cat', 'cat2'], noSigned: true },
+  treemap:     { label: 'Treemap',        icon: 'fa-table-cells-large', shapes: ['cat'], noSigned: true, html: true },
+  waterfall:   { label: 'Waterfall',      icon: 'fa-stairs',         shapes: ['cat'] },
+  progress:    { label: 'Progress bars',  icon: 'fa-bars-progress',  shapes: ['cat2', 'catpct'], html: true },
+  heatmap:     { label: 'Heatmap',        icon: 'fa-table-cells',    shapes: ['matrix'], html: true, oneColor: true },
+  kpi:         { label: 'Big number',     icon: 'fa-hashtag',        shapes: ['cat', 'cat2', 'series'], html: true, oneColor: true },
+  table:       { label: 'Table',          icon: 'fa-table-list',     shapes: ['cat', 'cat2', 'series', 'matrix'], html: true },
+};
+const ROUND = ['pie', 'doughnut', 'polarArea'];
+function valuesFor(type) {
+  const T = CHART_TYPES[type];
+  return Object.entries(CHART_VALUES).filter(([, v]) => {
+    const shape = v.shape === 'cat' && v.unit === 'pct' && T.shapes.includes('catpct') ? 'catpct' : v.shape;
+    if (!T.shapes.includes(shape)) return false;
+    if (T.noSigned && v.signed) return false;
+    if (T.multi && !v.multi) return false;
+    if (type === 'waterfall' && v.unit && v.unit !== 'money') return false;
+    if (ROUND.includes(type) && v.unit === 'pct') return false;
+    return true;
+  });
+}
 const defaultTitle = (c) => `${CHART_VALUES[c.value]?.label || 'Chart'}${CHART_VALUES[c.value]?.period ? `, ${periodLabel(c.period).replace(/ \(.*\)/, '').toLowerCase()}` : ''}`;
 
 function chartData(c) {
   const v = CHART_VALUES[c.value];
   if (!v) return null;
-  try { return v.build(c, periodRange(c.period || 'last_6')); } catch (e) { console.warn('chart data', e); return null; }
+  try { return v.build(c, periodRange(c.period || 'last_6'), c.flt || {}); } catch (e) { console.warn('chart data', e); return null; }
 }
-const isEmptyData = (d) => !d || (d.cells ? !d.cells.some((row) => row.some((x) => x.v)) : !d.series.some((s) => s.data.some((x) => x)));
+const isEmptyData = (d) => !d || (d.cells ? !d.cells.some((row) => row.some((x) => x.v)) : !d.labels.length || !d.series.some((s) => s.data.some((x) => x)));
+
+/* ----- Data labels (drawn by this small Chart.js plugin; no extra library) ----- */
+const kLabelsPlugin = {
+  id: 'kLabels',
+  afterDatasetsDraw(chart, _args, o) {
+    if (!o || !o.mode || o.mode === 'none') return;
+    const { ctx } = chart;
+    const round = ROUND.includes(chart.config.type);
+    ctx.save();
+    ctx.font = '600 11px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    chart.data.datasets.forEach((ds, di) => {
+      if (!chart.isDatasetVisible(di)) return;
+      const meta = chart.getDatasetMeta(di);
+      const shown = ds.kValues || ds.data.map((v) => (Array.isArray(v) ? v[1] - v[0] : v));
+      const total = shown.reduce((s, v) => s + Math.abs(num(v)), 0) || 1;
+      const isLine = meta.type === 'line' || meta.type === 'radar';
+      const many = meta.data.length > 12;
+      const lastIdx = shown.reduce((li, x, k) => (x !== null && x !== undefined ? k : li), -1);
+      // Long lines: every few points; several long lines: just each line's last value.
+      const step = isLine && many ? Math.ceil(meta.data.length / 10) : 1;
+      const onlyLast = isLine && many && chart.data.datasets.length > 1;
+      meta.data.forEach((el, i) => {
+        const v = shown[i];
+        if (v === null || v === undefined || !num(v)) return;
+        if (onlyLast ? i !== lastIdx : isLine && i % step && i !== lastIdx) return;
+        const pctTxt = `${Math.round((Math.abs(v) / total) * 100)}%`;
+        const valTxt = fmtVal(v, ds.kUnit || o.unit, true);
+        const text = o.mode === 'percent' ? pctTxt : o.mode === 'both' ? `${valTxt} · ${pctTxt}` : valTxt;
+        const w = ctx.measureText(text).width;
+        if (round) {
+          if (Math.abs(v) / total < 0.05) return;
+          const p = el.tooltipPosition();
+          ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+          ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 3;
+          ctx.fillText(text, p.x, p.y);
+          ctx.shadowBlur = 0;
+          return;
+        }
+        if (isLine) {
+          ctx.textAlign = 'center'; ctx.fillStyle = '#334155';
+          ctx.fillText(text, el.x, el.y - 11);
+          return;
+        }
+        const horizontal = chart.options.indexAxis === 'y';
+        const { x, y, base, width, height } = el.getProps(['x', 'y', 'base', 'width', 'height'], true);
+        const barLen = Math.abs(horizontal ? x - base : y - base);
+        const thick = horizontal ? height : width;
+        if (o.stacked) {
+          if ((horizontal ? barLen < w + 8 : barLen < 15 || thick < w + 2)) return;
+          ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+          ctx.fillText(text, horizontal ? (x + base) / 2 : x, horizontal ? y : (y + base) / 2);
+          return;
+        }
+        if (!horizontal && thick < w - 6 && meta.data.length > 6) return; // too crowded
+        ctx.fillStyle = '#334155';
+        if (horizontal) {
+          const neg = x < base;
+          if (!neg) { ctx.textAlign = 'left'; ctx.fillText(text, x + 5, y); }
+          else if (barLen > w + 10) { ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.fillText(text, x + 5, y); } // inside the bar, clear of the names
+          else { ctx.textAlign = 'left'; ctx.fillText(text, base + 5, y); }
+        }
+        else { const neg = y > base; ctx.textAlign = 'center'; ctx.fillText(text, x, y + (neg ? 9 : -9)); }
+      });
+    });
+    ctx.restore();
+  },
+};
+function ensureChartPlugins() {
+  if (typeof Chart === 'undefined' || typeof Chart.register !== 'function' || ensureChartPlugins.done) return;
+  Chart.register(kLabelsPlugin);
+  ensureChartPlugins.done = true;
+}
 
 /* ----- Drawing ----- */
-function hexA(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
-
-/** Draws chart `c` into element `box`; returns the Chart.js instance (or null for heatmaps). */
+/** Draws chart `c` into element `box`; returns the Chart.js instance, or null for HTML-drawn types. */
 function drawChartInto(box, c) {
   const d = chartData(c);
-  if (isEmptyData(d)) { box.innerHTML = emptyState('fa-chart-simple', 'No data for this period yet.'); return null; }
+  const v = CHART_VALUES[c.value] || {};
+  const unit = v.unit || 'money';
+  box.classList.toggle('is-html', !!CHART_TYPES[c.type]?.html && c.type !== 'treemap');
+  if (isEmptyData(d)) { box.innerHTML = emptyState('fa-chart-simple', 'No data for this selection yet.'); return null; }
   if (c.type === 'heatmap') { box.innerHTML = heatmapHTML(d, c); return null; }
+  if (c.type === 'table') { box.innerHTML = tableHTML(d, unit); return null; }
+  if (c.type === 'kpi') { box.innerHTML = kpiHTML(d, c, v); return null; }
+  if (c.type === 'progress') { box.innerHTML = progressHTML(d, v); return null; }
+  if (c.type === 'treemap') { box.innerHTML = treemapHTML(d, c, unit); return null; }
   if (typeof Chart === 'undefined') { box.innerHTML = emptyState('fa-chart-simple', 'Charts could not load. Check your internet connection.'); return null; }
+  ensureChartPlugins();
   box.innerHTML = '<canvas role="img"></canvas>';
   const canvas = box.firstChild;
   canvas.setAttribute('aria-label', c.title || defaultTitle(c));
   chartDefaults();
-  const round = ['pie', 'doughnut', 'polarArea'].includes(c.type);
+  const labelsMode = c.labels || 'value';
   const single = d.series.length === 1;
-  const signed = CHART_VALUES[c.value].signed;
-  const colorOf = (s, i) => s.color || CHART_COLORS[i % CHART_COLORS.length];
-  const perBar = (s) => d.labels.map((l, i) => (signed ? (s.data[i] >= 0 ? '#12A150' : '#E0306E') : l === INVEST_SLICE ? '#F59E0B' : CHART_COLORS[i % CHART_COLORS.length]));
-  const tip = { callbacks: { label: (ctx) => ` ${round || single ? ctx.label : ctx.dataset.label}: ${money(ctx.parsed?.r ?? (typeof ctx.parsed === 'number' ? ctx.parsed : (c.type === 'hbar' ? ctx.parsed.x : ctx.parsed.y)))}` } };
-  const moneyTick = { callback: (v) => money(v, { compact: true }) };
+  const signedColors = (s) => s.data.map((x) => (x >= 0 ? '#12A150' : '#E0306E'));
+  const perLabel = (s) => (v.signed ? signedColors(s) : d.labels.map((l) => colorFor(l)));
+  const tipLabel = (ctx, val) => ` ${single && (ROUND.includes(c.type) || v.shape === 'cat') ? ctx.label : ctx.dataset.label}: ${fmtVal(val, ctx.dataset.kUnit || unit)}`;
+  const tick = { callback: (x) => fmtVal(x, unit, true) };
+  const base = { maintainAspectRatio: false, layout: { padding: { top: 18, right: c.type === 'hbar' ? 48 : ['line', 'area', 'stackedArea', 'combo'].includes(c.type) ? 26 : 10, left: 4 } } };
   let cfg;
-  if (round) {
-    cfg = { type: c.type, data: { labels: d.labels, datasets: [{ data: d.series[0].data.map(Math.abs), backgroundColor: perBar(d.series[0]).map((x) => (c.type === 'polarArea' ? hexA(x, 0.75) : x)), borderColor: '#fff', borderWidth: 2 }] },
-      options: { maintainAspectRatio: false, ...(c.type === 'doughnut' ? { cutout: '62%' } : {}), plugins: { legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true } }, tooltip: tip },
+
+  if (ROUND.includes(c.type)) {
+    const data = d.series[0].data.map(Math.abs);
+    cfg = { type: c.type, data: { labels: d.labels, datasets: [{ data, backgroundColor: d.labels.map((l) => (c.type === 'polarArea' ? hexA(colorFor(l), 0.8) : colorFor(l))), borderColor: '#fff', borderWidth: 2 }] },
+      options: { ...base, ...(c.type === 'doughnut' ? { cutout: '58%' } : {}),
+        plugins: { legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true } }, tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${fmtVal(data[ctx.dataIndex], unit)}` } }, kLabels: { mode: labelsMode, unit } },
         ...(c.type === 'polarArea' ? { scales: { r: { ticks: { display: false } } } } : {}) } };
   } else if (c.type === 'radar') {
-    cfg = { type: 'radar', data: { labels: d.labels, datasets: d.series.map((s, i) => ({ label: s.name, data: s.data, borderColor: colorOf(s, i), backgroundColor: hexA(colorOf(s, i), 0.2), pointRadius: 3 })) },
-      options: { maintainAspectRatio: false, plugins: { legend: { display: !single }, tooltip: tip }, scales: { r: { beginAtZero: true, ticks: { ...moneyTick, backdropColor: 'transparent' } } } } };
+    cfg = { type: 'radar', data: { labels: d.labels, datasets: d.series.map((s) => { const col = single ? '#0A6FB0' : colorFor(s.name); return { label: s.name, data: s.data, borderColor: col, backgroundColor: hexA(col, 0.18), pointBackgroundColor: col, pointRadius: 3 }; }) },
+      options: { ...base, plugins: { legend: { display: !single }, tooltip: { callbacks: { label: (ctx) => tipLabel(ctx, ctx.parsed.r) } }, kLabels: { mode: labelsMode === 'value' ? 'value' : labelsMode, unit } },
+        scales: { r: { beginAtZero: true, ticks: { display: false }, pointLabels: { font: { size: 11, weight: '600' } } } } } };
+  } else if (c.type === 'waterfall') {
+    // Each bar floats from the running total before it to the running total after it.
+    let run = 0;
+    const vals = d.series[0].data;
+    const bars = vals.map((x, i) => { if (d.totalLast && i === vals.length - 1) return [0, x]; const from = run; run += x; return [from, run]; });
+    const colors = vals.map((x, i) => (d.totalLast && i === vals.length - 1 ? '#0A6FB0' : x >= 0 ? '#12A150' : '#E0306E'));
+    cfg = { type: 'bar', data: { labels: d.labels, datasets: [{ label: d.series[0].name, data: bars, kValues: vals, backgroundColor: colors, borderRadius: 4, maxBarThickness: 48 }] },
+      options: { ...base, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${fmtVal(vals[ctx.dataIndex], unit)}` } }, kLabels: { mode: labelsMode === 'none' ? 'none' : 'value', unit } },
+        scales: { x: { grid: { display: false } }, y: { grid: { color: '#EEF1F8' }, ticks: tick } } } };
   } else {
-    const kind = ['line', 'area'].includes(c.type) ? 'line' : 'bar';
+    const kind = ['line', 'area', 'stackedArea'].includes(c.type) ? 'line' : 'bar';
     const horizontal = c.type === 'hbar';
-    const stacked = c.type === 'stacked';
-    const datasets = d.series.map((s, i) => {
-      const col = colorOf(s, i);
-      if (kind === 'line') return { label: s.name, data: s.data, borderColor: col, backgroundColor: hexA(col, c.type === 'area' ? 0.18 : 1), fill: c.type === 'area' ? 'origin' : false, tension: 0.3, pointRadius: 3, borderWidth: 2.5 };
-      return { label: s.name, data: s.data, backgroundColor: single && d.cat !== false && CHART_VALUES[c.value].shape !== 'series' ? perBar(s) : col, borderRadius: 5, maxBarThickness: 34 };
+    const stacked = ['stacked', 'stacked100', 'stackedArea'].includes(c.type);
+    const pct100 = c.type === 'stacked100';
+    const totals = pct100 ? d.labels.map((_, i) => d.series.reduce((s, x) => s + Math.abs(num(x.data[i])), 0) || 1) : null;
+    const datasets = d.series.map((s, si) => {
+      const col = single && kind === 'line' ? colorFor(s.name) : colorFor(s.name);
+      const data = pct100 ? s.data.map((x, i) => round2((Math.abs(num(x)) / totals[i]) * 100)) : s.data;
+      const extra = pct100 ? { kValues: data, kUnit: 'pct', raw: s.data } : {};
+      if (c.type === 'combo' && si > 0) return { type: 'line', label: s.name, data, borderColor: col, backgroundColor: col, tension: 0.3, pointRadius: 3, borderWidth: 2.5, order: 0, ...extra };
+      if (kind === 'line') return { label: s.name, data, borderColor: col, backgroundColor: hexA(col, c.type === 'line' ? 1 : 0.22), fill: c.type === 'area' ? 'origin' : c.type === 'stackedArea' ? (si ? '-1' : 'origin') : false, tension: 0.3, pointRadius: 3, borderWidth: 2.5, spanGaps: false, ...extra };
+      const perBar = single && v.shape !== 'series' && v.shape !== 'cat2';
+      return { label: s.name, data, backgroundColor: perBar ? perLabel(s) : v.signed && single ? signedColors(s) : col, borderRadius: stacked ? 2 : 5, maxBarThickness: 38, order: 1, ...extra };
     });
-    const valAxis = { beginAtZero: true, stacked, grid: { color: '#EEF1F8' }, ticks: moneyTick };
+    const valAxis = { beginAtZero: true, stacked, grid: { color: '#EEF1F8' }, ticks: pct100 ? { callback: (x) => `${x}%` } : tick, ...(pct100 ? { max: 100 } : {}) };
     const catAxis = { stacked, grid: { display: false }, ticks: { autoSkip: true, maxRotation: 0 } };
     cfg = { type: kind, data: { labels: d.labels, datasets },
-      options: { maintainAspectRatio: false, indexAxis: horizontal ? 'y' : 'x', interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { display: !single, labels: { boxWidth: 12, usePointStyle: true } }, tooltip: { callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${money(horizontal ? ctx.parsed.x : ctx.parsed.y)}` } } },
+      options: { ...base, indexAxis: horizontal ? 'y' : 'x', interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: !single, labels: { boxWidth: 12, usePointStyle: true } },
+          tooltip: { callbacks: { label: (ctx) => {
+            const val = horizontal ? ctx.parsed.x : ctx.parsed.y;
+            return pct100 ? ` ${ctx.dataset.label}: ${fmtVal(ctx.dataset.raw[ctx.dataIndex], unit)} (${val}%)` : tipLabel(ctx, val);
+          } } },
+          kLabels: { mode: labelsMode, unit: pct100 ? 'pct' : unit, stacked } },
         scales: horizontal ? { x: valAxis, y: catAxis } : { x: catAxis, y: valAxis } } };
   }
   return new Chart(canvas, cfg);
 }
 
+/* ----- HTML-drawn chart types ----- */
 function heatmapHTML(d, c) {
+  const hue = c.color || '#D6245F';
   const vals = d.cells.flat().map((x) => x.v).filter((v) => v !== null);
   const max = Math.max(...vals, 1);
   const shade = (v) => {
     if (v === null) return 'background:transparent';
     if (!v) return 'background:#EEF2F8';
     const t = Math.min(1, Math.max(0.12, Math.sqrt(v / max)));
-    return `background:${hexA('#D6245F', t)}${t > 0.55 ? ';color:#fff' : ''}`;
+    return `background:${hexA(hue, t)}${t > 0.55 ? ';color:#fff' : ''}`;
   };
-  const showNums = !d.compact && d.cols.length <= 12;
+  const showNums = (c.labels || 'value') !== 'none' && !d.compact && d.cols.length <= 12;
   return `<div class="heat-wrap"><table class="heat ${d.compact ? 'compact' : ''}">
     <thead><tr><th></th>${d.cols.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead>
     <tbody>${d.rows.map((r, i) => `<tr><th>${esc(r)}</th>${d.cells[i].map((x) => `<td style="${shade(x.v)}" title="${esc(x.title)}">${showNums && x.v ? money(x.v, { compact: true }) : ''}</td>`).join('')}</tr>`).join('')}</tbody>
   </table>
-  <div class="heat-legend"><span>Less</span>${[0.12, 0.35, 0.6, 0.85, 1].map((t) => `<i style="background:${hexA('#D6245F', t)}"></i>`).join('')}<span>More</span><span class="ml-auto">Top: ${money(max)}</span></div></div>`;
+  <div class="heat-legend"><span>Less</span>${[0.12, 0.35, 0.6, 0.85, 1].map((t) => `<i style="background:${hexA(hue, t)}"></i>`).join('')}<span>More</span><span class="ml-auto">Highest: ${money(max)}</span></div></div>`;
+}
+function tableHTML(d, unit) {
+  if (d.cells) {
+    return `<div class="overflow-x-auto"><table class="sched"><thead><tr><th></th>${d.cols.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${d.rows.map((r, i) => `<tr><td>${esc(r)}</td>${d.cells[i].map((x) => `<td>${x.v ? fmtVal(x.v, 'money') : x.v === null ? '' : '–'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  }
+  const showTotal = unit !== 'pct';
+  return `<div class="overflow-x-auto chart-table"><table class="sched">
+    <thead><tr><th></th>${d.series.map((s) => `<th>${esc(s.name)}</th>`).join('')}</tr></thead>
+    <tbody>${d.labels.map((l, i) => `<tr><td><span class="sw-dot" style="background:${colorFor(l)}"></span>${esc(l)}</td>${d.series.map((s) => `<td>${s.data[i] === null ? '' : fmtVal(s.data[i], unit)}</td>`).join('')}</tr>`).join('')}</tbody>
+    ${showTotal ? `<tfoot><tr><td>Total</td>${d.series.map((s) => `<td>${fmtVal(s.data.reduce((a, x) => a + num(x), 0), unit)}</td>`).join('')}</tr></tfoot>` : ''}
+  </table></div>`;
+}
+function kpiHTML(d, c, v) {
+  const unit = v.unit || 'money';
+  const hue = c.color || '#0A6FB0';
+  const s = d.series[d.series.length > 1 && v.shape === 'cat2' ? 1 : 0];
+  let big, sub = '';
+  if (v.shape === 'series') {
+    const vals = s.data.filter((x) => x !== null);
+    const last = vals[vals.length - 1] ?? 0, prev = vals[vals.length - 2];
+    const isRunning = /running total|at each month end|rate/i.test(v.label);
+    big = isRunning || unit === 'pct' ? last : vals.reduce((a, x) => a + num(x), 0);
+    const label = isRunning || unit === 'pct' ? `Latest (${d.labels[s.data.lastIndexOf(last)] || ''})` : `Total over ${vals.length} ${vals.length === 1 ? 'month' : 'months'}`;
+    const change = prev !== undefined && prev !== 0 ? ((last - prev) / Math.abs(prev)) * 100 : null;
+    sub = `<div class="kpi-sub">${esc(label)}${change !== null ? `<span class="kpi-chg ${change >= 0 ? 'up' : 'down'}"><i class="fa-solid fa-arrow-${change >= 0 ? 'up' : 'down'}"></i> ${Math.abs(Math.round(change))}% vs previous</span>` : ''}</div>`;
+  } else {
+    big = unit === 'pct' ? s.data.reduce((a, x) => a + num(x), 0) / (s.data.length || 1) : s.data.reduce((a, x) => a + num(x), 0);
+    const topI = s.data.reduce((bi, x, i, arr) => (Math.abs(x) > Math.abs(arr[bi]) ? i : bi), 0);
+    sub = `<div class="kpi-sub">${unit === 'pct' ? 'Average' : 'Total'} of ${d.labels.length} item${d.labels.length === 1 ? '' : 's'}. Largest: <b>${esc(d.labels[topI])}</b> ${fmtVal(s.data[topI], unit)}</div>`;
+  }
+  return `<div class="kpi" style="--kpi:${hue}"><div class="kpi-num num">${fmtVal(big, unit)}</div>${sub}</div>`;
+}
+function progressHTML(d, v) {
+  const two = d.series.length > 1;
+  const rows = d.labels.map((l, i) => {
+    const target = two ? num(d.series[0].data[i]) : 100;
+    const actual = two ? num(d.series[1].data[i]) : num(d.series[0].data[i]);
+    const p = target > 0 ? (actual / target) * 100 : 0;
+    const col = p > 100 ? '#E0306E' : p >= 80 ? '#F59E0B' : colorFor(l);
+    return `<div><div class="flex justify-between text-sm mb-1 gap-2"><span class="font-medium truncate">${esc(l)}</span>
+      <span class="num text-ink-2 whitespace-nowrap">${two ? `${fmtVal(actual, v.unit)} of ${fmtVal(target, v.unit)}` : ''} <b>${Math.round(p)}%</b></span></div>
+      <div class="bar"><span style="width:${Math.min(100, p)}%;background:${col}"></span></div></div>`;
+  });
+  return `<div class="space-y-3 py-1">${rows.join('')}</div>`;
+}
+/** Squarified treemap drawn with positioned boxes. */
+function treemapHTML(d, c, unit) {
+  const items = d.labels.map((l, i) => ({ l, v: Math.abs(num(d.series[0].data[i])) })).filter((x) => x.v > 0).sort((a, b) => b.v - a.v);
+  const total = items.reduce((s, x) => s + x.v, 0) || 1;
+  const rects = [];
+  const layout = (list, x, y, w, h) => {
+    if (!list.length) return;
+    if (list.length === 1) { rects.push({ ...list[0], x, y, w, h }); return; }
+    const sum = list.reduce((s, it) => s + it.v, 0);
+    let acc = 0, k = 0;
+    while (k < list.length - 1 && (acc + list[k].v) / sum <= 0.5) acc += list[k++].v;
+    if (k === 0) { acc = list[0].v; k = 1; }
+    const f = acc / sum;
+    if (w >= h) { layout(list.slice(0, k), x, y, w * f, h); layout(list.slice(k), x + w * f, y, w * (1 - f), h); }
+    else { layout(list.slice(0, k), x, y, w, h * f); layout(list.slice(k), x, y + h * f, w, h * (1 - f)); }
+  };
+  layout(items, 0, 0, 100, 100);
+  const mode = c.labels || 'value';
+  return `<div class="treemap">${rects.map((r) => {
+    const share = `${Math.round((r.v / total) * 100)}%`;
+    const val = mode === 'percent' ? share : mode === 'both' ? `${fmtVal(r.v, unit, true)} · ${share}` : fmtVal(r.v, unit, true);
+    return `<div class="tm-cell" style="left:${r.x}%;top:${r.y}%;width:${r.w}%;height:${r.h}%;background:${colorFor(r.l)}" title="${esc(r.l)}: ${esc(fmtVal(r.v, unit))} (${share})">
+      ${r.w * r.h > 60 ? `<span class="tm-label">${esc(r.l)}</span>${mode !== 'none' ? `<span class="tm-val num">${esc(val)}</span>` : ''}` : ''}</div>`;
+  }).join('')}</div>`;
 }
 
 /* ----- Cards on the dashboard and the Charts page ----- */
 const sortedCharts = () => db.charts.slice().sort((a, b) => (num(a.order) - num(b.order)) || (a.createdAt || '').localeCompare(b.createdAt || ''));
+const chartInstances = new Map();
+function chartSubtitle(c) {
+  const e = effectiveChart(c), v = CHART_VALUES[c.value];
+  return [CHART_TYPES[c.type]?.label, v?.period ? periodLabel(e.period) : v?.label?.includes('This month vs') ? '' : 'Today'].filter(Boolean).join(', ');
+}
+function filterControls(c) {
+  const v = CHART_VALUES[c.value] || {};
+  const kinds = (c.filters || []).filter((k) => supportedFilters(v).includes(k));
+  const st = chartFilterState[c.id] || {};
+  return kinds.map((k) => `<select class="chart-filter" data-chart-filter="${k}" data-id="${c.id}" aria-label="${FILTER_KINDS[k].label}">
+    ${filterOptions(k).map(([val, lab]) => `<option value="${esc(val)}" ${(k === 'period' ? st.period || c.period : st[k] || '') === val ? 'selected' : ''}>${esc(lab)}</option>`).join('')}
+  </select>`).join('');
+}
 function chartCard(c, where) {
-  const v = CHART_VALUES[c.value];
-  const sub = [CHART_TYPES[c.type]?.label, v?.period ? periodLabel(c.period) : 'Today'].filter(Boolean).join(', ');
   const i = sortedCharts().findIndex((x) => x.id === c.id);
+  const filters = filterControls(c);
   return `<section class="panel p-5 ${c.size === 'full' ? 'lg:col-span-2' : ''}">
     <div class="panel-head flex-nowrap items-start">
-      <div class="min-w-0 flex-1"><h2 class="panel-title chart-title" title="${esc(c.title || defaultTitle(c))}">${esc(c.title || defaultTitle(c))}</h2><div class="text-xs text-ink-3 mt-0.5">${esc(sub)}</div></div>
+      <div class="min-w-0 flex-1"><h2 class="panel-title chart-title" title="${esc(c.title || defaultTitle(c))}">${esc(c.title || defaultTitle(c))}</h2>
+        <div class="text-xs text-ink-3 mt-0.5" data-chart-sub="${c.id}">${esc(chartSubtitle(c))}</div></div>
       <div class="flex gap-0.5 flex-none">
         ${where === 'page' ? `<button class="icon-btn sm" data-action="chart-move" data-id="${c.id}" data-dir="-1" title="Move earlier" aria-label="Move chart earlier" ${i === 0 ? 'disabled' : ''}><i class="fa-solid fa-arrow-up"></i></button>
           <button class="icon-btn sm" data-action="chart-move" data-id="${c.id}" data-dir="1" title="Move later" aria-label="Move chart later"><i class="fa-solid fa-arrow-down"></i></button>` : ''}
@@ -2704,16 +3087,32 @@ function chartCard(c, where) {
         <button class="icon-btn sm" data-action="chart-edit" data-id="${c.id}" title="Edit" aria-label="Edit chart"><i class="fa-regular fa-pen-to-square"></i></button>
       </div>
     </div>
-    <div class="chart-box ${c.type === 'heatmap' ? 'is-heat' : ''}" data-chart-id="${c.id}"></div>
+    ${filters ? `<div class="chart-filters">${filters}</div>` : ''}
+    <div class="chart-box" data-chart-id="${c.id}"></div>
   </section>`;
 }
+function drawOneCard(box) {
+  const c = db.charts.find((x) => x.id === box.dataset.chartId);
+  if (!c) return;
+  const old = chartInstances.get(c.id);
+  if (old) { old.destroy(); charts = charts.filter((x) => x !== old); chartInstances.delete(c.id); }
+  const inst = drawChartInto(box, effectiveChart(c));
+  if (inst) { charts.push(inst); chartInstances.set(c.id, inst); }
+}
 function drawChartCards() {
-  $$('[data-chart-id]').forEach((box) => {
-    const c = db.charts.find((x) => x.id === box.dataset.chartId);
-    if (!c) return;
-    const inst = drawChartInto(box, c);
-    if (inst) charts.push(inst);
-  });
+  chartInstances.clear();
+  $$('[data-chart-id]').forEach(drawOneCard);
+}
+/** A filter on a chart changed: remember it on this device and redraw just that chart. */
+function onChartFilter(el) {
+  const id = el.dataset.id, kind = el.dataset.chartFilter;
+  chartFilterState[id] = { ...(chartFilterState[id] || {}), [kind]: el.value };
+  writeLS(CHART_FILTER_KEY, chartFilterState);
+  const c = db.charts.find((x) => x.id === id);
+  const sub = $(`[data-chart-sub="${id}"]`);
+  if (c && sub) sub.textContent = chartSubtitle(c);
+  const box = $(`[data-chart-id="${id}"]`);
+  if (box) drawOneCard(box);
 }
 function pinnedChartsSection() {
   const pinned = sortedCharts().filter((c) => c.pinned);
@@ -2725,7 +3124,6 @@ function pinnedChartsSection() {
     ${pinned.length ? `<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">${pinned.map((c) => chartCard(c, 'dash')).join('')}</div>`
       : `<section class="panel">${emptyState('fa-chart-simple', 'Build your own charts: pick a chart type and what it should show, then pin it here.', '<button class="btn btn-primary" data-action="chart-new"><i class="fa-solid fa-plus"></i> Make a chart</button>')}</section>`}`;
 }
-
 function renderCharts() {
   const list = sortedCharts();
   return `<div class="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -2740,7 +3138,8 @@ function renderCharts() {
 let previewChart = null;
 function openChartBuilder(existing) {
   const isNew = !existing;
-  const c = existing ? { ...existing } : { type: 'bar', value: 'cashflow', period: 'last_6', top: 8, size: 'half', pinned: true };
+  const c = existing ? { ...existing } : { type: 'bar', value: 'cashflow', period: 'last_6', top: 8, size: 'half', pinned: true, labels: 'value', filters: ['period'] };
+  colorDraft = {};
   const typeTiles = Object.entries(CHART_TYPES).map(([k, t]) => `
     <input type="radio" name="type" id="ct_${k}" value="${k}" ${k === c.type ? 'checked' : ''}>
     <label for="ct_${k}"><i class="fa-solid ${t.icon}"></i><span>${t.label}</span></label>`).join('');
@@ -2752,11 +3151,17 @@ function openChartBuilder(existing) {
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
       <div data-top>${field('Show the biggest', select('top', [['5', 'Top 5'], ['8', 'Top 8'], ['10', 'Top 10'], ['15', 'Top 15'], ['0', 'All']], String(c.top ?? 8)))}</div>
+      <div data-labels>${field('Data labels', select('labels', [['value', 'Show values'], ['percent', 'Show % of total'], ['both', 'Values and %'], ['none', 'No labels']], c.labels || 'value'))}</div>
       ${field('Size on the dashboard', select('size', [['half', 'Half width'], ['full', 'Full width']], c.size || 'half'))}
-      ${field('Title', input('title', c.title || '', 'maxlength="80" placeholder="Automatic"'))}
     </div>
-    ${checkbox('pinned', c.pinned !== false, 'Pin to the dashboard', 'Pinned charts show on the dashboard every time the app is opened, on any device.')}
+    <div data-filters><span class="lbl">3. Filters on the chart <span class="font-normal text-ink-3">(appear at its top right, so you can switch without editing)</span></span><div class="filter-picks"></div></div>
+    <div><span class="lbl">4. Colours <span class="font-normal text-ink-3">(a colour you pick is used for that item in every chart)</span></span><div class="color-picks" data-colors></div></div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
+      ${field('Title', input('title', c.title || '', 'maxlength="80" placeholder="Automatic"'))}
+      ${checkbox('pinned', c.pinned !== false, 'Pin to the dashboard', 'Shows on the dashboard every time the app is opened, on any device.')}
+    </div>
     <div><span class="lbl">Preview</span><div class="chart-box preview" id="chartPreview"></div></div>`;
+  let singleColor = c.color || '';
   openModal({
     title: isNew ? 'New chart' : 'Edit chart',
     wide: true,
@@ -2764,48 +3169,100 @@ function openChartBuilder(existing) {
     submitLabel: isNew ? 'Save chart' : 'Save changes',
     onOpen: (form) => {
       const sel = $('[data-values]', form);
+      const sig = { signal: modalSignal() };
+      const pickedFilters = new Set(c.filters || []);
       const current = () => ({
-        type: form.elements.type.value, value: sel.value, period: form.elements.period.value,
+        id: c.id || '__preview', type: form.elements.type.value, value: sel.value, period: form.elements.period.value,
         top: int(form.elements.top.value), size: form.elements.size.value, title: form.elements.title.value.trim(),
+        labels: form.elements.labels.value, color: singleColor, filters: [...pickedFilters], flt: {},
       });
       const fillValues = () => {
-        const type = form.elements.type.value;
-        const opts = valuesFor(type);
+        const opts = valuesFor(form.elements.type.value);
         const keep = opts.some(([k]) => k === sel.value) ? sel.value : opts.some(([k]) => k === c.value) ? c.value : opts[0][0];
-        sel.innerHTML = opts.map(([k, v]) => `<option value="${k}" ${k === keep ? 'selected' : ''}>${esc(v.label)}</option>`).join('');
+        const groups = [...new Set(opts.map(([, v]) => v.group))];
+        sel.innerHTML = groups.map((g) => `<optgroup label="${esc(g)}">${opts.filter(([, v]) => v.group === g).map(([k, v]) => `<option value="${k}" ${k === keep ? 'selected' : ''}>${esc(v.label)}</option>`).join('')}</optgroup>`).join('');
       };
-      const preview = () => {
+      const fillFilters = () => {
+        const kinds = supportedFilters(CHART_VALUES[sel.value]);
+        $('[data-filters]', form).hidden = !kinds.length;
+        $('.filter-picks', form).innerHTML = kinds.map((k) => `<label class="check-chip"><input type="checkbox" data-fpick="${k}" ${pickedFilters.has(k) ? 'checked' : ''}> ${FILTER_KINDS[k].label}</label>`).join('');
+      };
+      const fillColors = (cur) => {
+        const box = $('[data-colors]', form);
+        const T = CHART_TYPES[cur.type];
+        const v = CHART_VALUES[cur.value];
+        if (T.oneColor) {
+          box.innerHTML = `<label class="color-pick"><input type="color" data-one value="${singleColor || (cur.type === 'heatmap' ? '#D6245F' : '#0A6FB0')}"> Chart colour</label>`;
+          return;
+        }
+        if (cur.type === 'waterfall' || v.signed) { box.innerHTML = '<p class="hint">This chart colours rises green and falls pink.</p>'; return; }
+        const d = chartData(cur);
+        if (!d || d.cells) { box.innerHTML = ''; return; }
+        const names = (v.shape === 'cat' && d.series.length === 1 ? d.labels : d.series.map((s) => s.name)).filter((x, i, a) => a.indexOf(x) === i).slice(0, 24);
+        box.innerHTML = names.map((n) => `<label class="color-pick"><input type="color" data-color-for="${esc(n)}" value="${colorFor(n)}"> ${esc(n)}
+          ${db.settings.colors?.[n] || colorDraft[n] ? `<button type="button" class="link text-xs" data-reset-color="${esc(n)}">reset</button>` : ''}</label>`).join('') || '<p class="hint">Nothing to colour yet.</p>';
+      };
+      const preview = (withColors = true) => {
         const cur = current();
         const v = CHART_VALUES[cur.value];
+        const T = CHART_TYPES[cur.type];
         $('[data-period]', form).hidden = !v.period;
         $('[data-top]', form).hidden = !v.top;
+        $('[data-labels]', form).hidden = ['kpi', 'table', 'progress'].includes(cur.type);
         form.elements.title.placeholder = defaultTitle(cur);
         if (previewChart) { previewChart.destroy(); previewChart = null; }
         const box = $('#chartPreview');
         box.classList.toggle('is-heat', cur.type === 'heatmap');
         previewChart = drawChartInto(box, cur);
+        if (withColors) fillColors(cur);
+        void T;
       };
-      fillValues(); preview();
+      fillValues(); fillFilters(); preview();
       form.addEventListener('change', (e) => {
-        if (e.target.name === 'type') fillValues();
-        if (['type', 'value', 'period', 'top'].includes(e.target.name)) preview();
-      }, { signal: modalSignal() });
-      form.addEventListener('input', (e) => { if (e.target.name === 'title') form.elements.title.placeholder = defaultTitle(current()); }, { signal: modalSignal() });
+        const n = e.target.name;
+        if (n === 'type') { fillValues(); fillFilters(); }
+        if (n === 'value') fillFilters();
+        if (e.target.dataset.fpick) { e.target.checked ? pickedFilters.add(e.target.dataset.fpick) : pickedFilters.delete(e.target.dataset.fpick); return; }
+        if (['type', 'value', 'period', 'top', 'labels'].includes(n)) preview();
+      }, sig);
+      form.addEventListener('input', (e) => {
+        if (e.target.name === 'title') form.elements.title.placeholder = defaultTitle(current());
+        if (e.target.dataset.colorFor !== undefined) { colorDraft[e.target.dataset.colorFor] = e.target.value; preview(false); }
+        if (e.target.dataset.one !== undefined) { singleColor = e.target.value; preview(false); }
+      }, sig);
+      form.addEventListener('click', (e) => {
+        const r = e.target.closest('[data-reset-color]');
+        if (!r) return;
+        colorDraft[r.dataset.resetColor] = null;
+        preview();
+      }, sig);
     },
     onSubmit: (d) => {
       if (previewChart) { previewChart.destroy(); previewChart = null; }
+      const form = $('#modalForm');
+      const filters = [...form.querySelectorAll('[data-fpick]')].filter((x) => x.checked).map((x) => x.dataset.fpick);
       const maxOrder = Math.max(0, ...db.charts.map((x) => num(x.order)));
       const rec = {
         ...(existing || {}), id: existing?.id || uid('chart'),
         type: d.type, value: d.value, period: d.period || 'last_6', top: int(d.top), size: d.size,
         title: (d.title || '').trim(), pinned: !!d.pinned, order: existing?.order ?? maxOrder + 1,
+        labels: d.labels || 'value', filters, color: CHART_TYPES[d.type].oneColor ? singleColor : existing?.color || '',
       };
-      commit([opUpsert('charts', rec)], `${isNew ? 'Add' : 'Edit'} chart ${rec.title || defaultTitle(rec)}`);
+      const ops = [opUpsert('charts', rec)];
+      const draft = colorDraft || {};
+      colorDraft = null;
+      if (Object.keys(draft).length) {
+        const colors = { ...(db.settings.colors || {}) };
+        for (const [k, val] of Object.entries(draft)) { if (val) colors[k] = val; else delete colors[k]; }
+        ops.push(opSettings({ colors }));
+      }
+      commit(ops, `${isNew ? 'Add' : 'Edit'} chart ${rec.title || defaultTitle(rec)}`);
       toast(rec.pinned ? 'Chart saved and pinned to the dashboard' : 'Chart saved', 'success');
     },
     onDelete: existing ? () => {
       if (!confirm('Delete this chart? Your data is not affected.')) return false;
       if (previewChart) { previewChart.destroy(); previewChart = null; }
+      colorDraft = null;
       commit([opDelete('charts', existing.id)], 'Delete chart');
       toast('Chart deleted');
     } : null,
@@ -2821,9 +3278,9 @@ function moveChart(id, dir) {
   const list = sortedCharts();
   const i = list.findIndex((x) => x.id === id), j = i + int(dir);
   if (i < 0 || j < 0 || j >= list.length) return;
-  const ops = list.map((x, k) => ({ ...x, order: k + 1 }));
-  [ops[i].order, ops[j].order] = [ops[j].order, ops[i].order];
-  commit(ops.filter((x, k) => x.order !== num(list[k].order)).map((x) => opUpsert('charts', x)), 'Reorder charts');
+  const next = list.map((x, k) => ({ ...x, order: k + 1 }));
+  [next[i].order, next[j].order] = [next[j].order, next[i].order];
+  commit(next.filter((x, k) => x.order !== num(list[k].order)).map((x) => opUpsert('charts', x)), 'Reorder charts');
 }
 
 /* ---------------------------------------------------------------------
@@ -3573,6 +4030,7 @@ function openSettings() {
         field('Currency', select('currency', Object.keys(CURRENCIES), s.currency)))}
       ${checkbox('autoPrices', s.autoPrices !== false, 'Update fund and stock prices when the app opens', 'Mutual fund NAVs come from MFapi.in (free, AMFI data). Checked at most every 3 hours.')}
       ${field('Stock price key (optional)', input('stockApiKey', s.stockApiKey, 'autocomplete="off" spellcheck="false" placeholder="Alpha Vantage free key"'), 'Only needed for live stock and ETF prices. Get a free key at alphavantage.co (25 price checks a day).')}
+      ${Object.keys(s.colors || {}).length ? `<p class="text-sm">You have picked your own colours for ${Object.keys(s.colors).length} chart item(s). <button type="button" class="link" data-action="reset-colors">Reset chart colours</button></p>` : ''}
       ${checkbox('showNwToggles', s.showNwToggles !== false, 'Show the net worth switches on the dashboard', 'Small switches on the net worth card to leave out investments or credit card dues.')}
       ${checkbox('sipAsSpending', s.sipAsSpending, 'Count SIPs as money going out', 'Shows SIPs and other money you invest in the spending chart and monthly totals. Net worth is not affected, because the money is still yours in the fund.')}
       ${field('Expense categories', textarea('expenseCategories', s.expenseCategories.join('\n'), 'rows="6"'), 'One per line. Renaming a category here does not change past transactions.')}
@@ -3736,6 +4194,12 @@ const ACTIONS = {
   'refresh-prices': () => refreshPrices(),
   'review-units': (d) => openReview(d.id),
   'chart-new': () => openChartBuilder(null),
+  'reset-colors': (d, el) => {
+    if (!confirm('Go back to the standard colours in all charts?')) return;
+    commit([opSettings({ colors: {} })], 'Reset chart colours');
+    el.closest('p')?.remove();
+    toast('Chart colours reset');
+  },
   'chart-edit': (d) => openChartBuilder(db.charts.find((x) => x.id === d.id)),
   'chart-pin': (d) => toggleChartPin(d.id),
   'chart-move': (d) => moveChart(d.id, d.dir),
@@ -3759,6 +4223,9 @@ function init() {
     e.preventDefault();
     ACTIONS[el.dataset.action](el.dataset, el);
   });
+
+  // Filters shown on a chart (top right)
+  document.addEventListener('change', (e) => { if (e.target.dataset?.chartFilter) onChartFilter(e.target); });
 
   // Net worth switches on the dashboard (saved with your settings, so every device matches).
   document.addEventListener('change', (e) => {
