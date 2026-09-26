@@ -1,5 +1,6 @@
 /* =====================================================================
-   Kosh | Expense Tracker & Fund Manager
+   Kundan's Finance  (KOSH: Kundan On Savings Hustle)
+   Expense tracker, fund manager and investment portfolio
    ---------------------------------------------------------------------
    A single-page app with no backend server. All data lives in ONE JSON
    file inside your own GitHub repository, read and written through the
@@ -14,8 +15,8 @@
      5. SYNC ENGINE             <-- fetch -> merge -> commit logic
      6. CALCULATIONS (balances, EMIs, cards, budgets)
      7. UI HELPERS (modal, toast, form fields)
-     8. PAGES (dashboard, accounts, transactions, EMIs, subscriptions,
-        budgets, export)
+     8. PAGES (dashboard, accounts, investments & SIPs, transactions,
+        EMIs, subscriptions, budgets, export)
      9. FORMS & ACTIONS
     10. EXPORT / IMPORT
     11. SETTINGS
@@ -26,14 +27,17 @@
 /* ---------------------------------------------------------------------
    1. CONSTANTS & DEFAULTS
    --------------------------------------------------------------------- */
+// NOTE: these key names are deliberately unchanged from the first version
+// of the app, so data already saved in your browser keeps loading.
 const STORAGE_KEYS = {
   db: 'kosh.db.v1',             // cached copy of the whole database
   pending: 'kosh.pending.v1',   // changes made here but not yet on GitHub
   config: 'kosh.config.v1',     // GitHub connection details (incl. token)
   lastSync: 'kosh.lastSync.v1', // time of last successful sync
 };
-const SCHEMA_VERSION = 1;
-const COLLECTIONS = ['accounts', 'transactions', 'emis', 'subscriptions', 'budgets'];
+const APP_NAME = "Kundan's Finance";
+const SCHEMA_VERSION = 2; // v2 added the `sips` list; v1 files load unchanged
+const COLLECTIONS = ['accounts', 'transactions', 'emis', 'subscriptions', 'budgets', 'sips'];
 
 const ACCOUNT_TYPES = {
   cash:        { label: 'Cash & wallets',        single: 'Cash or wallet', icon: 'fa-wallet' },
@@ -43,7 +47,18 @@ const ACCOUNT_TYPES = {
 };
 const CASH_KINDS = ['Cash', 'UPI wallet', 'Prepaid card', 'Other'];
 const BANK_KINDS = ['Savings', 'Current', 'Salary', 'NRE / NRO', 'Other'];
-const INVESTMENT_KINDS = ['Mutual fund', 'Fixed deposit', 'Recurring deposit', 'Stocks', 'PPF / EPF', 'NPS', 'Gold', 'Bonds', 'Crypto', 'Other'];
+const INVESTMENT_KINDS = ['Mutual fund', 'Stocks', 'ETF', 'Fixed deposit', 'Recurring deposit', 'PPF / EPF', 'NPS', 'Gold', 'Bonds', 'Crypto', 'Other'];
+/** How holdings are grouped in the portfolio allocation chart. */
+const INVESTMENT_GROUPS = {
+  'Mutual fund': 'Mutual funds', 'Stocks': 'Stocks & ETFs', 'ETF': 'Stocks & ETFs',
+  'Fixed deposit': 'Deposits', 'Recurring deposit': 'Deposits', 'PPF / EPF': 'Retirement', 'NPS': 'Retirement',
+  'Gold': 'Gold', 'Bonds': 'Bonds', 'Crypto': 'Crypto',
+};
+const investmentGroup = (a) => INVESTMENT_GROUPS[a.subtype] || 'Other';
+const isDeposit = (a) => a.subtype === 'Fixed deposit' || a.subtype === 'Recurring deposit';
+const SIP_FREQUENCIES = ['weekly', 'monthly', 'quarterly'];
+const SIP_CATEGORY = 'SIP';                       // category on auto-recorded SIP transactions
+const INVEST_SLICE = 'SIP & investments';         // label used in spending charts
 const LOAN_KINDS = ['Home loan', 'Car loan', 'Two-wheeler loan', 'Personal loan', 'Education loan', 'Gold loan', 'Consumer durable', 'Other'];
 const FREQUENCIES = {
   weekly:      { label: 'Weekly',         perMonth: 52 / 12 },
@@ -57,15 +72,18 @@ const CURRENCIES = {
   SGD: 'en-SG', AUD: 'en-AU', CAD: 'en-CA', JPY: 'ja-JP',
 };
 const DEFAULT_SETTINGS = {
+  ownerName: 'Kundan',       // shown in the app heading: "Kundan's Finance"
   currency: 'INR',
+  sipAsSpending: true,       // show SIPs / money invested in monthly spending charts
   expenseCategories: ['Food & dining', 'Groceries', 'Transport', 'Fuel', 'Utilities', 'Rent', 'Shopping',
     'Health', 'Education', 'Entertainment', 'Travel', 'Subscriptions', 'EMI', 'Insurance',
     'Personal care', 'Family', 'Gifts & donations', 'Fees & charges', 'Other'],
   incomeCategories: ['Salary', 'Business', 'Freelance', 'Interest', 'Dividends', 'Refund',
     'Cashback', 'Gift', 'Rental income', 'Other'],
 };
-const CHART_COLORS = ['#27408B', '#1E7A52', '#E8A317', '#B4323A', '#5B7BD5', '#6FA88A',
-  '#8C6A3F', '#7A3E8F', '#2E8C99', '#9AA3BD', '#C0616A', '#3F4A6B'];
+// Festive, high-contrast palette: peacock, marigold, rani pink, leaf, violet...
+const CHART_COLORS = ['#0B84C6', '#14B8A6', '#E0306E', '#7C3AED', '#06B6D4', '#F97316',
+  '#DB2777', '#2563EB', '#EAB308', '#A855F7', '#0F766E', '#94A3B8'];
 
 /* ---------------------------------------------------------------------
    2. SMALL UTILITIES
@@ -128,6 +146,14 @@ const _fmtCache = new Map();
 function money(n, { compact = false, sign = false } = {}) {
   const cur = db?.settings?.currency || 'INR';
   const v = round2(num(n));
+  if (compact && cur === 'INR') {
+    // Indian short forms for chart axes: ₹90K, ₹4.5L, ₹1.2Cr (the browser's own
+    // en-IN compact style prints "₹90T" for thousands, which reads badly).
+    const a = Math.abs(v);
+    const [div, suf] = a >= 1e7 ? [1e7, 'Cr'] : a >= 1e5 ? [1e5, 'L'] : a >= 1e3 ? [1e3, 'K'] : [1, ''];
+    const out = '₹' + (+(a / div).toFixed(a / div < 10 && div > 1 ? 1 : 0)).toLocaleString('en-IN') + suf;
+    return v < 0 ? '−' + out : sign && v > 0 ? '+' + out : out;
+  }
   const frac = compact || Number.isInteger(v) ? 0 : 2;
   const key = `${cur}|${compact}|${frac}`;
   if (!_fmtCache.has(key)) {
@@ -171,10 +197,12 @@ function emptyDB() {
     schemaVersion: SCHEMA_VERSION,
     meta: { app: 'kosh-expense-tracker', updatedAt: null },
     settings: clone(DEFAULT_SETTINGS),
-    accounts: [], transactions: [], emis: [], subscriptions: [], budgets: [],
+    accounts: [], transactions: [], emis: [], subscriptions: [], budgets: [], sips: [],
   };
 }
-/** Makes sure any loaded JSON has every expected key (safe against old/partial files). */
+/** Makes sure any loaded JSON has every expected key (safe against old/partial files).
+    Older files simply get the new keys added (e.g. an empty `sips` list); nothing
+    existing is removed or renamed, and unknown keys are kept as they are. */
 function normalizeDB(d) {
   const base = emptyDB();
   if (!d || typeof d !== 'object') return base;
@@ -405,8 +433,8 @@ function scheduleSync(delay = 700) {
 
 function commitMessage(batches) {
   const msgs = batches.map((b) => b.message).filter(Boolean);
-  if (msgs.length <= 1) return `Kosh: ${msgs[0] || 'Update data'}`;
-  return `Kosh: ${msgs.length} changes (${msgs.slice(0, 3).join('; ')}${msgs.length > 3 ? '; …' : ''})`;
+  if (msgs.length <= 1) return `KOSH: ${msgs[0] || 'Update data'}`;
+  return `KOSH: ${msgs.length} changes (${msgs.slice(0, 3).join('; ')}${msgs.length > 3 ? '; …' : ''})`;
 }
 
 async function runSync() {
@@ -439,7 +467,7 @@ async function runSync() {
       merged.meta.updatedAt = new Date().toISOString();
 
       try {
-        await api.putFile(merged, remote.sha, batches.length ? commitMessage(batches) : 'Kosh: create data file'); // (c)
+        await api.putFile(merged, remote.sha, batches.length ? commitMessage(batches) : 'KOSH: create data file'); // (c)
       } catch (e) {
         const conflict = e.status === 409 || (e.status === 422 && /sha/i.test(e.raw || ''));
         if (conflict) { await sleep(500 * attempt); continue; }   // (d) retry
@@ -610,7 +638,70 @@ function buildModel() {
   T.assets = T.cash + T.bank + T.investment + T.cardCredit;
   T.liabilities = T.cardDebt + T.loans + T.cardEmis;
   T.netWorth = T.assets - T.liabilities;
-  return { balances, emis, emiBlocked, T };
+  return { balances, emis, emiBlocked, T, P: buildPortfolio(balances) };
+}
+
+/* ----- Investment portfolio -----
+   Each investment account is one holding (a fund, a stock, an FD...).
+     current value = its balance (opening value + money in - money out
+                     + "Update value" adjustments for market moves)
+     invested      = amount invested as on the opening date
+                     + money put in since (SIPs, lump sums)
+                     - money taken out since (redemptions)
+     gain          = current value - invested
+   Market moves are recorded as adjustments, so they change the value
+   but not the invested amount. */
+function buildPortfolio(balances) {
+  const cost = new Map();
+  const inv = db.accounts.filter((a) => a.type === 'investment');
+  for (const a of inv) cost.set(a.id, num(a.investedAmount ?? a.openingBalance));
+  for (const t of db.transactions) {
+    if (t.type === 'adjustment') continue;
+    const amt = num(t.amount);
+    const to = cost.has(t.toAccountId) && (t.date || '') >= (accountById(t.toAccountId).openingDate || '');
+    const from = cost.has(t.fromAccountId) && (t.date || '') >= (accountById(t.fromAccountId).openingDate || '');
+    if (to) cost.set(t.toAccountId, cost.get(t.toAccountId) + amt);
+    if (from) cost.set(t.fromAccountId, Math.max(0, cost.get(t.fromAccountId) - amt));
+  }
+  const holdings = inv.map((a) => {
+    const value = round2(balances.get(a.id) || 0);
+    const invested = round2(cost.get(a.id) || 0);
+    const gain = round2(value - invested);
+    return { a, value, invested, gain, gainPct: invested > 0 ? gain / invested : 0, group: investmentGroup(a), fd: fdInfo(a, invested) };
+  });
+  const active = holdings.filter((h) => !h.a.archived || h.value !== 0);
+  const totals = { value: 0, invested: 0 };
+  const groups = new Map();
+  for (const h of active) {
+    totals.value += h.value; totals.invested += h.invested;
+    groups.set(h.group, (groups.get(h.group) || 0) + h.value);
+  }
+  totals.value = round2(totals.value); totals.invested = round2(totals.invested);
+  totals.gain = round2(totals.value - totals.invested);
+  totals.gainPct = totals.invested > 0 ? totals.gain / totals.invested : 0;
+  const activeSips = db.sips.filter((x) => x.active);
+  totals.sipMonthly = round2(activeSips.reduce((sum, x) => sum + sipAmountOn(x, todayStr()) * (FREQUENCIES[x.frequency]?.perMonth || 1), 0));
+  totals.sipCount = activeSips.length;
+  const allocation = [...groups.entries()].filter(([, v]) => v > 0).map(([group, value]) => ({ group, value: round2(value) })).sort((x, y) => y.value - x.value);
+  return { holdings, totals, allocation };
+}
+
+/** Fixed deposit maths (quarterly compounding, the usual Indian bank convention).
+    Needs an interest rate and a maturity date on the account. */
+function fdInfo(a, principal) {
+  if (a.subtype !== 'Fixed deposit' || !num(a.interestRate) || !a.maturityDate) return null;
+  const start = a.depositDate || a.openingDate || todayStr();
+  const P = num(a.principalAmount) || principal;
+  const r = num(a.interestRate) / 100;
+  const years = (s, e) => Math.max(0, (parseDate(e) - parseDate(s)) / (365.25 * 86400000));
+  const grow = (y) => round2(P * (1 + r / 4) ** (4 * y));
+  const today = todayStr();
+  return {
+    principal: P, start, maturityDate: a.maturityDate,
+    maturityValue: grow(years(start, a.maturityDate)),
+    estimatedToday: grow(years(start, today < a.maturityDate ? today : a.maturityDate)),
+    matured: a.maturityDate <= today,
+  };
 }
 let M = null; // current model
 
@@ -628,20 +719,43 @@ function cardMetrics(a) {
   };
 }
 
+/** Money moved from bank / cash / card into an investment (SIPs, lump sums). */
+function isInvestmentOutflow(t) {
+  if (t.type !== 'transfer') return false;
+  const to = accountById(t.toAccountId), from = accountById(t.fromAccountId);
+  return to?.type === 'investment' && from && from.type !== 'investment';
+}
+/**
+ * One month in numbers:
+ *   income   money received
+ *   spent    ordinary expenses
+ *   invested money put into investments (SIPs etc.)
+ *   left     income - spent - invested
+ * `expense` is what the charts call "money out": spent, plus invested when
+ * Settings > "Count SIPs as money going out" is on (the default).
+ */
 function monthSummary(mk) {
-  let income = 0, expense = 0;
+  let income = 0, spent = 0, invested = 0;
   for (const t of db.transactions) {
     if (!t.date || !t.date.startsWith(mk)) continue;
     if (t.type === 'income') income += num(t.amount);
-    else if (t.type === 'expense') expense += num(t.amount);
+    else if (t.type === 'expense') spent += num(t.amount);
+    else if (isInvestmentOutflow(t)) invested += num(t.amount);
   }
-  return { income: round2(income), expense: round2(expense), net: round2(income - expense) };
+  const expense = spent + (db.settings.sipAsSpending ? invested : 0);
+  return {
+    income: round2(income), spent: round2(spent), invested: round2(invested), expense: round2(expense),
+    left: round2(income - spent - invested), net: round2(income - expense),
+  };
 }
-function spendByCategory(mk) {
+function spendByCategory(mk, { withInvestments = db.settings.sipAsSpending } = {}) {
   const m = new Map();
   for (const t of db.transactions) {
-    if (t.type !== 'expense' || !t.date?.startsWith(mk)) continue;
-    const k = t.category || 'Other';
+    if (!t.date?.startsWith(mk)) continue;
+    let k;
+    if (t.type === 'expense') k = t.category || 'Other';
+    else if (withInvestments && isInvestmentOutflow(t)) k = INVEST_SLICE;
+    else continue;
     m.set(k, (m.get(k) || 0) + num(t.amount));
   }
   return [...m.entries()].map(([category, amount]) => ({ category, amount: round2(amount) })).sort((a, b) => b.amount - a.amount);
@@ -678,6 +792,16 @@ function upcomingItems(days = 30) {
       items.push({ date: s.nextRenewal, kind: 'subscription', id: s.id, title: s.name, sub: `${FREQUENCIES[s.frequency]?.label || ''} renewal, ${accountName(s.accountId)}`, amount: num(s.amount) });
     }
   }
+  for (const x of db.sips) {
+    if (x.active && x.nextDate && x.nextDate <= limit && !sipEnded(x, x.nextDate)) {
+      items.push({ date: x.nextDate, kind: 'sip', id: x.id, title: `${x.name} SIP`, sub: `${accountName(x.fromAccountId)} to ${accountName(x.fundAccountId)}${x.autoLog ? ', invests automatically' : ''}`, amount: sipAmountOn(x, x.nextDate) });
+    }
+  }
+  for (const h of M.P.holdings) {
+    if (h.fd && !h.a.archived && h.fd.maturityDate >= today && h.fd.maturityDate <= limit) {
+      items.push({ date: h.fd.maturityDate, kind: 'fd', id: h.a.id, title: `${h.a.name} matures`, sub: 'Fixed deposit maturity (estimated amount)', amount: h.fd.maturityValue });
+    }
+  }
   for (const a of db.accounts) {
     if (a.type !== 'credit_card' || a.archived) continue;
     const m = cardMetrics(a);
@@ -707,7 +831,38 @@ function emiTxn(e, k, c = emiCalc(e)) {
   };
 }
 
-/** Records subscription renewals and EMIs marked "record automatically" that are now due. */
+/* ----- SIPs -----
+   A SIP is stored as { name, fundAccountId, fromAccountId, amount, frequency,
+   day, startDate, nextDate, endDate, stepUpPercent, autoLog, active }.
+   Each instalment is a TRANSFER from your bank to the fund's investment
+   account: your bank balance goes down (like an expense) and the fund's
+   value goes up by the same amount, so net worth stays correct. */
+function sipAmountOn(x, date) {
+  const base = num(x.amount);
+  const step = num(x.stepUpPercent);
+  if (!step || !x.startDate || date < x.startDate) return round2(base);
+  const s = parseDate(x.startDate), d = parseDate(date);
+  const years = Math.floor(((d.getFullYear() - s.getFullYear()) * 12 + d.getMonth() - s.getMonth() - (d.getDate() < s.getDate() ? 1 : 0)) / 12);
+  return Math.round(base * (1 + step / 100) ** Math.max(0, years));
+}
+/** Next instalment after `date`, keeping the chosen day of month (e.g. always the 1st). */
+function advanceSip(x, date) {
+  if (x.frequency === 'weekly') return addDays(date, 7);
+  const d = parseDate(date);
+  const months = x.frequency === 'quarterly' ? 3 : 1;
+  return makeDate(d.getFullYear(), d.getMonth() + months, int(x.day) || d.getDate());
+}
+const sipEnded = (x, date) => !!x.endDate && date > x.endDate;
+function sipTxn(x, date) {
+  return {
+    id: `txn_sip_${x.id}_${date}`, date, type: 'transfer', amount: sipAmountOn(x, date),
+    category: SIP_CATEGORY, description: `${x.name} SIP`,
+    fromAccountId: x.fromAccountId || '', toAccountId: x.fundAccountId || '', relatedType: 'sip', relatedId: x.id,
+    notes: 'SIP instalment',
+  };
+}
+
+/** Records subscription renewals, EMIs and SIPs marked "automatic" that are now due. */
 function processAutoPayments() {
   const today = todayStr();
   const ops = [];
@@ -724,6 +879,16 @@ function processAutoPayments() {
     let paid = c.paid, guard = 0;
     while (paid < c.n && addMonths(e.startDate, paid) <= today && guard < 600) { ops.push(opUpsert('transactions', emiTxn(e, paid + 1, c))); paid++; guard++; }
     if (guard) { ops.push(opUpsert('emis', { ...e, paidInstallments: paid })); count += guard; }
+  }
+  for (const x of db.sips) {
+    if (!x.active || !x.autoLog || !x.nextDate || !accountById(x.fromAccountId) || !accountById(x.fundAccountId)) continue;
+    let next = x.nextDate, guard = 0;
+    while (next <= today && !sipEnded(x, next) && guard < 400) {
+      // ifMissing: never overwrite an instalment you already recorded or edited
+      ops.push(opUpsert('transactions', sipTxn(x, next), { ifMissing: true }));
+      next = advanceSip(x, next); guard++;
+    }
+    if (guard) { ops.push(opUpsert('sips', { ...x, nextDate: next, ...(sipEnded(x, next) ? { active: false } : {}) })); count += guard; }
   }
   if (ops.length) {
     commit(ops, `Auto-record ${count} due payment${count > 1 ? 's' : ''}`);
@@ -880,6 +1045,7 @@ function bindModal() {
 const PAGES = {
   dashboard:     { title: 'Dashboard',        icon: 'fa-chart-pie' },
   accounts:      { title: 'Accounts',         icon: 'fa-building-columns' },
+  portfolio:     { title: 'Investments & SIPs', icon: 'fa-seedling' },
   transactions:  { title: 'Transactions',     icon: 'fa-list' },
   emis:          { title: 'EMIs & loans',     icon: 'fa-calendar-check' },
   subscriptions: { title: 'Subscriptions',    icon: 'fa-rotate' },
@@ -904,15 +1070,25 @@ function render() {
   destroyCharts();
   renderNav();
   $('#pageTitle').textContent = PAGES[page].title;
-  document.title = `${PAGES[page].title} | Kosh`;
+  const brand = brandName();
+  document.title = `${PAGES[page].title} | ${brand}`;
+  $$('[data-brand]').forEach((el) => { el.textContent = brand; });
   const view = $('#view');
   const fn = {
-    dashboard: renderDashboard, accounts: renderAccounts, transactions: renderTransactions,
+    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, transactions: renderTransactions,
     emis: renderEmis, subscriptions: renderSubscriptions, budgets: renderBudgets, data: renderData,
   }[page];
   view.innerHTML = fn();
   if (page === 'dashboard') drawDashboardCharts();
+  if (page === 'portfolio') drawPortfolioChart();
   setSyncStatus(sync.state, sync.detail);
+}
+
+/** "Kundan's Finance" (the name comes from Settings > Your name). */
+function brandName() {
+  const n = String(db.settings.ownerName || '').trim();
+  if (!n) return 'My Finance';
+  return `${n}${/s$/i.test(n) ? "'" : "'s"} Finance`;
 }
 
 function toggleNav(open) {
@@ -932,7 +1108,7 @@ function txnRow(t, withActions = true) {
   const kind = {
     expense:    { icon: 'fa-arrow-up', cls: 'out', label: 'Expense' },
     income:     { icon: 'fa-arrow-down', cls: 'in', label: 'Income' },
-    transfer:   { icon: 'fa-right-left', cls: 'move', label: 'Transfer' },
+    transfer:   t.relatedType === 'sip' || isInvestmentOutflow(t) ? { icon: 'fa-seedling', cls: 'grow', label: 'Investment' } : { icon: 'fa-right-left', cls: 'move', label: 'Transfer' },
     adjustment: { icon: 'fa-scale-balanced', cls: '', label: 'Balance update' },
   }[t.type] || { icon: 'fa-circle', cls: '', label: t.type };
   const amt = num(t.amount);
@@ -972,33 +1148,37 @@ let dashMonth = thisMonth();
 function renderDashboard() {
   const T = M.T;
   const s = monthSummary(dashMonth);
-  const saveRate = s.income > 0 ? Math.round((s.net / s.income) * 100) : null;
+  const keepRate = s.income > 0 ? Math.round(((s.left + s.invested) / s.income) * 100) : null;
   const upcoming = upcomingItems(30);
   const recent = sortTxns(db.transactions).slice(0, 6);
   return `
     ${gettingStarted()}
     ${netWorthPanel(T)}
 
-    <section class="panel p-5 mt-6">
-      <div class="panel-head">
-        <h2 class="panel-title">${dashMonth === thisMonth() ? 'This month' : fmtMonth(dashMonth)}</h2>
-        ${monthSelect('dashMonth', dashMonth)}
-      </div>
-      <div class="grid grid-cols-3 gap-4">
-        <div><div class="stat-label">Money in</div><div class="stat-value num text-gain">${money(s.income)}</div></div>
-        <div><div class="stat-label">Money out</div><div class="stat-value num text-loss">${money(s.expense)}</div></div>
-        <div><div class="stat-label">Saved</div><div class="stat-value num">${money(s.net)}</div>
-          ${saveRate !== null ? `<div class="text-xs text-ink-3 mt-0.5">${saveRate}% of income</div>` : ''}</div>
-      </div>
-    </section>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+      <section class="panel p-5 lg:col-span-2">
+        <div class="panel-head">
+          <h2 class="panel-title">${dashMonth === thisMonth() ? 'This month' : fmtMonth(dashMonth)}</h2>
+          ${monthSelect('dashMonth', dashMonth)}
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="stat-tile in"><div class="stat-label">Money in</div><div class="stat-value num">${money(s.income)}</div></div>
+          <div class="stat-tile out"><div class="stat-label">Spent</div><div class="stat-value num">${money(s.spent)}</div></div>
+          <div class="stat-tile grow"><div class="stat-label">Invested</div><div class="stat-value num">${money(s.invested)}</div></div>
+          <div class="stat-tile"><div class="stat-label">Left over</div><div class="stat-value num ${s.left < 0 ? 'text-loss' : ''}">${money(s.left)}</div></div>
+        </div>
+        ${keepRate !== null ? `<p class="text-sm text-ink-2 mt-4">You kept or invested <b class="num">${keepRate}%</b> of what came in${s.invested ? `, including <b class="num">${money(s.invested)}</b> in SIPs and investments` : ''}.</p>` : ''}
+      </section>
+      ${portfolioMini()}
+    </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
       <section class="panel p-5">
-        <div class="panel-head"><h2 class="panel-title">Spending by category</h2><span class="text-sm text-ink-3">${fmtMonth(dashMonth)}</span></div>
+        <div class="panel-head"><h2 class="panel-title">Where the money went</h2><span class="text-sm text-ink-3">${fmtMonth(dashMonth)}</span></div>
         <div class="relative h-72" id="catChartBox"><canvas id="catChart" aria-label="Spending by category chart" role="img"></canvas></div>
       </section>
       <section class="panel p-5">
-        <div class="panel-head"><h2 class="panel-title">Income and expenses, last 6 months</h2></div>
+        <div class="panel-head"><h2 class="panel-title">Money in and out, last 6 months</h2></div>
         <div class="relative h-72"><canvas id="trendChart" aria-label="Income and expenses chart" role="img"></canvas></div>
       </section>
     </div>
@@ -1006,9 +1186,9 @@ function renderDashboard() {
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
       <section class="panel p-5 lg:col-span-2">
         <div class="panel-head"><h2 class="panel-title">Due in the next 30 days</h2>
-          <span class="text-sm text-ink-3 num">${upcoming.length ? money(upcoming.reduce((a, i) => a + i.amount, 0)) + ' total' : ''}</span></div>
+          <span class="text-sm text-ink-3 num">${upcoming.some((i) => i.kind !== 'fd') ? money(upcoming.filter((i) => i.kind !== 'fd').reduce((a, i) => a + i.amount, 0)) + ' to pay or invest' : ''}</span></div>
         ${upcoming.length ? `<div class="divider">${upcoming.map(upcomingRow).join('')}</div>`
-          : emptyState('fa-calendar-check', 'Nothing due. EMIs, subscriptions and card bills will show up here.')}
+          : emptyState('fa-calendar-check', 'Nothing due. SIPs, EMIs, subscriptions and card bills will show up here.')}
       </section>
       <section class="panel p-5">
         <div class="panel-head"><h2 class="panel-title">Budgets</h2><a href="#budgets" class="text-sm text-royal">Manage</a></div>
@@ -1031,7 +1211,7 @@ function gettingStarted() {
   ];
   if (steps.every((s) => s.done)) return '';
   return `<section class="panel p-5 mb-6">
-    <h2 class="panel-title mb-3">Set up Kosh in three steps</h2>
+    <h2 class="panel-title mb-3">Get KOSH ready in three steps</h2>
     <ol class="space-y-3">
       ${steps.map((s, i) => `<li class="flex items-center gap-3 flex-wrap">
         <span class="row-icon ${s.done ? 'in' : ''}" style="width:1.75rem;height:1.75rem;font-size:.8rem">${s.done ? '<i class="fa-solid fa-check"></i>' : i + 1}</span>
@@ -1042,26 +1222,35 @@ function gettingStarted() {
   </section>`;
 }
 
-/** The net worth "equation": assets minus liabilities, drawn to scale. */
+function greeting() {
+  const h = new Date().getHours();
+  const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const n = String(db.settings.ownerName || '').trim();
+  return n ? `${part}, ${n}` : part;
+}
+
+/** The net worth "equation": assets minus liabilities, drawn to scale,
+    on the bright hero band at the top of the dashboard. */
 function netWorthPanel(T) {
-  const assets = [['Cash', T.cash, '#6FA88A'], ['Bank', T.bank, '#1E7A52'], ['Investments', T.investment, '#27408B']];
-  if (T.cardCredit > 0) assets.push(['Card credit', T.cardCredit, '#9AA3BD']);
-  const liabs = [['Card dues', T.cardDebt, '#B4323A']];
-  if (T.loans > 0) liabs.push(['Loans', T.loans, '#7E2229']);
-  if (T.cardEmis > 0) liabs.push(['Card EMIs', T.cardEmis, '#D98A90']);
+  const assets = [['Cash', T.cash, '#FBBF24'], ['Bank', T.bank, '#38BDF8'], ['Investments', T.investment, '#4ADE80']];
+  if (T.cardCredit > 0) assets.push(['Card credit', T.cardCredit, '#E2E8F0']);
+  const liabs = [['Card dues', T.cardDebt, '#FB7185']];
+  if (T.loans > 0) liabs.push(['Loans', T.loans, '#F472B6']);
+  if (T.cardEmis > 0) liabs.push(['Card EMIs', T.cardEmis, '#FDBA74']);
   const assetSum = assets.reduce((a, [, v]) => a + Math.max(0, v), 0);
   const liabSum = liabs.reduce((a, [, v]) => a + v, 0);
   const scale = Math.max(assetSum, liabSum, 1);
   const track = (parts) => parts.filter(([, v]) => v > 0)
     .map(([k, v, c]) => `<span style="width:${(v / scale) * 100}%;background:${c}" title="${esc(k)}: ${money(v)}"></span>`).join('');
   const term = ([k, v, c]) => `<span class="term"><span class="sw" style="background:${c}"></span><span class="t-label">${k}</span><span class="t-val num">${money(v)}</span></span>`;
-  return `<section class="panel p-5 sm:p-7">
-    <div class="flex flex-wrap items-end justify-between gap-3">
+  return `<section class="hero p-5 sm:p-7">
+    <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <div class="text-sm text-ink-2 mb-2">Net worth</div>
-        <div class="display nw-figure num ${T.netWorth < 0 ? 'text-loss' : ''}">${money(T.netWorth)}</div>
+        <p class="hero-hello">${esc(greeting())}</p>
+        <div class="text-sm hero-dim mt-4 mb-1">Net worth</div>
+        <div class="display nw-figure num ${T.netWorth < 0 ? 'neg' : ''}">${money(T.netWorth)}</div>
       </div>
-      <div class="text-sm text-ink-3">As on ${fmtDate(todayStr())}</div>
+      <div class="text-sm hero-dim">As on ${fmtDate(todayStr())}</div>
     </div>
     <div class="mt-6 space-y-2" aria-hidden="true">
       <div class="nw-track">${track(assets)}</div>
@@ -1075,20 +1264,43 @@ function netWorthPanel(T) {
   </section>`;
 }
 
+/** Small investments card on the dashboard. */
+function portfolioMini() {
+  const P = M.P.totals;
+  const nextSip = db.sips.filter((x) => x.active && x.nextDate).sort((a, b) => a.nextDate.localeCompare(b.nextDate))[0];
+  if (!M.P.holdings.length && !db.sips.length) {
+    return `<section class="panel p-5">
+      <div class="panel-head"><h2 class="panel-title">Investments</h2></div>
+      ${emptyState('fa-seedling', 'Add your mutual funds, stocks and FDs, and set up SIPs to invest automatically.', '<a class="btn btn-sm btn-primary" href="#portfolio">Set up investments</a>')}
+    </section>`;
+  }
+  return `<section class="panel p-5 accent-leaf">
+    <div class="panel-head"><h2 class="panel-title">Investments</h2><a href="#portfolio" class="text-sm link">Open</a></div>
+    <div class="stat-label">Current value</div>
+    <div class="display text-3xl font-semibold num">${money(P.value)}</div>
+    <div class="mt-1 text-sm num ${P.gain >= 0 ? 'text-gain' : 'text-loss'}">${money(P.gain, { sign: true })} (${pct(P.gainPct)}) on ${money(P.invested)} invested</div>
+    <dl class="kv mt-4">
+      <div><dt>Monthly SIPs</dt><dd>${money(P.sipMonthly)}</dd></div>
+      <div><dt>Next SIP</dt><dd>${nextSip ? `${fmtDate(nextSip.nextDate)}` : 'None'}</dd></div>
+    </dl>
+  </section>`;
+}
+const pct = (x) => `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1)}%`;
+
 function upcomingRow(it) {
   const d = parseDate(it.date);
   const days = daysUntil(it.date);
   const pill = days < 0 ? 'out' : days <= 3 ? 'due' : '';
-  const action = { emi: 'pay-emi', subscription: 'pay-sub', card: 'pay-card' }[it.kind];
-  const label = it.kind === 'card' ? 'Pay bill' : 'Record payment';
-  const icon = { emi: 'fa-calendar-check', subscription: 'fa-rotate', card: 'fa-credit-card' }[it.kind];
+  const action = { emi: 'pay-emi', subscription: 'pay-sub', card: 'pay-card', sip: 'pay-sip', fd: 'adjust-balance' }[it.kind];
+  const label = { card: 'Pay bill', sip: 'Invest now', fd: 'Update value' }[it.kind] || 'Record payment';
+  const icon = { emi: 'fa-calendar-check', subscription: 'fa-rotate', card: 'fa-credit-card', sip: 'fa-seedling', fd: 'fa-piggy-bank' }[it.kind];
   return `<div class="row">
-    <div class="w-11 text-center flex-none">
+    <div class="date-chip kind-bg-${it.kind}">
       <div class="display text-xl font-semibold leading-none num">${d.getDate()}</div>
       <div class="text-xs text-ink-3">${d.toLocaleDateString(locale(), { month: 'short' })}</div>
     </div>
     <div class="min-w-0 flex-1">
-      <div class="font-medium truncate"><i class="fa-solid ${icon} text-ink-3 text-xs mr-1"></i>${esc(it.title)}</div>
+      <div class="font-medium truncate"><i class="fa-solid ${icon} kind-${it.kind} text-xs mr-1"></i>${esc(it.title)}</div>
       <div class="text-xs text-ink-3 truncate mt-0.5">${esc(it.sub)}</div>
     </div>
     <div class="text-right">
@@ -1122,8 +1334,7 @@ function drawDashboardCharts() {
     $$('canvas').forEach((c) => { c.parentElement.innerHTML = '<p class="text-sm text-ink-3">Charts could not load. Check your internet connection and reload.</p>'; });
     return;
   }
-  Chart.defaults.font.family = "'IBM Plex Sans', system-ui, sans-serif";
-  Chart.defaults.color = '#4A5170';
+  chartDefaults();
   const tooltipMoney = { callbacks: { label: (ctx) => ` ${ctx.dataset.label ? ctx.dataset.label + ': ' : ''}${money(ctx.parsed.y ?? ctx.parsed)}` } };
 
   const cats = spendByCategory(dashMonth);
@@ -1135,7 +1346,7 @@ function drawDashboardCharts() {
     if (rest > 0) top.push({ category: 'Everything else', amount: rest });
     charts.push(new Chart($('#catChart'), {
       type: 'doughnut',
-      data: { labels: top.map((c) => c.category), datasets: [{ data: top.map((c) => c.amount), backgroundColor: CHART_COLORS, borderColor: '#fff', borderWidth: 2 }] },
+      data: { labels: top.map((c) => c.category), datasets: [{ data: top.map((c) => c.amount), backgroundColor: top.map((c, i) => (c.category === INVEST_SLICE ? '#F59E0B' : CHART_COLORS[i % CHART_COLORS.length])), borderColor: '#fff', borderWidth: 3, hoverOffset: 6 }] },
       options: {
         maintainAspectRatio: false, cutout: '62%',
         plugins: {
@@ -1153,19 +1364,25 @@ function drawDashboardCharts() {
     data: {
       labels: months.map((m) => fmtMonth(m, true)),
       datasets: [
-        { label: 'Income', data: sums.map((s) => s.income), backgroundColor: '#1E7A52', borderRadius: 4, maxBarThickness: 28 },
-        { label: 'Expenses', data: sums.map((s) => s.expense), backgroundColor: '#B4323A', borderRadius: 4, maxBarThickness: 28 },
+        { label: 'Income', data: sums.map((s) => s.income), backgroundColor: '#12A150', borderRadius: 5, maxBarThickness: 26, stack: 'in' },
+        { label: 'Spent', data: sums.map((s) => s.spent), backgroundColor: '#E0306E', borderRadius: 5, maxBarThickness: 26, stack: 'out' },
+        { label: 'Invested', data: sums.map((s) => s.invested), backgroundColor: '#F59E0B', borderRadius: 5, maxBarThickness: 26, stack: 'out' },
       ],
     },
     options: {
       maintainAspectRatio: false,
       scales: {
-        x: { grid: { display: false } },
-        y: { beginAtZero: true, grid: { color: '#EDF1EE' }, ticks: { callback: (v) => money(v, { compact: true }) } },
+        x: { stacked: true, grid: { display: false } },
+        y: { stacked: true, beginAtZero: true, grid: { color: '#EEF1F8' }, ticks: { callback: (v) => money(v, { compact: true }) } },
       },
       plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10 } }, tooltip: tooltipMoney },
     },
   }));
+}
+
+function chartDefaults() {
+  Chart.defaults.font.family = "'Plus Jakarta Sans', system-ui, sans-serif";
+  Chart.defaults.color = '#475569';
 }
 
 /* ===== Accounts ===== */
@@ -1182,7 +1399,8 @@ function renderAccounts() {
     return `<section class="${type === 'credit_card' ? '' : 'panel p-5'} mt-6 first:mt-0">
       <div class="panel-head">
         <div class="flex items-baseline gap-3"><h2 class="panel-title">${meta.label}</h2><span class="text-sm text-ink-3 num">${list.length ? totalLabel : ''}</span></div>
-        <button class="btn btn-sm" data-action="add-account" data-type="${type}"><i class="fa-solid fa-plus"></i> Add ${meta.single.toLowerCase()}</button>
+        <div class="flex gap-2">${type === 'investment' ? '<a class="btn btn-sm" href="#portfolio"><i class="fa-solid fa-chart-line"></i> Portfolio & SIPs</a>' : ''}
+        <button class="btn btn-sm" data-action="add-account" data-type="${type}"><i class="fa-solid fa-plus"></i> Add ${meta.single.toLowerCase()}</button></div>
       </div>
       ${body}
     </section>`;
@@ -1198,16 +1416,15 @@ function accountRow(a) {
   const bal = M.balances.get(a.id) || 0;
   let extra = '';
   if (a.type === 'investment') {
-    const change = db.transactions.filter((t) => t.type === 'adjustment' && (t.toAccountId === a.id || t.fromAccountId === a.id))
-      .reduce((s, t) => s + (t.toAccountId === a.id ? num(t.amount) : -num(t.amount)), 0);
+    const h = M.P.holdings.find((x) => x.a.id === a.id);
     const bits = [];
-    if (change) bits.push(`<span class="${change > 0 ? 'text-gain' : 'text-loss'}">${money(change, { sign: true })} from value updates</span>`);
+    if (h && h.invested > 0 && h.gain) bits.push(`<span class="${h.gain > 0 ? 'text-gain' : 'text-loss'}">${money(h.gain, { sign: true })} (${pct(h.gainPct)}) on ${money(h.invested)} invested</span>`);
     if (a.maturityDate) bits.push(`matures ${fmtDate(a.maturityDate)}`);
     if (num(a.interestRate)) bits.push(`${num(a.interestRate)}% p.a.`);
     extra = bits.length ? `<div class="text-xs text-ink-3 mt-0.5">${bits.join(', ')}</div>` : '';
   }
   return `<div class="row ${a.archived ? 'opacity-60' : ''}">
-    <div class="row-icon"><i class="fa-solid ${ACCOUNT_TYPES[a.type].icon}"></i></div>
+    <div class="row-icon t-${a.type}"><i class="fa-solid ${ACCOUNT_TYPES[a.type].icon}"></i></div>
     <div class="min-w-0 flex-1">
       <div class="font-medium truncate">${esc(a.name)} ${a.archived ? '<span class="pill">Archived</span>' : ''}</div>
       <div class="text-xs text-ink-3 truncate mt-0.5">${accountSubtitle(a) || ACCOUNT_TYPES[a.type].single}</div>
@@ -1454,6 +1671,262 @@ function renderBudgets() {
     </section>` : ''}`;
 }
 
+/* ===== Investments & SIPs (portfolio) =====
+   Holdings are investment accounts (one per fund, stock, FD...).
+   SIPs live in db.sips and create a bank -> fund transfer on each date. */
+const GROUP_ICONS = {
+  'Mutual funds': 'fa-seedling', 'Stocks & ETFs': 'fa-arrow-trend-up', 'Deposits': 'fa-piggy-bank',
+  'Retirement': 'fa-umbrella', 'Gold': 'fa-coins', 'Bonds': 'fa-file-contract', 'Crypto': 'fa-bitcoin-sign', 'Other': 'fa-shapes',
+};
+const GROUP_COLORS = {
+  'Mutual funds': '#12A150', 'Stocks & ETFs': '#0B84C6', 'Deposits': '#F59E0B', 'Retirement': '#7C3AED',
+  'Gold': '#EAB308', 'Bonds': '#06B6D4', 'Crypto': '#E0306E', 'Other': '#94A3B8',
+};
+const ordinal = (n) => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
+function sipScheduleLabel(x) {
+  if (x.frequency === 'weekly') return `Every ${parseDate(x.nextDate || todayStr()).toLocaleDateString('en-IN', { weekday: 'long' })}`;
+  const day = int(x.day) || parseDate(x.nextDate || todayStr()).getDate();
+  return `${x.frequency === 'quarterly' ? 'Every 3 months' : 'Every month'} on the ${ordinal(day)}`;
+}
+
+function renderPortfolio() {
+  const P = M.P, T = P.totals;
+  const sips = db.sips.slice().sort((a, b) => (b.active - a.active) || (a.nextDate || '').localeCompare(b.nextDate || ''));
+  const groups = [...new Set(P.holdings.map((h) => h.group))];
+  const byGroup = (g) => P.holdings.filter((h) => h.group === g).sort((a, b) => (a.a.archived - b.a.archived) || b.value - a.value);
+  const up = T.gain >= 0;
+  return `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+      <p class="text-sm text-ink-2 max-w-2xl">Mutual funds, stocks, FDs and more. SIPs move money from your bank into the fund on their date, automatically if you like.</p>
+      <div class="flex gap-2 flex-wrap">
+        <button class="btn" data-action="add-account" data-type="investment"><i class="fa-solid fa-plus"></i> Add holding</button>
+        <button class="btn btn-primary" data-action="add-sip"><i class="fa-solid fa-seedling"></i> Add SIP</button>
+      </div>
+    </div>
+
+    <section class="hero hero-leaf p-5 sm:p-7">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-5">
+        <div class="col-span-2 lg:col-span-1">
+          <div class="text-sm hero-dim mb-1">Portfolio value</div>
+          <div class="display text-4xl sm:text-5xl font-semibold num">${money(T.value)}</div>
+        </div>
+        <div><div class="text-sm hero-dim mb-1">Invested</div><div class="display text-2xl font-semibold num">${money(T.invested)}</div></div>
+        <div><div class="text-sm hero-dim mb-1">${up ? 'Gain' : 'Loss'}</div>
+          <div class="display text-2xl font-semibold num">${money(T.gain, { sign: true })}</div>
+          <div class="text-sm num hero-dim">${pct(T.gainPct)}</div></div>
+        <div><div class="text-sm hero-dim mb-1">SIPs per month</div><div class="display text-2xl font-semibold num">${money(T.sipMonthly)}</div>
+          <div class="text-sm hero-dim">${T.sipCount} active</div></div>
+      </div>
+    </section>
+
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6 mt-6">
+      <section class="panel p-5 lg:col-span-2">
+        <div class="panel-head"><h2 class="panel-title">Allocation</h2></div>
+        ${P.allocation.length ? `
+          <div class="relative h-56" id="allocBox"><canvas id="allocChart" role="img" aria-label="Portfolio allocation chart"></canvas></div>
+          <div class="space-y-3 mt-5">${P.allocation.map((g) => {
+            const share = T.value > 0 ? g.value / T.value : 0;
+            return `<div><div class="flex justify-between text-sm mb-1 gap-2"><span class="font-medium">${esc(g.group)}</span>
+              <span class="num text-ink-2">${money(g.value)} <span class="text-ink-3">${Math.round(share * 100)}%</span></span></div>
+              <div class="bar"><span style="width:${share * 100}%;background:${GROUP_COLORS[g.group] || '#94A3B8'}"></span></div></div>`;
+          }).join('')}</div>`
+        : emptyState('fa-chart-pie', 'Add a holding to see how your money is spread.')}
+      </section>
+
+      <section class="panel p-5 lg:col-span-3">
+        <div class="panel-head"><h2 class="panel-title">SIPs</h2>
+          <button class="btn btn-sm" data-action="add-sip"><i class="fa-solid fa-plus"></i> Add SIP</button></div>
+        ${sips.length ? `<div class="divider">${sips.map(sipRow).join('')}</div>`
+          : emptyState('fa-seedling', 'No SIPs yet. Add one and it invests on its date every month.', '<button class="btn btn-primary" data-action="add-sip"><i class="fa-solid fa-seedling"></i> Add your first SIP</button>')}
+      </section>
+    </div>
+
+    ${groups.length ? groups.map((g) => {
+      const list = byGroup(g);
+      const total = list.reduce((s, h) => s + h.value, 0);
+      return `<section class="panel p-5 mt-6">
+        <div class="panel-head"><div class="flex items-baseline gap-3">
+          <h2 class="panel-title"><i class="fa-solid ${GROUP_ICONS[g] || 'fa-shapes'} mr-1.5" style="color:${GROUP_COLORS[g]}"></i>${esc(g)}</h2>
+          <span class="text-sm text-ink-3 num">${money(total)}</span></div></div>
+        <div class="divider">${list.map(holdingRow).join('')}</div>
+      </section>`;
+    }).join('')
+    : `<section class="panel mt-6">${emptyState('fa-seedling', 'No holdings yet. Add each fund, stock or FD with its current value.', '<button class="btn btn-primary" data-action="add-account" data-type="investment"><i class="fa-solid fa-plus"></i> Add holding</button>')}</section>`}`;
+}
+
+function holdingRow(h) {
+  const a = h.a;
+  const sips = db.sips.filter((x) => x.active && x.fundAccountId === a.id);
+  const bits = [accountSubtitle(a)];
+  if (num(a.units)) bits.push(`${num(a.units).toLocaleString('en-IN', { maximumFractionDigits: 4 })} units${num(a.unitPrice) ? ` at ${money(a.unitPrice)}` : ''}`);
+  if (h.fd) bits.push(`${num(a.interestRate)}% p.a., ${h.fd.matured ? 'matured' : 'matures'} ${fmtDate(h.fd.maturityDate)} (about ${money(h.fd.maturityValue)})`);
+  else if (a.maturityDate) bits.push(`matures ${fmtDate(a.maturityDate)}`);
+  const sipBadge = sips.map((x) => `<span class="pill grow">SIP ${money(sipAmountOn(x, todayStr()))}</span>`).join(' ');
+  return `<div class="row ${a.archived ? 'opacity-60' : ''}">
+    <div class="row-icon t-investment" style="color:${GROUP_COLORS[h.group]}"><i class="fa-solid ${GROUP_ICONS[h.group] || 'fa-shapes'}"></i></div>
+    <div class="min-w-0 flex-1">
+      <div class="font-medium truncate">${esc(a.name)} ${sipBadge} ${a.archived ? '<span class="pill">Archived</span>' : ''}</div>
+      <div class="text-xs text-ink-3 mt-0.5">${bits.filter(Boolean).join(', ') || esc(a.subtype || 'Investment')}</div>
+    </div>
+    <div class="text-right whitespace-nowrap">
+      <div class="num font-semibold">${money(h.value)}</div>
+      ${h.invested > 0 && h.gain !== 0 ? `<div class="text-xs num ${h.gain >= 0 ? 'text-gain' : 'text-loss'}">${money(h.gain, { sign: true })} (${pct(h.gainPct)})</div>` : ''}
+    </div>
+    <div class="row-actions">
+      <button class="icon-btn sm" data-action="invest-more" data-id="${a.id}" title="Add money" aria-label="Add money to ${esc(a.name)}"><i class="fa-solid fa-plus"></i></button>
+      <button class="icon-btn sm" data-action="adjust-balance" data-id="${a.id}" title="Update value" aria-label="Update value"><i class="fa-solid fa-scale-balanced"></i></button>
+      <button class="icon-btn sm" data-action="edit-account" data-id="${a.id}" title="Edit" aria-label="Edit holding"><i class="fa-regular fa-pen-to-square"></i></button>
+    </div>
+  </div>`;
+}
+
+function sipRow(x) {
+  const days = x.nextDate ? daysUntil(x.nextDate) : null;
+  const ended = sipEnded(x, x.nextDate || todayStr());
+  const pill = !x.active ? `<span class="pill">${ended ? 'Ended' : 'Paused'}</span>`
+    : `<span class="pill ${days < 0 ? 'out' : days <= 3 ? 'due' : 'grow'}">${relDays(x.nextDate)}</span>`;
+  const extra = [num(x.stepUpPercent) ? `steps up ${num(x.stepUpPercent)}% a year` : '', x.endDate ? `until ${fmtDate(x.endDate)}` : ''].filter(Boolean).join(', ');
+  return `<div class="row ${x.active ? '' : 'opacity-60'}">
+    <div class="row-icon grow"><i class="fa-solid fa-seedling"></i></div>
+    <div class="min-w-0 flex-1">
+      <div class="font-medium truncate">${esc(x.name)} ${x.autoLog && x.active ? '<span class="pill grow" title="Invested automatically on the SIP date">Auto</span>' : ''}</div>
+      <div class="text-xs text-ink-3 mt-0.5">${esc(sipScheduleLabel(x))}, ${esc(accountName(x.fromAccountId))} to ${esc(accountName(x.fundAccountId))}${extra ? `, ${esc(extra)}` : ''}</div>
+    </div>
+    <div class="text-right">
+      <div class="num font-semibold">${money(sipAmountOn(x, x.nextDate || todayStr()))}</div>
+      <div class="mt-1">${pill}</div>
+    </div>
+    <div class="row-actions">
+      ${x.active ? `<button class="icon-btn sm" data-action="pay-sip" data-id="${x.id}" title="Invest now" aria-label="Record this SIP instalment"><i class="fa-solid fa-check"></i></button>` : ''}
+      <button class="icon-btn sm" data-action="toggle-sip" data-id="${x.id}" title="${x.active ? 'Pause' : 'Resume'}" aria-label="${x.active ? 'Pause SIP' : 'Resume SIP'}"><i class="fa-solid ${x.active ? 'fa-pause' : 'fa-play'}"></i></button>
+      <button class="icon-btn sm" data-action="edit-sip" data-id="${x.id}" title="Edit" aria-label="Edit SIP"><i class="fa-regular fa-pen-to-square"></i></button>
+    </div>
+  </div>`;
+}
+
+function drawPortfolioChart() {
+  const canvas = $('#allocChart');
+  if (!canvas) return;
+  if (typeof Chart === 'undefined') { $('#allocBox').remove(); return; }
+  chartDefaults();
+  const A = M.P.allocation;
+  charts.push(new Chart(canvas, {
+    type: 'doughnut',
+    data: { labels: A.map((g) => g.group), datasets: [{ data: A.map((g) => g.value), backgroundColor: A.map((g) => GROUP_COLORS[g.group] || '#94A3B8'), borderColor: '#fff', borderWidth: 3, hoverOffset: 6 }] },
+    options: { maintainAspectRatio: false, cutout: '66%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${money(ctx.parsed)}` } } } },
+  }));
+}
+
+/* ----- SIP form ----- */
+function openSipForm(existing, presetFundId) {
+  const isNew = !existing;
+  const x = existing ? { ...existing } : {
+    frequency: 'monthly', nextDate: makeDate(new Date().getFullYear(), new Date().getMonth() + 1, 1),
+    autoLog: true, active: true, fundAccountId: presetFundId || '',
+  };
+  const funds = db.accounts.filter((a) => a.type === 'investment' && (!a.archived || a.id === x.fundAccountId))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const fundOpts = [['', 'Choose a holding'], ...funds.map((a) => [a.id, `${a.name}${a.subtype ? ` (${a.subtype})` : ''}`]), ['__new', '+ New fund or stock']];
+  const selectedFund = x.fundAccountId || (funds.length ? '' : '__new');
+  const freqOpts = SIP_FREQUENCIES.map((k) => [k, FREQUENCIES[k].label]);
+  const body = `
+    ${field('SIP name', input('name', x.name, 'required maxlength="80" placeholder="e.g. Parag Parikh Flexi Cap, Nifty 50 index"'))}
+    ${field('Invest into', select('fundAccountId', fundOpts, selectedFund, 'required'), 'The fund or stock this SIP buys. Pick "New" if you haven\'t added it yet.')}
+    ${showFor('__new', twoCol(field('Kind', select('newKind', INVESTMENT_KINDS, 'Mutual fund')), field('Platform (optional)', input('newPlatform', '', 'placeholder="e.g. Groww, Zerodha, Kuvera"'))) +
+      twoCol(field('Current value (if you already hold it)', moneyInput('newValue', '', 'min="0" placeholder="0"')),
+        field('Amount invested so far', moneyInput('newInvested', '', 'min="0" placeholder="0"'))))}
+    ${twoCol(field('SIP amount', moneyInput('amount', x.amount, 'required min="1"')), field('How often', select('frequency', freqOpts, x.frequency)))}
+    ${twoCol(field('Next SIP date', input('nextDate', x.nextDate, 'type="date" required'), 'Monthly SIPs repeat on this day, e.g. the 1st of every month.'),
+      field('Paid from', accountSelect('fromAccountId', x.fromAccountId || firstAccountOf(['bank']), { types: ['bank', 'cash'], placeholder: 'Choose a bank account' })))}
+    ${twoCol(field('Yearly step-up % (optional)', input('stepUpPercent', x.stepUpPercent || '', 'type="number" min="0" max="100" step="0.5" placeholder="e.g. 10"'), 'Raises the SIP amount once a year.'),
+      field('Stop after (optional)', input('endDate', x.endDate, 'type="date"')))}
+    ${checkbox('autoLog', x.autoLog, 'Invest automatically on the SIP date', 'On or after each SIP date the app records the transfer from your bank into the fund, so your bank balance drops like an expense and the fund grows. A date in the past fills in the missed instalments.')}
+    ${isNew ? '' : checkbox('active', x.active, 'Active', 'Untick to pause without deleting.')}
+    ${field('Notes (optional)', textarea('notes', x.notes, 'rows="2" placeholder="Folio number, goal..."'))}`;
+
+  openModal({
+    title: isNew ? 'Add SIP' : `Edit ${x.name}`,
+    body,
+    submitLabel: isNew ? 'Add SIP' : 'Save changes',
+    onOpen: (form) => bindShowHide(form, 'fundAccountId'),
+    onSubmit: (d) => {
+      const ops = [];
+      let fundId = d.fundAccountId;
+      if (!fundId) { toast('Choose the fund or stock this SIP invests into.', 'error'); return false; }
+      if (!d.fromAccountId) { toast('Choose the account the SIP is paid from.', 'error'); return false; }
+      if (d.endDate && d.endDate < d.nextDate) { toast('The stop date is before the next SIP date.', 'error'); return false; }
+      if (fundId === '__new') {
+        const hasValue = num(d.newValue) > 0;
+        const fund = {
+          id: uid('acc'), name: d.name, type: 'investment', subtype: d.newKind || 'Mutual fund', institution: d.newPlatform || '', last4: '',
+          openingBalance: round2(num(d.newValue)), investedAmount: round2(num(d.newInvested) || num(d.newValue)),
+          // If you already hold units, their value is "as on today". Otherwise the fund
+          // starts at zero on the first SIP date so every instalment adds to it.
+          openingDate: hasValue || d.nextDate > todayStr() ? todayStr() : d.nextDate,
+          creditLimit: null, statementDay: null, dueDay: null, interestRate: null, maturityDate: '', notes: '', archived: false,
+        };
+        ops.push(opUpsert('accounts', fund));
+        fundId = fund.id;
+      }
+      const sameDate = existing && existing.nextDate === d.nextDate;
+      const rec = {
+        ...(existing || {}), id: existing?.id || uid('sip'),
+        name: d.name, fundAccountId: fundId, fromAccountId: d.fromAccountId,
+        amount: round2(num(d.amount)), frequency: d.frequency,
+        day: sameDate && existing.day ? existing.day : parseDate(d.nextDate).getDate(),
+        startDate: existing?.startDate || d.nextDate, nextDate: d.nextDate, endDate: d.endDate || '',
+        stepUpPercent: num(d.stepUpPercent) || 0,
+        autoLog: !!d.autoLog, active: isNew ? true : !!d.active, notes: d.notes || '',
+      };
+      ops.push(opUpsert('sips', rec));
+      commit(ops, `${isNew ? 'Add' : 'Edit'} SIP ${rec.name}`);
+      toast(isNew ? 'SIP added' : 'SIP saved', 'success');
+      if (rec.autoLog) setTimeout(processAutoPayments, 50);
+    },
+    onDelete: existing ? () => {
+      if (!confirm(`Delete the ${x.name} SIP? Instalments already recorded stay in your transactions and the fund keeps its value.`)) return false;
+      commit([opDelete('sips', x.id)], `Delete SIP ${x.name}`);
+      toast('SIP deleted');
+    } : null,
+  });
+}
+
+/** Record one SIP instalment by hand ("Invest now"). */
+function paySip(id) {
+  const x = db.sips.find((s) => s.id === id);
+  if (!x) return;
+  const due = x.nextDate || todayStr();
+  const txn = sipTxn(x, due);
+  const next = advanceSip(x, due);
+  openModal({
+    title: `Record ${x.name} SIP`,
+    body: `${twoCol(field('Amount', moneyInput('amount', txn.amount, 'required min="0.01"')), field('Date', input('date', due, 'type="date" required')))}
+      ${field('Paid from', accountSelect('fromAccountId', x.fromAccountId, { types: ['bank', 'cash'] }))}
+      <p class="callout">Moves the money into <b>${esc(accountName(x.fundAccountId))}</b>. The next SIP moves to ${fmtDate(next)}.</p>`,
+    submitLabel: 'Record SIP',
+    onSubmit: (d) => {
+      commit([
+        opUpsert('transactions', { ...txn, amount: round2(num(d.amount)), date: d.date, fromAccountId: d.fromAccountId }),
+        opUpsert('sips', { ...x, nextDate: next, ...(sipEnded(x, next) ? { active: false } : {}) }),
+      ], `Record SIP ${x.name}`);
+      toast('SIP recorded', 'success');
+    },
+  });
+}
+
+function toggleSip(id) {
+  const x = db.sips.find((s) => s.id === id);
+  if (!x) return;
+  commit([opUpsert('sips', { ...x, active: !x.active })], `${x.active ? 'Pause' : 'Resume'} SIP ${x.name}`);
+  toast(x.active ? `${x.name} SIP paused` : `${x.name} SIP resumed`);
+}
+
+function investMore(id) {
+  const a = accountById(id);
+  if (!a) return;
+  openTxnForm(null, { type: 'transfer', toAccountId: id, fromAccountId: firstAccountOf(['bank']), description: `Lump sum into ${a.name}` });
+}
+
 /* ---------------------------------------------------------------------
    9. FORMS & ACTIONS
    --------------------------------------------------------------------- */
@@ -1513,7 +1986,16 @@ function openTxnForm(existing, preset = {}) {
     title: isNew ? 'Add transaction' : 'Edit transaction',
     body,
     submitLabel: isNew ? 'Add transaction' : 'Save changes',
-    onOpen: (form) => bindShowHide(form, 'type'),
+    onOpen: (form) => {
+      bindShowHide(form, 'type');
+      // Units x price -> current value, so you can copy numbers straight from your app.
+      const fill = () => {
+        const u = num(form.elements.units?.value), p = num(form.elements.unitPrice?.value);
+        const box = $$('[name="openingBalance"]', form).find((el) => !el.disabled);
+        if (u > 0 && p > 0 && box) box.value = round2(u * p);
+      };
+      form.addEventListener('input', (e) => { if (['units', 'unitPrice'].includes(e.target.name)) fill(); }, { signal: modalSignal() });
+    },
     onSubmit: (d) => {
       const amount = round2(num(d.amount));
       if (amount <= 0) { toast('Enter an amount above zero.', 'error'); return false; }
@@ -1581,11 +2063,15 @@ function openAccountForm(existing, presetType = 'bank') {
         field('Credit limit', moneyInput('creditLimit', a.creditLimit, 'min="0" placeholder="e.g. 200000"'))) +
       twoCol(field('Statement date (day of month)', input('statementDay', a.statementDay, 'type="number" min="1" max="31" placeholder="e.g. 15"')),
         field('Payment due date (day of month)', input('dueDay', a.dueDay, 'type="number" min="1" max="31" placeholder="e.g. 5"'))))}
-    ${showFor('investment', twoCol(field('Kind', select('subtype', INVESTMENT_KINDS, a.subtype)), field('Platform or institution', input('institution', a.institution, 'placeholder="e.g. Zerodha, SBI"'))) +
+    ${showFor('investment', twoCol(field('Kind', select('subtype', INVESTMENT_KINDS, a.subtype || 'Mutual fund')), field('Platform or institution', input('institution', a.institution, 'placeholder="e.g. Groww, Zerodha, SBI"'))) +
+      twoCol(field('Units or shares (optional)', input('units', a.units ?? '', 'type="number" step="any" min="0" placeholder="e.g. 152.347"')),
+        field('Price or NAV per unit (optional)', moneyInput('unitPrice', a.unitPrice ?? '', 'min="0" placeholder="e.g. 78.42"'))) +
       twoCol(field('Interest rate % (optional)', input('interestRate', a.interestRate, 'type="number" step="0.01" min="0"'), 'For FDs, RDs, PPF and bonds.'),
-        field('Maturity date (optional)', input('maturityDate', a.maturityDate, 'type="date"'))))}
+        field('Maturity date (optional)', input('maturityDate', a.maturityDate, 'type="date"'))) +
+      field('FD start date (optional)', input('depositDate', a.depositDate, 'type="date"'), 'For fixed deposits: the day the deposit was made. Used with the rate and maturity date to estimate its value.'))}
     ${showFor('cash bank', field('Balance', moneyInput('openingBalance', a.type !== 'credit_card' && existing ? a.openingBalance : '', 'placeholder="0"'), 'The balance on the date below.'))}
-    ${showFor('investment', field('Current value', moneyInput('openingBalance', a.type === 'investment' && existing ? a.openingBalance : '', 'placeholder="0"'), 'The value on the date below. Use "Update value" later as markets move.'))}
+    ${showFor('investment', twoCol(field('Current value', moneyInput('openingBalance', a.type === 'investment' && existing ? a.openingBalance : '', 'placeholder="0"'), 'The value on the date below. Fills in by itself from units and price.'),
+      field('Amount invested', moneyInput('investedAmount', a.type === 'investment' && existing ? (a.investedAmount ?? a.openingBalance) : '', 'min="0" placeholder="Same as value"'), 'What you paid in total up to that date. Used to work out your gain.')))}
     ${field('Balance as on', input('openingDate', a.openingDate || todayStr(), 'type="date" required'), 'Transactions dated before this day do not change the balance, because it already includes them.')}
     ${field('Notes (optional)', textarea('notes', a.notes, 'rows="2"'))}
     ${isNew ? '' : checkbox('archived', a.archived, 'Archive this account', 'Hides it from pickers. Its balance still counts in net worth.')}`;
@@ -1609,6 +2095,12 @@ function openAccountForm(existing, presetType = 'bank') {
         dueDay: type === 'credit_card' && d.dueDay ? int(d.dueDay) : null,
         interestRate: type === 'investment' && d.interestRate ? num(d.interestRate) : null,
         maturityDate: type === 'investment' ? d.maturityDate || '' : '',
+        ...(type === 'investment' ? {
+          investedAmount: d.investedAmount === '' ? round2(num(d.openingBalance)) : round2(num(d.investedAmount)),
+          units: d.units === '' ? null : num(d.units),
+          unitPrice: d.unitPrice === '' ? null : num(d.unitPrice),
+          depositDate: d.depositDate || '',
+        } : {}),
         notes: d.notes || '',
         archived: !!d.archived,
       };
@@ -1621,9 +2113,10 @@ function openAccountForm(existing, presetType = 'bank') {
 
 function deleteAccount(a) {
   const used = db.transactions.filter((t) => t.fromAccountId === a.id || t.toAccountId === a.id).length
-    + db.emis.filter((e) => e.accountId === a.id).length + db.subscriptions.filter((s) => s.accountId === a.id).length;
+    + db.emis.filter((e) => e.accountId === a.id).length + db.subscriptions.filter((s) => s.accountId === a.id).length
+    + db.sips.filter((x) => x.fundAccountId === a.id || x.fromAccountId === a.id).length;
   if (used) {
-    alert(`${a.name} is used by ${used} transaction(s), EMI(s) or subscription(s), so it can't be deleted without breaking your history.\n\nTick "Archive this account" instead to hide it.`);
+    alert(`${a.name} is used by ${used} transaction(s), EMI(s), subscription(s) or SIP(s), so it can't be deleted without breaking your history.\n\nTick "Archive this account" instead to hide it.`);
     return false;
   }
   if (!confirm(`Delete ${a.name}? This can't be undone.`)) return false;
@@ -1639,14 +2132,30 @@ function openAdjust(a) {
   const what = isCard ? 'outstanding' : isInv ? 'current value' : 'balance';
   openModal({
     title: isInv ? `Update value of ${a.name}` : `Update ${what} of ${a.name}`,
-    body: `<p class="callout">Kosh shows the ${what} as <b class="num">${money(current)}</b>. Enter the real figure from your ${isInv ? 'statement or app' : 'bank app or statement'}. The difference is saved as a balance update, which doesn't count as income or spending.</p>
+    body: `<p class="callout">The app shows the ${what} as <b class="num">${money(current)}</b>. Enter the real figure from your ${isInv ? 'statement or app' : 'bank app or statement'}. The difference is saved as a balance update, which doesn't count as income or spending.</p>
+      ${isInv ? twoCol(field('Units or shares (optional)', input('units', a.units ?? '', 'type="number" step="any" min="0"')), field('Today\'s price or NAV (optional)', moneyInput('unitPrice', '', 'min="0"'))) : ''}
+      ${isInv && M.P.holdings.find((h) => h.a.id === a.id)?.fd ? `<p class="hint">Estimated FD value today: <b class="num">${money(M.P.holdings.find((h) => h.a.id === a.id).fd.estimatedToday)}</b></p>` : ''}
       ${twoCol(field(`Actual ${what}`, moneyInput('value', '', 'required placeholder="0"')), field('As on', input('date', todayStr(), `type="date" required min="${a.openingDate || ''}"`)))}
       ${field('Note (optional)', input('description', '', `placeholder="${isInv ? 'e.g. NAV update' : 'e.g. Bank charges, interest credited'}"`))}`,
     submitLabel: 'Update',
+    onOpen: (form) => {
+      if (!isInv) return;
+      form.addEventListener('input', (e) => {
+        if (!['units', 'unitPrice'].includes(e.target.name)) return;
+        const u = num(form.elements.units.value), p = num(form.elements.unitPrice.value);
+        if (u > 0 && p > 0) form.elements.value.value = round2(u * p);
+      }, { signal: modalSignal() });
+    },
     onSubmit: (d) => {
       const target = isCard ? -num(d.value) : num(d.value);
       const diff = round2(target - bal);
-      if (diff === 0) { toast(`The ${what} already matches.`); return; }
+      const unitOps = isInv && (d.units !== '' || d.unitPrice !== '') && (num(d.units) !== num(a.units) || (d.unitPrice !== '' && num(d.unitPrice) !== num(a.unitPrice)))
+        ? [opUpsert('accounts', { ...a, units: d.units === '' ? a.units ?? null : num(d.units), unitPrice: d.unitPrice === '' ? a.unitPrice ?? null : num(d.unitPrice) })] : [];
+      if (diff === 0) {
+        if (unitOps.length) { commit(unitOps, `Update units of ${a.name}`); toast('Units updated', 'success'); }
+        else toast(`The ${what} already matches.`);
+        return;
+      }
       const rec = {
         id: uid('txn'), date: d.date, type: 'adjustment', amount: Math.abs(diff),
         category: isInv ? 'Value change' : 'Balance correction',
@@ -1654,7 +2163,7 @@ function openAdjust(a) {
         fromAccountId: diff < 0 ? a.id : '', toAccountId: diff > 0 ? a.id : '',
         relatedType: '', relatedId: '', notes: '',
       };
-      commit([opUpsert('transactions', rec)], `Update ${what} of ${a.name}`);
+      commit([opUpsert('transactions', rec), ...unitOps], `Update ${what} of ${a.name}`);
       toast(`${cap(what)} updated`, 'success');
     },
   });
@@ -1684,9 +2193,9 @@ function openEmiForm(existing) {
     ${twoCol(field('Loan amount (principal)', moneyInput('principal', e.principal, 'required min="1"')), field('Interest rate (% per year)', input('annualRate', e.annualRate ?? '', 'type="number" step="0.01" min="0" placeholder="0 for no-cost EMI"')))}
     ${twoCol(field('Tenure (months)', input('tenureMonths', e.tenureMonths, 'type="number" min="1" max="600" required')), field('First EMI date', input('startDate', e.startDate, 'type="date" required')))}
     ${twoCol(field('Monthly EMI (optional)', moneyInput('emiAmount', e.emiAmount, 'min="0"'), 'Leave empty to calculate it. Enter the exact figure from your lender if it differs.'),
-      field('EMIs already paid', input('paidInstallments', e.paidInstallments ?? 0, 'type="number" min="0"'), 'For loans that started before you began using Kosh.'))}
+      field('EMIs already paid', input('paidInstallments', e.paidInstallments ?? 0, 'type="number" min="0"'), 'For loans that started before you began using KOSH.'))}
     <div id="emiPreview" class="callout" aria-live="polite"></div>
-    ${checkbox('autoLog', e.autoLog, 'Record each EMI automatically on its due date', 'Kosh adds the expense when you open the app on or after the due date.')}
+    ${checkbox('autoLog', e.autoLog, 'Record each EMI automatically on its due date', 'The app adds the expense when you open the app on or after the due date.')}
     ${isNew ? '' : checkbox('closed', e.closed, 'Closed early', 'Tick if you prepaid or foreclosed it. It stops counting as a liability.')}
     ${field('Notes (optional)', textarea('notes', e.notes, 'rows="2"'))}`;
 
@@ -1780,7 +2289,7 @@ function openSubForm(existing) {
     ${twoCol(field('Amount', moneyInput('amount', s.amount, 'required min="0.01"')), field('Billing frequency', select('frequency', Object.entries(FREQUENCIES).map(([k, v]) => [k, v.label]), s.frequency)))}
     ${twoCol(field('Next renewal', input('nextRenewal', s.nextRenewal, 'type="date" required')), field('Category', select('category', cats, s.category)))}
     ${field('Charged to', accountSelect('accountId', s.accountId || firstAccountOf(['credit_card', 'bank'])))}
-    ${checkbox('autoLog', s.autoLog, 'Record each renewal automatically', 'Kosh adds the expense when you open the app on or after the renewal date.')}
+    ${checkbox('autoLog', s.autoLog, 'Record each renewal automatically', 'The app adds the expense when you open the app on or after the renewal date.')}
     ${isNew ? '' : checkbox('active', s.active, 'Active', 'Untick to pause without deleting.')}
     ${field('Notes (optional)', textarea('notes', s.notes, 'rows="2"'))}`;
   openModal({
@@ -1867,19 +2376,37 @@ function openBudgetForm(existing, presetCategory) {
      emis.account_id                               -> accounts.account_id
      emi_schedule.emi_id                           -> emis.emi_id
      subscriptions.account_id                      -> accounts.account_id
+     sips.fund_account_id / from_account_id        -> accounts.account_id
    --------------------------------------------------------------------- */
 function exportTables() {
+  const holding = new Map(M.P.holdings.map((h) => [h.a.id, h]));
   const accounts = db.accounts.map((a) => {
     const card = a.type === 'credit_card' ? cardMetrics(a) : null;
+    const h = holding.get(a.id);
     return {
       account_id: a.id, name: a.name, type: a.type, subtype: a.subtype || '', institution: a.institution || '', last4: a.last4 || '',
       opening_balance: num(a.openingBalance), opening_date: a.openingDate || '', current_balance: M.balances.get(a.id) || 0,
       outstanding: card ? card.outstanding : '', credit_limit: card ? card.limit : '', emi_blocked: card ? card.blocked : '',
       available_limit: card ? card.available : '', statement_day: a.statementDay ?? '', due_day: a.dueDay ?? '',
-      interest_rate: a.interestRate ?? '', maturity_date: a.maturityDate || '', archived: !!a.archived, notes: a.notes || '',
+      interest_rate: a.interestRate ?? '', maturity_date: a.maturityDate || '',
+      investment_group: h ? h.group : '', invested_amount: h ? h.invested : '', gain: h ? h.gain : '',
+      gain_percent: h ? round2(h.gainPct * 100) : '', units: a.units ?? '', unit_price: a.unitPrice ?? '',
+      fd_maturity_value: h?.fd ? h.fd.maturityValue : '',
+      archived: !!a.archived, notes: a.notes || '',
       created_at: a.createdAt || '', updated_at: a.updatedAt || '',
     };
   });
+  const sips = db.sips.map((x) => ({
+    sip_id: x.id, name: x.name, fund_account_id: x.fundAccountId || '', fund_name: accountName(x.fundAccountId),
+    from_account_id: x.fromAccountId || '', from_account_name: accountName(x.fromAccountId),
+    amount: num(x.amount), current_amount: sipAmountOn(x, x.nextDate || todayStr()), frequency: x.frequency, day_of_month: x.day ?? '',
+    monthly_equivalent: round2(sipAmountOn(x, todayStr()) * (FREQUENCIES[x.frequency]?.perMonth || 1)),
+    start_date: x.startDate || '', next_date: x.nextDate || '', end_date: x.endDate || '', step_up_percent: num(x.stepUpPercent),
+    active: !!x.active, auto_record: !!x.autoLog,
+    instalments_recorded: db.transactions.filter((t) => t.relatedType === 'sip' && t.relatedId === x.id).length,
+    amount_invested: round2(db.transactions.filter((t) => t.relatedType === 'sip' && t.relatedId === x.id).reduce((sum, t) => sum + num(t.amount), 0)),
+    notes: x.notes || '', created_at: x.createdAt || '', updated_at: x.updatedAt || '',
+  }));
   const signed = (t) => (t.type === 'income' ? num(t.amount) : t.type === 'expense' ? -num(t.amount)
     : t.type === 'adjustment' ? (t.toAccountId ? num(t.amount) : -num(t.amount)) : 0);
   const txns = sortTxns(db.transactions).reverse();
@@ -1933,17 +2460,18 @@ function exportTables() {
     ...db.settings.expenseCategories.map((n) => ({ kind: 'expense', name: n })),
     ...db.settings.incomeCategories.map((n) => ({ kind: 'income', name: n })),
   ];
-  return { accounts, transactions, ledger, emis, emi_schedule, subscriptions, budgets, categories };
+  return { accounts, transactions, ledger, emis, emi_schedule, subscriptions, sips, budgets, categories };
 }
 
 /* Column headers, so even empty tables export with the right columns. */
 const TABLE_COLUMNS = {
-  accounts: ['account_id', 'name', 'type', 'subtype', 'institution', 'last4', 'opening_balance', 'opening_date', 'current_balance', 'outstanding', 'credit_limit', 'emi_blocked', 'available_limit', 'statement_day', 'due_day', 'interest_rate', 'maturity_date', 'archived', 'notes', 'created_at', 'updated_at'],
+  accounts: ['account_id', 'name', 'type', 'subtype', 'institution', 'last4', 'opening_balance', 'opening_date', 'current_balance', 'outstanding', 'credit_limit', 'emi_blocked', 'available_limit', 'statement_day', 'due_day', 'interest_rate', 'maturity_date', 'investment_group', 'invested_amount', 'gain', 'gain_percent', 'units', 'unit_price', 'fd_maturity_value', 'archived', 'notes', 'created_at', 'updated_at'],
   transactions: ['transaction_id', 'date', 'year', 'month', 'type', 'category', 'description', 'amount', 'signed_amount', 'from_account_id', 'from_account_name', 'to_account_id', 'to_account_name', 'related_type', 'related_id', 'notes', 'created_at', 'updated_at'],
   ledger: ['entry_id', 'date', 'account_id', 'account_name', 'account_type', 'transaction_id', 'type', 'category', 'description', 'amount', 'affects_balance'],
   emis: ['emi_id', 'name', 'kind', 'loan_type', 'lender', 'account_id', 'account_name', 'principal', 'annual_rate', 'tenure_months', 'start_date', 'emi_amount', 'installments_paid', 'installments_left', 'principal_remaining', 'total_interest', 'interest_remaining', 'next_due_date', 'end_date', 'status', 'auto_record', 'notes', 'created_at', 'updated_at'],
   emi_schedule: ['emi_id', 'emi_name', 'installment', 'due_date', 'emi', 'principal', 'interest', 'balance_after', 'paid'],
   subscriptions: ['subscription_id', 'name', 'amount', 'frequency', 'monthly_equivalent', 'yearly_equivalent', 'next_renewal', 'account_id', 'account_name', 'category', 'active', 'auto_record', 'notes', 'created_at', 'updated_at'],
+  sips: ['sip_id', 'name', 'fund_account_id', 'fund_name', 'from_account_id', 'from_account_name', 'amount', 'current_amount', 'frequency', 'day_of_month', 'monthly_equivalent', 'start_date', 'next_date', 'end_date', 'step_up_percent', 'active', 'auto_record', 'instalments_recorded', 'amount_invested', 'notes', 'created_at', 'updated_at'],
   budgets: ['budget_id', 'category', 'monthly_limit', 'created_at', 'updated_at'],
   categories: ['kind', 'name'],
 };
@@ -1990,7 +2518,7 @@ async function exportZip() {
   for (const [t, cols] of Object.entries(TABLE_COLUMNS)) folder.file(`${t}.csv`, toCSV(tables[t], cols));
   folder.file('kosh-data.json', JSON.stringify(db, null, 2));
   folder.file('README.txt', [
-    'Kosh export', `Created ${new Date().toString()}`, '',
+    "KOSH export (Kundan On Savings Hustle)", `Created ${new Date().toString()}`, '',
     'All CSV files are UTF-8, comma separated, one header row, dates as YYYY-MM-DD.',
     'Relationships (for Power BI model view):',
     '  transactions.from_account_id / to_account_id -> accounts.account_id',
@@ -1998,6 +2526,9 @@ async function exportZip() {
     '  emis.account_id -> accounts.account_id',
     '  emi_schedule.emi_id -> emis.emi_id',
     '  subscriptions.account_id -> accounts.account_id',
+    '  sips.fund_account_id and sips.from_account_id -> accounts.account_id',
+    'SIP instalments are transfers (bank -> fund) with related_type = sip; related_id = sips.sip_id.',
+    'accounts.invested_amount / gain describe investment holdings (gain = current_balance - invested_amount).',
     'signed_amount in transactions: income positive, expense negative, transfers 0.',
     'Credit card balances are negative when you owe money.',
   ].join('\r\n'));
@@ -2014,10 +2545,10 @@ async function handleImport(e) {
   try { data = JSON.parse(await file.text()); }
   catch { toast('That file is not valid JSON.', 'error'); return; }
   if (!data || typeof data !== 'object' || !COLLECTIONS.some((c) => Array.isArray(data[c]))) {
-    toast('That file does not look like a Kosh backup.', 'error'); return;
+    toast('That file does not look like a KOSH backup.', 'error'); return;
   }
   const d = normalizeDB(data);
-  if (!confirm(`Replace ALL current data with this backup?\n\n${d.accounts.length} accounts, ${d.transactions.length} transactions, ${d.emis.length} EMIs, ${d.subscriptions.length} subscriptions.\n\nYour current data will be overwritten${isConfigured() ? ' on GitHub too (older versions stay in the repository history)' : ''}.`)) return;
+  if (!confirm(`Replace ALL current data with this backup?\n\n${d.accounts.length} accounts, ${d.transactions.length} transactions, ${d.emis.length} EMIs, ${d.subscriptions.length} subscriptions, ${d.sips.length} SIPs.\n\nYour current data will be overwritten${isConfigured() ? ' on GitHub too (older versions stay in the repository history)' : ''}.`)) return;
   commit([opReplace(d)], `Restore backup from ${file.name}`);
   toast('Backup restored', 'success');
 }
@@ -2059,7 +2590,7 @@ function renderData() {
 
       <section class="panel p-5">
         <h2 class="panel-title mb-1">Restore from a backup</h2>
-        <p class="text-sm text-ink-2 mb-4 max-w-prose">Load a JSON file downloaded from Kosh. It replaces everything currently in the app.</p>
+        <p class="text-sm text-ink-2 mb-4 max-w-prose">Load a JSON file downloaded from this app. It replaces everything currently in the app.</p>
         <button class="btn" data-action="import-json"><i class="fa-solid fa-upload"></i> Choose backup file</button>
       </section>
 
@@ -2092,7 +2623,7 @@ function openSettings() {
     <section class="space-y-4">
       <div>
         <h3 class="font-semibold">GitHub storage</h3>
-        <p class="text-sm text-ink-2 mt-1">Kosh saves your data as a JSON file in a GitHub repository you own. Use a <b>private</b> repository for it.</p>
+        <p class="text-sm text-ink-2 mt-1">The app saves your data as a JSON file in a GitHub repository you own. Use a <b>private</b> repository for it.</p>
       </div>
       ${twoCol(field('GitHub username', input('owner', config.owner, 'autocomplete="off" spellcheck="false" placeholder="your-username"')),
         field('Data repository name', input('repo', config.repo, 'autocomplete="off" spellcheck="false" placeholder="kosh-data"')))}
@@ -2108,7 +2639,9 @@ function openSettings() {
     <hr class="border-line">
     <section class="space-y-4">
       <h3 class="font-semibold">Preferences</h3>
-      ${field('Currency', select('currency', Object.keys(CURRENCIES), s.currency))}
+      ${twoCol(field('Your name', input('ownerName', s.ownerName, 'maxlength="30" placeholder="Kundan"'), 'Shown in the app heading and greeting.'),
+        field('Currency', select('currency', Object.keys(CURRENCIES), s.currency)))}
+      ${checkbox('sipAsSpending', s.sipAsSpending, 'Count SIPs as money going out', 'Shows SIPs and other money you invest in the spending chart and monthly totals. Net worth is not affected, because the money is still yours in the fund.')}
       ${field('Expense categories', textarea('expenseCategories', s.expenseCategories.join('\n'), 'rows="6"'), 'One per line. Renaming a category here does not change past transactions.')}
       ${field('Income sources', textarea('incomeCategories', s.incomeCategories.join('\n'), 'rows="4"'), 'One per line.')}
     </section>
@@ -2156,8 +2689,8 @@ function openSettings() {
       });
       $('#clearLocal', form).addEventListener('click', () => {
         const warn = isConfigured()
-          ? `Remove all Kosh data from this browser?${pending.length ? `\n\n${pending.length} change(s) have NOT reached GitHub yet and will be lost.` : ''}\n\nThe copy on GitHub stays; it will download again next time you connect.`
-          : 'Remove all Kosh data from this browser?\n\nYou are not connected to GitHub, so this deletes your data permanently. Download a backup first if unsure.';
+          ? `Remove all KOSH data from this browser?${pending.length ? `\n\n${pending.length} change(s) have NOT reached GitHub yet and will be lost.` : ''}\n\nThe copy on GitHub stays; it will download again next time you connect.`
+          : 'Remove all KOSH data from this browser?\n\nYou are not connected to GitHub, so this deletes your data permanently. Download a backup first if unsure.';
         if (!confirm(warn)) return;
         Object.values(STORAGE_KEYS).forEach((k) => localStorage.removeItem(k));
         localStorage.removeItem(LAST_ACCOUNT_KEY);
@@ -2178,13 +2711,15 @@ function openSettings() {
       if (repoChanged && isConfigured()) { sync.hold = true; clearTimeout(sync.timer); }
 
       const newSettings = {
+        ownerName: d.ownerName || '',
+        sipAsSpending: !!d.sipAsSpending,
         currency: d.currency,
         expenseCategories: splitLines(d.expenseCategories),
         incomeCategories: splitLines(d.incomeCategories),
       };
       if (!newSettings.expenseCategories.length) newSettings.expenseCategories = clone(DEFAULT_SETTINGS.expenseCategories);
       if (!newSettings.incomeCategories.length) newSettings.incomeCategories = clone(DEFAULT_SETTINGS.incomeCategories);
-      if (JSON.stringify(newSettings) !== JSON.stringify({ currency: db.settings.currency, expenseCategories: db.settings.expenseCategories, incomeCategories: db.settings.incomeCategories })) {
+      if (Object.keys(newSettings).some((k) => JSON.stringify(newSettings[k]) !== JSON.stringify(db.settings[k]))) {
         _fmtCache.clear();
         commit([opSettings(newSettings)], 'Update settings');
       } else render();
@@ -2245,7 +2780,7 @@ const ACTIONS = {
   'edit-txn': (d) => openTxnForm(db.transactions.find((t) => t.id === d.id)),
   'delete-txn': (d) => deleteTxn(d.id),
   'txn-more': () => { txFilter.limit += 100; $('#txnResults').innerHTML = txnResults(); },
-  'add-account': (d) => openAccountForm(null, d.type),
+  'add-account': (d) => openAccountForm(null, d.type || 'bank'),
   'edit-account': (d) => openAccountForm(accountById(d.id)),
   'adjust-balance': (d) => openAdjust(accountById(d.id)),
   'pay-card': (d) => payCard(d.id),
@@ -2257,6 +2792,11 @@ const ACTIONS = {
   'edit-sub': (d) => openSubForm(db.subscriptions.find((s) => s.id === d.id)),
   'pay-sub': (d) => paySub(d.id),
   'toggle-sub': (d) => toggleSub(d.id),
+  'add-sip': (d) => openSipForm(null, d.fund),
+  'edit-sip': (d) => openSipForm(db.sips.find((x) => x.id === d.id)),
+  'pay-sip': (d) => paySip(d.id),
+  'toggle-sip': (d) => toggleSip(d.id),
+  'invest-more': (d) => investMore(d.id),
   'add-budget': (d) => openBudgetForm(null, d.category),
   'edit-budget': (d) => openBudgetForm(db.budgets.find((b) => b.id === d.id)),
   'export-zip': () => exportZip(),

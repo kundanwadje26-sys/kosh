@@ -3,11 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Kosh | Expense Tracker & Fund Manager</title>
-  <meta name="description" content="Personal expense tracker and fund manager that stores its data in your own GitHub repository.">
+  <title>Kundan's Finance</title>
+  <!-- KOSH = Kundan On Savings Hustle -->
+  <meta name="description" content="Kundan's Finance (KOSH: Kundan On Savings Hustle). Personal expense tracker, fund manager and investment portfolio that stores its data in a private GitHub repository.">
+  <meta name="theme-color" content="#0B2540">
   <!-- Stops search engines from indexing your personal finance app -->
   <meta name="robots" content="noindex, nofollow">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2327408B'/%3E%3Cpath d='M20 16h8v13l12-13h10L36 31l15 17H40L28 34v14h-8z' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230B2540'/%3E%3Cpath d='M20 16h8v13l12-13h10L36 31l15 17H40L28 34v14h-8z' fill='%23F59E0B'/%3E%3C/svg%3E">
 
   <!-- Tailwind CSS (utility classes for layout and spacing) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -17,23 +19,24 @@
       theme: {
         extend: {
           colors: {
-            paper: '#EEF2EF',
-            ink: { DEFAULT: '#1D2340', 2: '#4A5170', 3: '#7C8299' },
-            line: '#D5DDD8',
-            royal: '#27408B',
-            gain: '#1E7A52',
-            loss: '#B4323A',
-            marigold: '#E8A317'
+            paper: '#F3F6FC',
+            ink: { DEFAULT: '#14213D', 2: '#475569', 3: '#7B8599' },
+            line: '#E2E7F0',
+            navy: '#0B2540',
+            royal: '#0A6FB0',
+            gain: '#0E8F47',
+            loss: '#D6245F',
+            marigold: '#F59E0B'
           }
         }
       }
     };
   </script>
 
-  <!-- Fonts: IBM Plex Sans for text, the condensed cut for big figures -->
+  <!-- Fonts: Plus Jakarta Sans for text, Bricolage Grotesque for headings and big figures -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <!-- Font Awesome icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
@@ -51,25 +54,28 @@
 
   <div class="min-h-screen lg:flex">
     <!-- ============ Sidebar navigation ============ -->
-    <aside id="sidebar" class="sidebar fixed inset-y-0 left-0 z-40 w-64 -translate-x-full lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen flex flex-col border-r border-line bg-paper">
-      <div class="px-5 pt-6 pb-5 flex items-center gap-3">
-        <div class="logo-mark" aria-hidden="true">K</div>
-        <div>
-          <div class="font-semibold text-lg leading-tight">Kosh</div>
-          <div class="text-xs text-ink-3">Every rupee, accounted for</div>
+    <aside id="sidebar" class="sidebar fixed inset-y-0 left-0 z-40 w-64 -translate-x-full lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen flex flex-col">
+      <div class="px-5 pt-6 pb-6 flex items-center gap-3">
+        <div class="logo-mark" aria-hidden="true"><span>K</span></div>
+        <div class="min-w-0">
+          <div class="brand-name" data-brand>Kundan's Finance</div>
+          <div class="brand-sub" title="KOSH: Kundan On Savings Hustle"><b>K</b>undan <b>O</b>n <b>S</b>avings <b>H</b>ustle</div>
         </div>
       </div>
       <nav id="nav" class="px-3 space-y-0.5" aria-label="Main"></nav>
       <div class="mt-auto px-5 py-5 text-xs text-ink-3 leading-relaxed" id="sidebarFoot"></div>
     </aside>
-    <div id="navBackdrop" class="fixed inset-0 z-30 bg-ink/30 hidden lg:hidden"></div>
+    <div id="navBackdrop" class="fixed inset-0 z-30 bg-ink/40 hidden lg:hidden"></div>
 
     <!-- ============ Main column ============ -->
     <div class="flex-1 min-w-0">
       <header class="sticky top-0 z-20 bg-paper/90 backdrop-blur border-b border-line">
         <div class="flex items-center gap-3 px-4 sm:px-6 lg:px-8 h-16">
           <button id="navToggle" class="icon-btn lg:hidden" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
-          <h1 id="pageTitle" class="text-lg sm:text-xl font-semibold truncate">Dashboard</h1>
+          <div class="min-w-0">
+            <div class="text-xs text-ink-3 font-semibold lg:hidden" data-brand>Kundan's Finance</div>
+            <h1 id="pageTitle" class="text-lg sm:text-xl font-bold truncate">Dashboard</h1>
+          </div>
           <div class="ml-auto flex items-center gap-2">
             <button id="syncStatus" class="sync-chip" data-action="sync-now" title="Sync status"></button>
             <button class="btn btn-primary hidden sm:inline-flex" data-action="add-txn" data-type="expense">
