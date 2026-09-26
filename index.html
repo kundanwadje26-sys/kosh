@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kosh | Expense Tracker & Fund Manager</title>
+  <meta name="description" content="Personal expense tracker and fund manager that stores its data in your own GitHub repository.">
+  <!-- Stops search engines from indexing your personal finance app -->
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2327408B'/%3E%3Cpath d='M20 16h8v13l12-13h10L36 31l15 17H40L28 34v14h-8z' fill='%23fff'/%3E%3C/svg%3E">
+
+  <!-- Tailwind CSS (utility classes for layout and spacing) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Custom colour names so classes like text-ink-2 or bg-paper work.
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            paper: '#EEF2EF',
+            ink: { DEFAULT: '#1D2340', 2: '#4A5170', 3: '#7C8299' },
+            line: '#D5DDD8',
+            royal: '#27408B',
+            gain: '#1E7A52',
+            loss: '#B4323A',
+            marigold: '#E8A317'
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Fonts: IBM Plex Sans for text, the condensed cut for big figures -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Font Awesome icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <!-- Chart.js for the dashboard charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+
+  <!-- JSZip bundles all CSV exports into one .zip download -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-paper text-ink antialiased">
+  <a href="#view" class="skip-link">Skip to content</a>
+
+  <div class="min-h-screen lg:flex">
+    <!-- ============ Sidebar navigation ============ -->
+    <aside id="sidebar" class="sidebar fixed inset-y-0 left-0 z-40 w-64 -translate-x-full lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen flex flex-col border-r border-line bg-paper">
+      <div class="px-5 pt-6 pb-5 flex items-center gap-3">
+        <div class="logo-mark" aria-hidden="true">K</div>
+        <div>
+          <div class="font-semibold text-lg leading-tight">Kosh</div>
+          <div class="text-xs text-ink-3">Every rupee, accounted for</div>
+        </div>
+      </div>
+      <nav id="nav" class="px-3 space-y-0.5" aria-label="Main"></nav>
+      <div class="mt-auto px-5 py-5 text-xs text-ink-3 leading-relaxed" id="sidebarFoot"></div>
+    </aside>
+    <div id="navBackdrop" class="fixed inset-0 z-30 bg-ink/30 hidden lg:hidden"></div>
+
+    <!-- ============ Main column ============ -->
+    <div class="flex-1 min-w-0">
+      <header class="sticky top-0 z-20 bg-paper/90 backdrop-blur border-b border-line">
+        <div class="flex items-center gap-3 px-4 sm:px-6 lg:px-8 h-16">
+          <button id="navToggle" class="icon-btn lg:hidden" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
+          <h1 id="pageTitle" class="text-lg sm:text-xl font-semibold truncate">Dashboard</h1>
+          <div class="ml-auto flex items-center gap-2">
+            <button id="syncStatus" class="sync-chip" data-action="sync-now" title="Sync status"></button>
+            <button class="btn btn-primary hidden sm:inline-flex" data-action="add-txn" data-type="expense">
+              <i class="fa-solid fa-plus"></i> Add transaction
+            </button>
+            <button class="icon-btn" data-action="open-settings" aria-label="Settings" title="Settings">
+              <i class="fa-solid fa-gear"></i>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main id="view" class="px-4 sm:px-6 lg:px-8 py-6 pb-28 max-w-7xl" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <!-- Floating add button (phones) -->
+  <button class="fab sm:hidden" data-action="add-txn" data-type="expense" aria-label="Add transaction">
+    <i class="fa-solid fa-plus"></i>
+  </button>
+
+  <!-- ============ Reusable modal ============ -->
+  <div id="modal" class="fixed inset-0 z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="absolute inset-0 bg-ink/40"></div>
+    <div id="modalWrap" class="relative flex min-h-full items-end sm:items-center justify-center sm:p-6 overflow-y-auto">
+      <form id="modalForm" class="modal-panel w-full sm:max-w-lg bg-white sm:rounded-xl rounded-t-xl flex flex-col max-h-[94vh]">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-line">
+          <h2 id="modalTitle" class="text-lg font-semibold"></h2>
+          <button type="button" class="icon-btn" data-close aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="modalBody" class="px-5 py-5 overflow-y-auto space-y-4"></div>
+        <div id="modalFooter" class="px-5 py-3 border-t border-line flex flex-wrap items-center gap-2"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div id="toasts" class="fixed z-[60] bottom-4 left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0 flex flex-col gap-2 w-[calc(100%-2rem)] sm:w-96" aria-live="polite"></div>
+
+  <!-- Hidden file input used by "Restore from backup" -->
+  <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+
+  <script src="app.js"></script>
+</body>
+</html>
