@@ -16,7 +16,7 @@
      6. CALCULATIONS (balances, EMIs, cards, budgets)
      7. UI HELPERS (modal, toast, form fields)
      8. PAGES (dashboard, accounts, investments & SIPs, transactions,
-        EMIs, subscriptions, budgets, export)
+        EMIs, subscriptions, budgets, export) + LIVE PRICES (NAV / stocks)
      9. FORMS & ACTIONS
     10. EXPORT / IMPORT
     11. SETTINGS
@@ -75,6 +75,8 @@ const DEFAULT_SETTINGS = {
   ownerName: 'Kundan',       // shown in the app heading: "Kundan's Finance"
   currency: 'INR',
   sipAsSpending: true,       // show SIPs / money invested in monthly spending charts
+  autoPrices: true,          // refresh mutual fund NAVs / stock prices when the app opens
+  stockApiKey: '',           // optional Alpha Vantage key for live stock prices
   expenseCategories: ['Food & dining', 'Groceries', 'Transport', 'Fuel', 'Utilities', 'Rent', 'Shopping',
     'Health', 'Education', 'Entertainment', 'Travel', 'Subscriptions', 'EMI', 'Insurance',
     'Personal care', 'Family', 'Gifts & donations', 'Fees & charges', 'Other'],
@@ -1150,7 +1152,7 @@ function renderDashboard() {
   const s = monthSummary(dashMonth);
   const keepRate = s.income > 0 ? Math.round(((s.left + s.invested) / s.income) * 100) : null;
   const upcoming = upcomingItems(30);
-  const recent = sortTxns(db.transactions).slice(0, 6);
+  const recent = sortTxns(db.transactions.filter((t) => t.relatedType !== 'market')).slice(0, 6);
   return `
     ${gettingStarted()}
     ${netWorthPanel(T)}
@@ -1705,19 +1707,26 @@ function renderPortfolio() {
     </div>
 
     <section class="hero hero-leaf p-5 sm:p-7">
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-5">
-        <div class="col-span-2 lg:col-span-1">
+      <div class="grid grid-cols-2 lg:grid-cols-5 gap-5">
+        <div class="col-span-2">
           <div class="text-sm hero-dim mb-1">Portfolio value</div>
-          <div class="display text-4xl sm:text-5xl font-semibold num">${money(T.value)}</div>
+          <div class="display text-4xl sm:text-5xl font-semibold num">${money(Math.round(T.value))}</div>
         </div>
-        <div><div class="text-sm hero-dim mb-1">Invested</div><div class="display text-2xl font-semibold num">${money(T.invested)}</div></div>
+        <div><div class="text-sm hero-dim mb-1">Invested</div><div class="display text-2xl font-semibold num">${money(Math.round(T.invested))}</div></div>
         <div><div class="text-sm hero-dim mb-1">${up ? 'Gain' : 'Loss'}</div>
-          <div class="display text-2xl font-semibold num">${money(T.gain, { sign: true })}</div>
+          <div class="display text-2xl font-semibold num">${money(Math.round(T.gain), { sign: true })}</div>
           <div class="text-sm num hero-dim">${pct(T.gainPct)}</div></div>
         <div><div class="text-sm hero-dim mb-1">SIPs per month</div><div class="display text-2xl font-semibold num">${money(T.sipMonthly)}</div>
           <div class="text-sm hero-dim">${T.sipCount} active</div></div>
       </div>
     </section>
+
+    ${db.accounts.some((a) => a.type === 'investment' && hasLivePrice(a)) ? `
+    <div class="flex flex-wrap items-center gap-3 mt-4 text-sm text-ink-2">
+      <span><i class="fa-solid fa-bolt mr-1" style="color:var(--marigold)"></i><span id="priceStatus">${esc(priceStatusText())}</span></span>
+      <button class="btn btn-sm" data-action="refresh-prices" ${priceState.busy ? 'disabled' : ''}><i class="fa-solid fa-arrows-rotate"></i> Refresh prices</button>
+    </div>` : `
+    <p class="text-sm text-ink-2 mt-4"><i class="fa-solid fa-bolt mr-1" style="color:var(--marigold)"></i>Edit a mutual fund and use <b>Find</b> under "Live NAV" to update its value automatically from the latest NAV.</p>`}
 
     <div class="grid grid-cols-1 lg:grid-cols-5 gap-6 mt-6">
       <section class="panel p-5 lg:col-span-2">
@@ -1758,15 +1767,22 @@ function holdingRow(h) {
   const a = h.a;
   const sips = db.sips.filter((x) => x.active && x.fundAccountId === a.id);
   const bits = [accountSubtitle(a)];
-  if (num(a.units)) bits.push(`${num(a.units).toLocaleString('en-IN', { maximumFractionDigits: 4 })} units${num(a.unitPrice) ? ` at ${money(a.unitPrice)}` : ''}`);
+  if (num(a.units) && !(hasLivePrice(a) && a.priceDate)) bits.push(`${num(a.units).toLocaleString('en-IN', { maximumFractionDigits: 4 })} units${num(a.unitPrice) ? ` at ${money(a.unitPrice)}` : ''}`);
   if (h.fd) bits.push(`${num(a.interestRate)}% p.a., ${h.fd.matured ? 'matured' : 'matures'} ${fmtDate(h.fd.maturityDate)} (about ${money(h.fd.maturityValue)})`);
   else if (a.maturityDate) bits.push(`matures ${fmtDate(a.maturityDate)}`);
+  if (hasLivePrice(a) && num(a.unitPrice) && a.priceDate) {
+    const u = holdingUnits(a).units;
+    bits.push(`${u ? `${u.toLocaleString('en-IN', { maximumFractionDigits: 3 })} units, ` : ''}${isMF(a) ? 'NAV' : 'price'} ${money(a.unitPrice)} on ${fmtDate(a.priceDate)}`);
+  }
+  const problem = priceState.problems[a.id];
+  const livePill = hasLivePrice(a) ? `<span class="pill blue" title="${esc(a.schemeName || avSymbol(a.ticker))}"><i class="fa-solid fa-bolt"></i> Live</span>` : '';
   const sipBadge = sips.map((x) => `<span class="pill grow">SIP ${money(sipAmountOn(x, todayStr()))}</span>`).join(' ');
   return `<div class="row ${a.archived ? 'opacity-60' : ''}">
     <div class="row-icon t-investment" style="color:${GROUP_COLORS[h.group]}"><i class="fa-solid ${GROUP_ICONS[h.group] || 'fa-shapes'}"></i></div>
     <div class="min-w-0 flex-1">
-      <div class="font-medium truncate">${esc(a.name)} ${sipBadge} ${a.archived ? '<span class="pill">Archived</span>' : ''}</div>
+      <div class="font-medium truncate">${esc(a.name)} ${livePill} ${sipBadge} ${a.archived ? '<span class="pill">Archived</span>' : ''}</div>
       <div class="text-xs text-ink-3 mt-0.5">${bits.filter(Boolean).join(', ') || esc(a.subtype || 'Investment')}</div>
+      ${problem ? `<div class="text-xs mt-1" style="color:var(--marigold-ink)"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${esc(problem)}</div>` : ''}
     </div>
     <div class="text-right whitespace-nowrap">
       <div class="num font-semibold">${money(h.value)}</div>
@@ -1834,7 +1850,9 @@ function openSipForm(existing, presetFundId) {
     ${field('Invest into', select('fundAccountId', fundOpts, selectedFund, 'required'), 'The fund or stock this SIP buys. Pick "New" if you haven\'t added it yet.')}
     ${showFor('__new', twoCol(field('Kind', select('newKind', INVESTMENT_KINDS, 'Mutual fund')), field('Platform (optional)', input('newPlatform', '', 'placeholder="e.g. Groww, Zerodha, Kuvera"'))) +
       twoCol(field('Current value (if you already hold it)', moneyInput('newValue', '', 'min="0" placeholder="0"')),
-        field('Amount invested so far', moneyInput('newInvested', '', 'min="0" placeholder="0"'))))}
+        field('Amount invested so far', moneyInput('newInvested', '', 'min="0" placeholder="0"'))) +
+      twoCol(field('Units you hold now (optional)', input('newUnits', '', 'type="number" step="any" min="0" placeholder="0"')), '<div></div>') +
+      schemePicker({}))}
     ${twoCol(field('SIP amount', moneyInput('amount', x.amount, 'required min="1"')), field('How often', select('frequency', freqOpts, x.frequency)))}
     ${twoCol(field('Next SIP date', input('nextDate', x.nextDate, 'type="date" required'), 'Monthly SIPs repeat on this day, e.g. the 1st of every month.'),
       field('Paid from', accountSelect('fromAccountId', x.fromAccountId || firstAccountOf(['bank']), { types: ['bank', 'cash'], placeholder: 'Choose a bank account' })))}
@@ -1848,7 +1866,7 @@ function openSipForm(existing, presetFundId) {
     title: isNew ? 'Add SIP' : `Edit ${x.name}`,
     body,
     submitLabel: isNew ? 'Add SIP' : 'Save changes',
-    onOpen: (form) => bindShowHide(form, 'fundAccountId'),
+    onOpen: (form) => { bindShowHide(form, 'fundAccountId'); bindSchemePicker(form); },
     onSubmit: (d) => {
       const ops = [];
       let fundId = d.fundAccountId;
@@ -1864,6 +1882,8 @@ function openSipForm(existing, presetFundId) {
           // starts at zero on the first SIP date so every instalment adds to it.
           openingDate: hasValue || d.nextDate > todayStr() ? todayStr() : d.nextDate,
           creditLimit: null, statementDay: null, dueDay: null, interestRate: null, maturityDate: '', notes: '', archived: false,
+          units: d.newUnits === '' ? null : num(d.newUnits), unitsDate: d.newUnits === '' ? '' : todayStr(),
+          schemeCode: (d.newKind || 'Mutual fund') === 'Mutual fund' ? d.schemeCode || '' : '', schemeName: d.schemeCode ? d.schemeName || '' : '',
         };
         ops.push(opUpsert('accounts', fund));
         fundId = fund.id;
@@ -1882,6 +1902,8 @@ function openSipForm(existing, presetFundId) {
       commit(ops, `${isNew ? 'Add' : 'Edit'} SIP ${rec.name}`);
       toast(isNew ? 'SIP added' : 'SIP saved', 'success');
       if (rec.autoLog) setTimeout(processAutoPayments, 50);
+      const fundAcc = accountById(fundId) || ops.find((o) => o.coll === 'accounts')?.rec;
+      if (fundAcc && hasLivePrice(fundAcc) && navigator.onLine) setTimeout(() => refreshPrices({ onlyId: fundId }), 400);
     },
     onDelete: existing ? () => {
       if (!confirm(`Delete the ${x.name} SIP? Instalments already recorded stay in your transactions and the fund keeps its value.`)) return false;
@@ -1925,6 +1947,256 @@ function investMore(id) {
   const a = accountById(id);
   if (!a) return;
   openTxnForm(null, { type: 'transfer', toAccountId: id, fromAccountId: firstAccountOf(['bank']), description: `Lump sum into ${a.name}` });
+}
+
+/* ---------------------------------------------------------------------
+   LIVE PRICES
+   ---------------------------------------------------------------------
+   Mutual funds: latest NAV from MFapi.in (free, no key; AMFI data,
+     refreshed several times a day). Docs: https://www.mfapi.in/docs/
+       search  GET https://api.mfapi.in/mf/search?q=parag
+       latest  GET https://api.mfapi.in/mf/{schemeCode}/latest
+       history GET https://api.mfapi.in/mf/{schemeCode}?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+   Stocks & ETFs: latest price from Alpha Vantage (free key, 25 calls
+     a day), BSE symbols such as TCS.BSE. Docs: https://www.alphavantage.co/documentation/
+
+   How a holding is valued:
+     units held  = units you entered (as on `unitsDate`)
+                   + units bought by later SIPs / lump sums
+                   - units sold by later withdrawals
+     value       = units held x latest NAV or price
+   For SIPs the app works out the units itself from the NAV on the SIP
+   date and saves them on the transaction (`units`, `unitNav`).
+   The change in value is saved as ONE "Market value" adjustment per
+   holding per month (id txn_mkt_<account>_<YYYY-MM>), which is updated
+   on every refresh, so market moves never count as income or spending.
+   --------------------------------------------------------------------- */
+const MFAPI = 'https://api.mfapi.in';
+const ALPHA = 'https://www.alphavantage.co/query';
+const PRICE_KEY = 'kosh.prices.v1';                  // per-device: last refresh times
+const MF_REFRESH_HOURS = 3;                          // auto refresh at most every 3 hours
+const STOCK_REFRESH_HOURS = 20;                      // Alpha Vantage free tier is 25 calls/day
+const priceState = { busy: false, problems: {} };    // problems: accountId -> message (this device only)
+
+const isMF = (a) => a.subtype === 'Mutual fund' && !!a.schemeCode;
+const isStockLive = (a) => ['Stocks', 'ETF'].includes(a.subtype) && !!a.ticker;
+const hasLivePrice = (a) => isMF(a) || isStockLive(a);
+/** 'TCS' -> 'TCS.BSE' (Alpha Vantage's code for BSE listings). */
+const avSymbol = (t) => { const s = String(t || '').trim().toUpperCase(); return !s ? '' : /\.[A-Z]+$/.test(s) ? s : `${s}.BSE`; };
+/** MFapi dates are DD-MM-YYYY; the app uses YYYY-MM-DD. */
+const mfDate = (s) => { const [d, m, y] = String(s).split('-'); return y ? `${y}-${m}-${d}` : ''; };
+
+async function fetchJSON(url, ms = 15000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (e) {
+    throw new Error(e.name === 'AbortError' ? 'The price service took too long to answer.' : `Couldn't reach the price service (${e.message}).`);
+  } finally { clearTimeout(timer); }
+}
+
+async function mfSearch(q) {
+  const list = await fetchJSON(`${MFAPI}/mf/search?q=${encodeURIComponent(q)}`);
+  return Array.isArray(list) ? list : [];
+}
+async function mfLatest(code) {
+  const j = await fetchJSON(`${MFAPI}/mf/${encodeURIComponent(code)}/latest`);
+  const row = j?.data?.[0];
+  if (!row || !num(row.nav)) throw new Error('No NAV found for this scheme code.');
+  return { price: num(row.nav), date: mfDate(row.date), name: j.meta?.scheme_name || '' };
+}
+/** NAV history between two dates, oldest first: [{ date, nav }]. */
+async function mfHistory(code, from, to) {
+  const j = await fetchJSON(`${MFAPI}/mf/${encodeURIComponent(code)}?startDate=${from}&endDate=${to}`, 25000);
+  return (j?.data || []).map((r) => ({ date: mfDate(r.date), nav: num(r.nav) }))
+    .filter((r) => r.nav > 0 && r.date >= from && r.date <= to)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+async function stockLatest(ticker, key) {
+  const j = await fetchJSON(`${ALPHA}?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(avSymbol(ticker))}&apikey=${encodeURIComponent(key)}`);
+  // Alpha Vantage reports limits and errors inside a normal 200 response.
+  if (j.Note || j.Information) throw new Error('Daily limit of the free stock price key reached. Try again tomorrow.');
+  if (j['Error Message']) throw new Error(`Symbol ${avSymbol(ticker)} was not found.`);
+  const q = j['Global Quote'] || {};
+  if (!num(q['05. price'])) throw new Error(`No price for ${avSymbol(ticker)}. Check the symbol.`);
+  return { price: num(q['05. price']), date: q['07. latest trading day'] || todayStr() };
+}
+
+/**
+ * Units held in a holding. Transactions after `unitsDate` (or from the
+ * opening date if units were never entered) add or remove their `units`.
+ * `overrides` lets a refresh use units it is about to save.
+ */
+function holdingUnits(a, overrides = {}) {
+  let units = num(a.units);
+  const pendingBuys = [], missing = [];
+  for (const t of db.transactions) {
+    if (t.type === 'adjustment') continue;
+    const into = t.toAccountId === a.id, out = t.fromAccountId === a.id;
+    if (!into && !out) continue;
+    const d = t.date || '';
+    if (a.unitsDate ? d <= a.unitsDate : d < (a.openingDate || '')) continue;
+    const u = overrides[t.id] ?? t.units;
+    if (u === undefined || u === null || u === '') { (into ? pendingBuys : missing).push(t); continue; }
+    units += into ? num(u) : -num(u);
+  }
+  return { units: Math.round(units * 10000) / 10000, pendingBuys, missing };
+}
+
+/** Ops that set a holding's value to `target` via this month's market-value adjustment. */
+function marketValueOps(a, target, note) {
+  const month = todayStr().slice(0, 7);
+  const id = `txn_mkt_${a.id}_${month}`;
+  const existing = db.transactions.find((t) => t.id === id);
+  const signed = existing ? (existing.toAccountId ? num(existing.amount) : -num(existing.amount)) : 0;
+  const withoutIt = (M.balances.get(a.id) || 0) - signed;
+  const diff = round2(target - withoutIt);
+  if (Math.abs(diff) < 0.01) return existing ? [opDelete('transactions', id)] : [];
+  const date = todayStr() < (a.openingDate || '') ? a.openingDate : todayStr();
+  return [opUpsert('transactions', {
+    ...(existing || {}), id, date, type: 'adjustment', amount: Math.abs(diff),
+    category: 'Market value', description: `${a.name} market value`,
+    fromAccountId: diff < 0 ? a.id : '', toAccountId: diff > 0 ? a.id : '',
+    relatedType: 'market', relatedId: a.id, notes: note,
+  })];
+}
+
+function priceRuns() { return readLS(PRICE_KEY, { mf: 0, stock: 0 }); }
+function hoursSince(ts) { return (Date.now() - (ts || 0)) / 3600000; }
+
+/**
+ * Fetch the latest NAVs / prices and update holding values.
+ * auto = true when called on app start: runs only if due, and stays quiet.
+ */
+async function refreshPrices({ auto = false, onlyId = null } = {}) {
+  if (priceState.busy || !navigator.onLine) { if (!auto && !navigator.onLine) toast('You are offline. Prices will update when you are back online.'); return; }
+  if (auto && db.settings.autoPrices === false) return;
+  const runs = priceRuns();
+  const key = String(db.settings.stockApiKey || '').trim();
+  const doMF = !auto || hoursSince(runs.mf) >= MF_REFRESH_HOURS;
+  const doStock = !!key && (!auto || hoursSince(runs.stock) >= STOCK_REFRESH_HOURS);
+  const targets = db.accounts.filter((a) => a.type === 'investment' && !a.archived && (!onlyId || a.id === onlyId)
+    && ((isMF(a) && doMF) || (isStockLive(a) && doStock)));
+  if (!targets.length) {
+    if (!auto) toast(db.accounts.some(isStockLive) && !key ? 'Add a free stock price key in Settings to update stock prices.' : 'Link a holding to its fund or stock (edit the holding) to get live prices.');
+    return;
+  }
+
+  priceState.busy = true;
+  renderPriceStatus();
+  M = buildModel();
+  const ops = [];
+  let updated = 0;
+  for (const a of targets) {
+    try {
+      const live = isMF(a) ? await mfLatest(a.schemeCode) : await stockLatest(a.ticker, key);
+      const overrides = {};
+      let { units, pendingBuys, missing } = holdingUnits(a);
+
+      // SIPs, lump sums and withdrawals in a mutual fund: work out the units
+      // from the NAV of that day (or the next day a NAV was published).
+      if (isMF(a) && (pendingBuys.length || missing.length)) {
+        const needs = [...pendingBuys, ...missing];
+        const from = needs.reduce((m, t) => (t.date < m ? t.date : m), todayStr());
+        const hist = await mfHistory(a.schemeCode, from, todayStr());
+        for (const t of needs) {
+          const row = hist.find((r) => r.date >= t.date);  // NAV of that day, or the next working day
+          if (!row) continue;                              // not allotted yet (NAV not published)
+          overrides[t.id] = Math.round((num(t.amount) / row.nav) * 1000) / 1000;
+          ops.push(opUpsert('transactions', { ...t, units: overrides[t.id], unitNav: row.nav }));
+        }
+        ({ units, pendingBuys, missing } = holdingUnits(a, overrides));
+      }
+      if (missing.length) {
+        priceState.problems[a.id] = 'A withdrawal has no units. Use "Update value" to enter the units you hold now.';
+        continue;
+      }
+      if (!units && !pendingBuys.length) {
+        priceState.problems[a.id] = 'Enter the units you hold (edit the holding) to value it at the live price.';
+        ops.push(opUpsert('accounts', { ...a, unitPrice: live.price, priceDate: live.date }));
+        continue;
+      }
+      if (!isMF(a) && pendingBuys.length) {
+        priceState.problems[a.id] = 'Money was added without a share count. Use "Update value" to enter the shares you hold now.';
+        continue;
+      }
+      // Purchases still waiting for their NAV are counted at cost until they are allotted.
+      const waiting = pendingBuys.reduce((s, t) => s + num(t.amount), 0);
+      const target = round2(units * live.price + waiting);
+      const label = isMF(a) ? 'NAV' : 'Price';
+      ops.push(...marketValueOps(a, target, `${label} ${live.price} on ${live.date}, ${units} units`));
+      ops.push(opUpsert('accounts', { ...a, unitPrice: live.price, priceDate: live.date, ...(isMF(a) && live.name ? { schemeName: live.name } : {}) }));
+      delete priceState.problems[a.id];
+      updated++;
+    } catch (e) {
+      priceState.problems[a.id] = e.message;
+    }
+  }
+  priceState.busy = false;
+  if (doMF && targets.some(isMF)) runs.mf = Date.now();
+  if (doStock && targets.some(isStockLive)) runs.stock = Date.now();
+  writeLS(PRICE_KEY, runs);
+  if (ops.length) commit(ops, `Update live prices (${updated} holding${updated === 1 ? '' : 's'})`);
+  else render();
+  const failed = targets.filter((a) => priceState.problems[a.id]).length;
+  if (!auto || failed) {
+    if (updated) toast(`Prices updated for ${updated} holding${updated === 1 ? '' : 's'}${failed ? `, ${failed} need attention` : ''}.`, failed ? 'info' : 'success');
+    else if (failed) toast(`Couldn't update prices: ${priceState.problems[targets.find((a) => priceState.problems[a.id]).id]}`, 'error');
+  }
+}
+
+function priceStatusText() {
+  if (priceState.busy) return 'Updating prices…';
+  const last = Math.max(priceRuns().mf || 0, priceRuns().stock || 0);
+  if (!last) return 'Prices not updated on this device yet';
+  const d = new Date(last);
+  const same = toDateStr(d) === todayStr();
+  return `Prices updated ${same ? 'today' : fmtDate(toDateStr(d))} at ${d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
+}
+function renderPriceStatus() {
+  const el = $('#priceStatus');
+  if (el) el.textContent = priceStatusText();
+  const btn = $('[data-action="refresh-prices"]');
+  if (btn) btn.disabled = priceState.busy;
+}
+
+/* ----- "Find your fund" picker used in the holding and SIP forms ----- */
+function schemePicker(a = {}) {
+  const current = a.schemeCode ? [[a.schemeCode, a.schemeName || `Scheme ${a.schemeCode}`]] : [];
+  return `<div class="callout space-y-3" data-scheme-picker>
+    <div class="font-semibold text-sm"><i class="fa-solid fa-bolt mr-1" style="color:var(--marigold)"></i>Live NAV (optional)</div>
+    <div class="flex gap-2">
+      <input class="inp" data-scheme-q placeholder="Type the fund name, e.g. parag parikh flexi" value="">
+      <button type="button" class="btn" data-scheme-find>Find</button>
+    </div>
+    ${select('schemeCode', [['', current.length ? 'Not linked' : 'Search above, then pick your plan'], ...current], a.schemeCode || '')}
+    <input type="hidden" name="schemeName" value="${esc(a.schemeName || '')}">
+    <span class="hint">Pick the exact plan you hold (Direct or Regular, Growth or IDCW). The app then updates the value from the latest NAV.</span>
+  </div>`;
+}
+function bindSchemePicker(form) {
+  const box = $('[data-scheme-picker]', form);
+  if (!box) return;
+  const q = $('[data-scheme-q]', box), sel = $('select[name="schemeCode"]', box), nameInp = $('input[name="schemeName"]', box);
+  const find = async () => {
+    const text = q.value.trim();
+    if (text.length < 3) { toast('Type at least 3 letters of the fund name.'); return; }
+    const btn = $('[data-scheme-find]', box);
+    btn.disabled = true; btn.textContent = 'Searching…';
+    try {
+      const list = (await mfSearch(text)).slice(0, 60);
+      sel.innerHTML = `<option value="">${list.length ? `${list.length} found, pick your plan` : 'No funds found, try other words'}</option>` +
+        list.map((s) => `<option value="${esc(s.schemeCode)}">${esc(s.schemeName)}</option>`).join('');
+      if (list.length) sel.focus();
+    } catch (e) { toast(e.message, 'error'); }
+    finally { btn.disabled = false; btn.textContent = 'Find'; }
+  };
+  $('[data-scheme-find]', box).addEventListener('click', find, { signal: modalSignal() });
+  q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); find(); } }, { signal: modalSignal() });
+  sel.addEventListener('change', () => { nameInp.value = sel.value ? sel.selectedOptions[0].textContent : ''; }, { signal: modalSignal() });
 }
 
 /* ---------------------------------------------------------------------
@@ -1986,16 +2258,7 @@ function openTxnForm(existing, preset = {}) {
     title: isNew ? 'Add transaction' : 'Edit transaction',
     body,
     submitLabel: isNew ? 'Add transaction' : 'Save changes',
-    onOpen: (form) => {
-      bindShowHide(form, 'type');
-      // Units x price -> current value, so you can copy numbers straight from your app.
-      const fill = () => {
-        const u = num(form.elements.units?.value), p = num(form.elements.unitPrice?.value);
-        const box = $$('[name="openingBalance"]', form).find((el) => !el.disabled);
-        if (u > 0 && p > 0 && box) box.value = round2(u * p);
-      };
-      form.addEventListener('input', (e) => { if (['units', 'unitPrice'].includes(e.target.name)) fill(); }, { signal: modalSignal() });
-    },
+    onOpen: (form) => bindShowHide(form, 'type'),
     onSubmit: (d) => {
       const amount = round2(num(d.amount));
       if (amount <= 0) { toast('Enter an amount above zero.', 'error'); return false; }
@@ -2004,13 +2267,15 @@ function openTxnForm(existing, preset = {}) {
         ...(existing || {}),
         id: existing?.id || uid('txn'),
         date: d.date, type: d.type, amount,
-        category: d.type === 'transfer' ? transferCategory(d.fromAccountId, d.toAccountId) : d.category,
+        category: d.type === 'transfer' ? (existing?.relatedType === 'sip' && d.toAccountId === existing.toAccountId ? existing.category : transferCategory(d.fromAccountId, d.toAccountId)) : d.category,
         description: d.description || '',
         fromAccountId: d.type === 'income' ? '' : d.fromAccountId,
         toAccountId: d.type === 'expense' ? '' : d.toAccountId,
         relatedType: existing?.relatedType || '', relatedId: existing?.relatedId || '',
         notes: d.notes || '',
       };
+      // Units bought/sold were worked out from the old amount or date; let the next price refresh redo them.
+      if (existing && existing.units != null && (rec.amount !== existing.amount || rec.date !== existing.date || rec.toAccountId !== existing.toAccountId || rec.fromAccountId !== existing.fromAccountId)) { delete rec.units; delete rec.unitNav; }
       if (d.type === 'expense') localStorage.setItem(LAST_ACCOUNT_KEY, rec.fromAccountId);
       commit([opUpsert('transactions', rec)], `${isNew ? 'Add' : 'Edit'} ${rec.type} ${money(amount)}${rec.description ? ` (${rec.description})` : ''}`);
       toast(isNew ? `${cap(rec.type)} added` : 'Transaction saved', 'success');
@@ -2047,6 +2312,21 @@ function openAdjustmentEdit(t) {
 }
 
 /* ===== Accounts ===== */
+/** Shows [data-sub="Mutual fund"] / [data-sub="Stocks ETF"] blocks for the chosen investment kind. */
+function bindSubtypeBlocks(form) {
+  const update = () => {
+    const sub = $$('select[name="subtype"]', form).find((el) => !el.disabled)?.value || '';
+    const isInv = (form.elements.type?.value || '') === 'investment';
+    $$('[data-sub]', form).forEach((block) => {
+      const on = isInv && block.dataset.sub.split(' ').some((w) => sub.startsWith(w) || sub === w);
+      block.hidden = !on;
+      $$('input, select', block).forEach((i) => { if (i.name) i.disabled = !on; });
+    });
+  };
+  form.addEventListener('change', (e) => { if (['subtype', 'type'].includes(e.target.name)) update(); }, { signal: modalSignal() });
+  update();
+}
+
 function openAccountForm(existing, presetType = 'bank') {
   const isNew = !existing;
   const a = existing ? { ...existing } : { type: presetType, openingDate: todayStr(), subtype: '' };
@@ -2064,11 +2344,13 @@ function openAccountForm(existing, presetType = 'bank') {
       twoCol(field('Statement date (day of month)', input('statementDay', a.statementDay, 'type="number" min="1" max="31" placeholder="e.g. 15"')),
         field('Payment due date (day of month)', input('dueDay', a.dueDay, 'type="number" min="1" max="31" placeholder="e.g. 5"'))))}
     ${showFor('investment', twoCol(field('Kind', select('subtype', INVESTMENT_KINDS, a.subtype || 'Mutual fund')), field('Platform or institution', input('institution', a.institution, 'placeholder="e.g. Groww, Zerodha, SBI"'))) +
-      twoCol(field('Units or shares (optional)', input('units', a.units ?? '', 'type="number" step="any" min="0" placeholder="e.g. 152.347"')),
+      twoCol(field('Units or shares (optional)', input('units', a.units ?? '', 'type="number" step="any" min="0" placeholder="e.g. 152.347"'), a.unitsDate && num(a.units) ? `As on ${fmtDate(a.unitsDate)}. Units bought by SIPs after that are added automatically.` : ''),
         field('Price or NAV per unit (optional)', moneyInput('unitPrice', a.unitPrice ?? '', 'min="0" placeholder="e.g. 78.42"'))) +
-      twoCol(field('Interest rate % (optional)', input('interestRate', a.interestRate, 'type="number" step="0.01" min="0"'), 'For FDs, RDs, PPF and bonds.'),
-        field('Maturity date (optional)', input('maturityDate', a.maturityDate, 'type="date"'))) +
-      field('FD start date (optional)', input('depositDate', a.depositDate, 'type="date"'), 'For fixed deposits: the day the deposit was made. Used with the rate and maturity date to estimate its value.'))}
+      `<div data-sub="Fixed Recurring PPF Bonds NPS Gold Other" class="space-y-4">${twoCol(field('Interest rate % (optional)', input('interestRate', a.interestRate, 'type="number" step="0.01" min="0"'), 'For FDs, RDs, PPF and bonds.'),
+        field('Maturity date (optional)', input('maturityDate', a.maturityDate, 'type="date"')))}</div>` +
+      `<div data-sub="Fixed">${field('FD start date (optional)', input('depositDate', a.depositDate, 'type="date"'), 'The day the deposit was made. Used with the rate and maturity date to estimate its value.')}</div>` +
+      `<div data-sub="Mutual fund">${schemePicker(a)}</div>` +
+      `<div data-sub="Stocks ETF">${field('BSE symbol for live price (optional)', input('ticker', a.ticker, 'placeholder="e.g. TCS, RELIANCE, NIFTYBEES" autocapitalize="characters" spellcheck="false"'), 'Needs the free stock price key in Settings. Enter the units above too.')}</div>`)}
     ${showFor('cash bank', field('Balance', moneyInput('openingBalance', a.type !== 'credit_card' && existing ? a.openingBalance : '', 'placeholder="0"'), 'The balance on the date below.'))}
     ${showFor('investment', twoCol(field('Current value', moneyInput('openingBalance', a.type === 'investment' && existing ? a.openingBalance : '', 'placeholder="0"'), 'The value on the date below. Fills in by itself from units and price.'),
       field('Amount invested', moneyInput('investedAmount', a.type === 'investment' && existing ? (a.investedAmount ?? a.openingBalance) : '', 'min="0" placeholder="Same as value"'), 'What you paid in total up to that date. Used to work out your gain.')))}
@@ -2080,7 +2362,18 @@ function openAccountForm(existing, presetType = 'bank') {
     title: isNew ? 'Add account' : `Edit ${a.name}`,
     body,
     submitLabel: isNew ? 'Add account' : 'Save changes',
-    onOpen: (form) => bindShowHide(form, 'type'),
+    onOpen: (form) => {
+      bindShowHide(form, 'type');
+      // Units x price -> current value, so you can copy numbers straight from your app.
+      const fill = () => {
+        const u = num(form.elements.units?.value), p = num(form.elements.unitPrice?.value);
+        const box = $$('[name="openingBalance"]', form).find((el) => !el.disabled);
+        if (u > 0 && p > 0 && box) box.value = round2(u * p);
+      };
+      form.addEventListener('input', (e) => { if (['units', 'unitPrice'].includes(e.target.name)) fill(); }, { signal: modalSignal() });
+      bindSubtypeBlocks(form);
+      bindSchemePicker(form);
+    },
     onSubmit: (d) => {
       const type = d.type;
       const rec = {
@@ -2100,12 +2393,18 @@ function openAccountForm(existing, presetType = 'bank') {
           units: d.units === '' ? null : num(d.units),
           unitPrice: d.unitPrice === '' ? null : num(d.unitPrice),
           depositDate: d.depositDate || '',
+          // Units entered here are "as on" the balance date for a new holding, or today when edited.
+          unitsDate: d.units === '' ? (existing?.unitsDate ?? '') : num(d.units) === num(existing?.units) && existing?.unitsDate !== undefined ? existing.unitsDate : (isNew ? d.openingDate : todayStr()),
+          schemeCode: d.subtype === 'Mutual fund' ? d.schemeCode || '' : '',
+          schemeName: d.subtype === 'Mutual fund' && d.schemeCode ? d.schemeName || existing?.schemeName || '' : '',
+          ticker: ['Stocks', 'ETF'].includes(d.subtype) ? String(d.ticker || '').trim().toUpperCase() : '',
         } : {}),
         notes: d.notes || '',
         archived: !!d.archived,
       };
       commit([opUpsert('accounts', rec)], `${isNew ? 'Add' : 'Edit'} account ${rec.name}`);
       toast(isNew ? 'Account added' : 'Account saved', 'success');
+      if (type === 'investment' && hasLivePrice(rec) && navigator.onLine) setTimeout(() => refreshPrices({ onlyId: rec.id }), 60);
     },
     onDelete: existing ? () => deleteAccount(existing) : null,
   });
@@ -2150,7 +2449,7 @@ function openAdjust(a) {
       const target = isCard ? -num(d.value) : num(d.value);
       const diff = round2(target - bal);
       const unitOps = isInv && (d.units !== '' || d.unitPrice !== '') && (num(d.units) !== num(a.units) || (d.unitPrice !== '' && num(d.unitPrice) !== num(a.unitPrice)))
-        ? [opUpsert('accounts', { ...a, units: d.units === '' ? a.units ?? null : num(d.units), unitPrice: d.unitPrice === '' ? a.unitPrice ?? null : num(d.unitPrice) })] : [];
+        ? [opUpsert('accounts', { ...a, units: d.units === '' ? a.units ?? null : num(d.units), unitsDate: d.units === '' ? a.unitsDate ?? '' : d.date, unitPrice: d.unitPrice === '' ? a.unitPrice ?? null : num(d.unitPrice) })] : [];
       if (diff === 0) {
         if (unitOps.length) { commit(unitOps, `Update units of ${a.name}`); toast('Units updated', 'success'); }
         else toast(`The ${what} already matches.`);
@@ -2389,6 +2688,7 @@ function exportTables() {
       outstanding: card ? card.outstanding : '', credit_limit: card ? card.limit : '', emi_blocked: card ? card.blocked : '',
       available_limit: card ? card.available : '', statement_day: a.statementDay ?? '', due_day: a.dueDay ?? '',
       interest_rate: a.interestRate ?? '', maturity_date: a.maturityDate || '',
+      scheme_code: a.schemeCode || '', scheme_name: a.schemeName || '', ticker: a.ticker || '', price_date: a.priceDate || '',
       investment_group: h ? h.group : '', invested_amount: h ? h.invested : '', gain: h ? h.gain : '',
       gain_percent: h ? round2(h.gainPct * 100) : '', units: a.units ?? '', unit_price: a.unitPrice ?? '',
       fd_maturity_value: h?.fd ? h.fd.maturityValue : '',
@@ -2415,7 +2715,7 @@ function exportTables() {
     type: t.type, category: t.category || '', description: t.description || '', amount: num(t.amount), signed_amount: signed(t),
     from_account_id: t.fromAccountId || '', from_account_name: accountName(t.fromAccountId),
     to_account_id: t.toAccountId || '', to_account_name: accountName(t.toAccountId),
-    related_type: t.relatedType || '', related_id: t.relatedId || '', notes: t.notes || '',
+    related_type: t.relatedType || '', related_id: t.relatedId || '', units: t.units ?? '', unit_nav: t.unitNav ?? '', notes: t.notes || '',
     created_at: t.createdAt || '', updated_at: t.updatedAt || '',
   }));
   // Ledger: one row per account movement. SUM(amount) WHERE affects_balance = current balance.
@@ -2465,8 +2765,8 @@ function exportTables() {
 
 /* Column headers, so even empty tables export with the right columns. */
 const TABLE_COLUMNS = {
-  accounts: ['account_id', 'name', 'type', 'subtype', 'institution', 'last4', 'opening_balance', 'opening_date', 'current_balance', 'outstanding', 'credit_limit', 'emi_blocked', 'available_limit', 'statement_day', 'due_day', 'interest_rate', 'maturity_date', 'investment_group', 'invested_amount', 'gain', 'gain_percent', 'units', 'unit_price', 'fd_maturity_value', 'archived', 'notes', 'created_at', 'updated_at'],
-  transactions: ['transaction_id', 'date', 'year', 'month', 'type', 'category', 'description', 'amount', 'signed_amount', 'from_account_id', 'from_account_name', 'to_account_id', 'to_account_name', 'related_type', 'related_id', 'notes', 'created_at', 'updated_at'],
+  accounts: ['account_id', 'name', 'type', 'subtype', 'institution', 'last4', 'opening_balance', 'opening_date', 'current_balance', 'outstanding', 'credit_limit', 'emi_blocked', 'available_limit', 'statement_day', 'due_day', 'interest_rate', 'maturity_date', 'investment_group', 'invested_amount', 'gain', 'gain_percent', 'units', 'unit_price', 'price_date', 'scheme_code', 'scheme_name', 'ticker', 'fd_maturity_value', 'archived', 'notes', 'created_at', 'updated_at'],
+  transactions: ['transaction_id', 'date', 'year', 'month', 'type', 'category', 'description', 'amount', 'signed_amount', 'from_account_id', 'from_account_name', 'to_account_id', 'to_account_name', 'related_type', 'related_id', 'units', 'unit_nav', 'notes', 'created_at', 'updated_at'],
   ledger: ['entry_id', 'date', 'account_id', 'account_name', 'account_type', 'transaction_id', 'type', 'category', 'description', 'amount', 'affects_balance'],
   emis: ['emi_id', 'name', 'kind', 'loan_type', 'lender', 'account_id', 'account_name', 'principal', 'annual_rate', 'tenure_months', 'start_date', 'emi_amount', 'installments_paid', 'installments_left', 'principal_remaining', 'total_interest', 'interest_remaining', 'next_due_date', 'end_date', 'status', 'auto_record', 'notes', 'created_at', 'updated_at'],
   emi_schedule: ['emi_id', 'emi_name', 'installment', 'due_date', 'emi', 'principal', 'interest', 'balance_after', 'paid'],
@@ -2641,6 +2941,8 @@ function openSettings() {
       <h3 class="font-semibold">Preferences</h3>
       ${twoCol(field('Your name', input('ownerName', s.ownerName, 'maxlength="30" placeholder="Kundan"'), 'Shown in the app heading and greeting.'),
         field('Currency', select('currency', Object.keys(CURRENCIES), s.currency)))}
+      ${checkbox('autoPrices', s.autoPrices !== false, 'Update fund and stock prices when the app opens', 'Mutual fund NAVs come from MFapi.in (free, AMFI data). Checked at most every 3 hours.')}
+      ${field('Stock price key (optional)', input('stockApiKey', s.stockApiKey, 'autocomplete="off" spellcheck="false" placeholder="Alpha Vantage free key"'), 'Only needed for live stock and ETF prices. Get a free key at alphavantage.co (25 price checks a day).')}
       ${checkbox('sipAsSpending', s.sipAsSpending, 'Count SIPs as money going out', 'Shows SIPs and other money you invest in the spending chart and monthly totals. Net worth is not affected, because the money is still yours in the fund.')}
       ${field('Expense categories', textarea('expenseCategories', s.expenseCategories.join('\n'), 'rows="6"'), 'One per line. Renaming a category here does not change past transactions.')}
       ${field('Income sources', textarea('incomeCategories', s.incomeCategories.join('\n'), 'rows="4"'), 'One per line.')}
@@ -2713,6 +3015,8 @@ function openSettings() {
       const newSettings = {
         ownerName: d.ownerName || '',
         sipAsSpending: !!d.sipAsSpending,
+        autoPrices: !!d.autoPrices,
+        stockApiKey: d.stockApiKey || '',
         currency: d.currency,
         expenseCategories: splitLines(d.expenseCategories),
         incomeCategories: splitLines(d.incomeCategories),
@@ -2797,6 +3101,7 @@ const ACTIONS = {
   'pay-sip': (d) => paySip(d.id),
   'toggle-sip': (d) => toggleSip(d.id),
   'invest-more': (d) => investMore(d.id),
+  'refresh-prices': () => refreshPrices(),
   'add-budget': (d) => openBudgetForm(null, d.category),
   'edit-budget': (d) => openBudgetForm(db.budgets.find((b) => b.id === d.id)),
   'export-zip': () => exportZip(),
@@ -2853,8 +3158,11 @@ function init() {
     render();
   }
 
-  if (isConfigured()) runSync().then(processAutoPayments);
-  else { setSyncStatus('local'); processAutoPayments(); }
+  // Order on start: pull the latest data from GitHub, record anything that fell due
+  // (SIPs, EMIs, subscriptions), then refresh fund and stock prices.
+  const afterStart = () => { processAutoPayments(); setTimeout(() => refreshPrices({ auto: true }), 300); };
+  if (isConfigured()) runSync().then(afterStart);
+  else { setSyncStatus('local'); afterStart(); }
 }
 
 document.addEventListener('DOMContentLoaded', init);

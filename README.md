@@ -165,6 +165,15 @@ The dashboard shows a short *Get KOSH ready in three steps* checklist until you'
 - **Holdings** are grouped by type. Each holding can store its units and price/NAV; enter both and the value fills itself in. The **+** button adds a lump sum from your bank; the scales button updates the value when markets move (this changes your gain, not the amount invested).
 - **Fixed deposits:** add the interest rate, FD start date and maturity date, and the app estimates the maturity amount (quarterly compounding, as Indian banks use) and shows it on the dashboard in the 30 days before maturity.
 
+**Live prices (latest NAV and stock prices).** The app can keep your holdings' values up to date by itself.
+
+- **Mutual funds (free, nothing to sign up for).** Edit the holding (pencil icon). Under **Live NAV**, type part of the fund's name, press **Find**, and pick the exact plan you hold (Direct or Regular, Growth or IDCW; check your statement or app). Enter the **units** you hold today and save. The value becomes *units × latest NAV*. NAVs come from MFapi.in, a free service that republishes official AMFI NAVs several times a day.
+- **SIPs update units automatically.** For each SIP instalment (or lump sum) into a linked fund, the app looks up the NAV of that day and works out the units bought, so the value stays right month after month. An instalment whose NAV isn't published yet is counted at its rupee amount until the next refresh.
+- **Stocks and ETFs (optional, free key).** Get a free key at alphavantage.co (it allows 25 price checks a day), paste it in **Settings → Stock price key**, then edit each stock, enter its BSE symbol (e.g. `TCS`, `RELIANCE`, `NIFTYBEES`) and the number of shares. Stock prices refresh at most once a day. When you buy or sell shares, use **Update value** to enter your new share count.
+- **When prices update.** Automatically when you open the app (mutual funds at most every 3 hours), or any time with **Refresh prices** on the Investments page. You can turn automatic updates off in Settings.
+- **How it's recorded.** The change in value is saved as one *Market value* adjustment per holding per month, updated on each refresh. It changes your gain and net worth, never your income, spending or amount invested. These entries are hidden from the dashboard's recent list.
+- If a price can't be fetched (no internet, service down, wrong code), the holding keeps its last value and shows a short note explaining what to fix. **Update value** still works by hand.
+
 **SIPs.** Click **Add SIP** and fill in:
 
 - **SIP name** and **Invest into**: pick the fund, or choose *New fund or stock* to create the holding right there.
@@ -197,8 +206,8 @@ Open **Data** and click **Download all (ZIP)**. Single tables can also be downlo
 
 | File | One row per | Key columns |
 |---|---|---|
-| `accounts.csv` | account | `account_id`, type, current balance; for investments also invested amount, gain, units, FD maturity value |
-| `transactions.csv` | transaction | `transaction_id`, `from_account_id`, `to_account_id`, `signed_amount`, `year`, `month` |
+| `accounts.csv` | account | `account_id`, type, current balance; for investments also invested amount, gain, units, latest price and date, scheme code / symbol, FD maturity value |
+| `transactions.csv` | transaction | `transaction_id`, `from_account_id`, `to_account_id`, `signed_amount`, `year`, `month`, `units` and `unit_nav` for SIPs |
 | `ledger.csv` | movement in or out of one account (a transfer produces two rows) | `account_id`, `amount` (+ in / − out), `affects_balance` |
 | `emis.csv` | EMI or loan | `emi_id`, `account_id` |
 | `emi_schedule.csv` | EMI installment | `emi_id`, installment number, principal, interest, balance |
@@ -229,6 +238,7 @@ All GitHub logic is in `app.js` and heavily commented. Search for these names:
 | `toBase64` / `fromBase64` | Unicode-safe Base64 conversion (GitHub requires file content in Base64). |
 | `commit()` | Every change in the app goes through this. It applies the change locally, saves it to the pending queue and schedules a sync. |
 | `buildPortfolio()`, `fdInfo()` | Portfolio value, invested amount, gains, allocation and FD estimates. |
+| `refreshPrices()`, `mfLatest()`, `mfHistory()`, `stockLatest()`, `holdingUnits()` | Live NAV / stock prices, units bought by SIPs, and the monthly market-value adjustment. API addresses are at the top of that section. |
 | `sipTxn()`, `advanceSip()`, `processAutoPayments()` | SIP instalments and automatic recording of SIPs, EMIs and subscriptions. |
 | `runSync()` | The fetch → merge → commit loop. If someone else (another device) committed in between, GitHub answers `409 Conflict`; the app re-downloads and re-applies your changes, retrying up to 4 times. |
 | `scheduleSync()` | Batches rapid changes into one commit (waits 700 ms after the last change). |
@@ -245,6 +255,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 - **Your token is stored only in this browser's localStorage.** It's never sent anywhere except `api.github.com`. Anyone who can use your browser profile, or any malicious browser extension, could read it. Don't connect the app on shared or public computers; if you must, use **Settings → Forget token** and **Clear data on this device** afterwards.
 - **Keep the data repository private.** The Test connection button warns you if it isn't.
 - **Scope the token to one repository** with only *Contents: Read and write*, and give it an expiry date. If you think it has leaked, delete it at GitHub → Settings → Developer settings → Personal access tokens, then create a new one.
+- **Price lookups share no personal data.** The app sends only fund scheme codes to MFapi.in and stock symbols (with your key) to Alpha Vantage, never amounts, units or names. The stock price key is saved with your settings in your private data file.
 - The app page has a `noindex` tag so search engines won't list it, but the app repository itself is public. That's fine: it contains only code.
 
 ---
@@ -254,6 +265,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 - If you lose internet, keep using the app. Changes are queued on the device (the chip shows **Offline** or **N pending**) and pushed automatically when you're back online.
 - The **first** time a device opens the app it needs internet to load Tailwind, fonts, icons and charts from their CDNs. After that the browser usually caches them, but a fully offline cold start isn't guaranteed.
 - If two devices edit while both are offline, both sets of changes are merged when they sync. If both edited the *same* entry, the one that syncs last wins.
+- Live prices depend on free third-party services (MFapi.in, Alpha Vantage). They're reliable but not guaranteed; if one is down, values simply stay as they were. NAVs are end-of-day figures and stock prices may be delayed, so treat them as close estimates, not trading prices.
 - GitHub's API allows 5,000 requests per hour per token, far beyond what personal use needs. The Contents API handles files up to 100 MB; a decade of personal transactions is typically a few MB.
 - The browser console shows a warning that the Tailwind CDN "should not be used in production". It's harmless for a personal app.
 
@@ -270,6 +282,9 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 | Status stuck on **Pending** | Click the status chip (or **Data → Sync now**) to retry. Check you're online. If an error chip appears, click it for details. |
 | Site shows **404** at github.io | Wait a few minutes after enabling Pages; confirm `index.html` is at the top level of the `kosh` repository (not inside a folder) and the Pages branch is `main` / root. |
 | Changes don't appear on another device | Open **Data → Reload from GitHub** on that device, or just refresh the page. |
+| Holding shows "Couldn't reach the price service" | No internet, or MFapi.in / Alpha Vantage is briefly down. Try **Refresh prices** later; values stay as they were. |
+| "Daily limit of the free stock price key reached" | The free stock key allows 25 checks a day. Prices refresh again tomorrow. |
+| Holding asks you to enter units | Live value needs the units or shares you hold. Edit the holding (or use **Update value**) and enter them. |
 | Page looks unstyled | A CDN failed to load (network, ad-blocker or firewall). Refresh, or try another network. |
 
 ---
@@ -282,6 +297,8 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 - **SIPs** with automatic monthly investing, step-up, stop date, pause and "Invest now". Upcoming SIPs appear on the dashboard.
 - Monthly figures now split **spent** and **invested**; SIPs count as money going out (can be turned off).
 - New `sips.csv` export and investment columns in `accounts.csv`.
+- **Live prices:** mutual fund NAVs update automatically (free), stock and ETF prices with an optional free key; SIP units are worked out from the NAV on each SIP date.
+- Holding form now shows only the fields that fit the kind of investment (FD fields for deposits, NAV search for mutual funds, symbol for stocks).
 - Fully compatible with data from the earlier version.
 
 ## Part 11 — What was added beyond the original brief
