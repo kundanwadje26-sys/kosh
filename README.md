@@ -131,7 +131,7 @@ The dashboard shows a short *Get KOSH ready in three steps* checklist until you'
 
 1. **Accounts → Add account.** Add each bank account, credit card and investment. For each one, enter today's balance as the **opening balance** and today's date as the **opening date**. For a credit card, the opening balance is what you currently owe; also enter the credit limit, statement day and payment due day. *Cash in hand* already exists; use **Update balance** on it to set how much cash you have.
 2. **EMIs & loans → Add EMI or loan.** Add existing card EMIs and loans. If a loan started earlier, enter **EMIs already paid** so the remaining principal is correct.
-3. **Investments & SIPs.** Add each mutual fund, stock or FD as a holding with its current value and the amount you've invested so far, then add your SIPs (details in Part 4).
+3. **Portfolio.** Add each mutual fund and stock by searching its name, then enter units and average cost. Add FDs and others with their current value. Then add your SIPs (details in Part 4).
 4. **Subscriptions → Add subscription.** Netflix, gym, software and so on, with the next renewal date and the account or card it's charged to.
 5. **Budgets** (optional). Set monthly limits per category.
 6. From then on, use the **+** button (bottom-right) to log expenses, income and transfers as they happen.
@@ -145,8 +145,10 @@ The dashboard shows a short *Get KOSH ready in three steps* checklist until you'
 | Withdrew cash at an ATM | Transfer, from bank to *Cash in hand* |
 | Paid the credit card bill | Accounts → the card → **Pay bill** (a transfer from bank to card, prefilled with the outstanding amount) |
 | Bought something on no-cost EMI | Add it under **EMIs & loans** only, don't also log the purchase as an expense. Each month's installment is recorded as an expense on the card, and the unpaid principal blocks the card's limit. |
-| A SIP is due on the 1st | Nothing, if the SIP is set to invest automatically. Otherwise press **Invest now** on the dashboard. |
-| Mutual fund value went up | Accounts → the investment → **Update value** (records a balance adjustment, not income) |
+| A SIP is due on the 1st | Nothing on the day, if it's set to record automatically. A few days later, when the units show in your fund app, press **Enter units** on the Portfolio page or dashboard. |
+| Bought more shares or a lump sum in a fund | **+** on that holding (a transfer from your bank), then **Enter units** when it appears for review. |
+| Mutual fund or stock price changed | Nothing, if it's linked; the value updates itself. |
+| FD, PPF or gold value went up | Accounts → the investment → **Update value** (records a balance adjustment, not income) |
 | Put money into a mutual fund / FD | Transfer, from bank to the investment account |
 | Bank balance doesn't match the app | **Update balance** on that account and enter the real figure |
 
@@ -156,33 +158,38 @@ The dashboard shows a short *Get KOSH ready in three steps* checklist until you'
 
 ## Part 4 — What each module does
 
-**Dashboard.** A greeting for you, then net worth shown as an equation: *Cash + Bank + Investments − Card dues − Loans − Card EMIs = Net worth*, with bars sized to each figure. Below it: this month's money in, spent, invested and left over; an investments card (value, gain, monthly SIPs, next SIP date); a chart of where the money went; a 6-month chart of money in vs spent and invested; everything due in the next 30 days (SIPs, EMIs, subscriptions, card bills and FD maturities, each colour-coded); and your budgets.
+**Dashboard.** A greeting for you, then net worth shown as an equation: *Cash + Bank + Investments − Card dues − Loans − Card EMIs = Net worth*, with bars sized to each figure. Below it: this month's money in, spent, invested and left over; a portfolio card (value, profit, monthly SIPs, next SIP date, SIPs waiting for review); a chart of where the money went; a 6-month chart of money in vs spent and invested; everything due in the next 30 days (SIPs, SIP reviews, EMIs, subscriptions, card bills and FD maturities, each colour-coded); and your budgets.
 
-**Investments & SIPs.** Your portfolio in one place:
+**Portfolio (its own page, like a broker app).** Shows current value at live prices, amount invested, total profit or loss, and monthly SIPs. Below that is a holdings table with name, units, average cost, invested, latest NAV or price, current value and profit/loss, grouped into mutual funds, stocks & ETFs, deposits and so on. On a phone, units and cost appear under each name. An **Allocation** chart shows how your money is split between mutual funds, stocks & ETFs, deposits, retirement (PPF/EPF, NPS), gold and so on. For **fixed deposits**, add the interest rate, FD start date and maturity date and the app estimates the maturity amount (quarterly compounding, as Indian banks use), shown on the dashboard in the 30 days before maturity.
 
-- The green banner shows **portfolio value**, **amount invested**, **gain or loss** (₹ and %) and your **monthly SIP total**.
-- **Allocation** shows how your money is split between mutual funds, stocks & ETFs, deposits (FD/RD), retirement (PPF/EPF, NPS), gold and so on.
-- **Holdings** are grouped by type. Each holding can store its units and price/NAV; enter both and the value fills itself in. The **+** button adds a lump sum from your bank; the scales button updates the value when markets move (this changes your gain, not the amount invested).
-- **Fixed deposits:** add the interest rate, FD start date and maturity date, and the app estimates the maturity amount (quarterly compounding, as Indian banks use) and shows it on the dashboard in the 30 days before maturity.
+**Adding a fund or stock.** Click **Add holding**, choose the kind (Mutual fund, Stocks or ETF), and type a few letters in **Find the fund or company**. Pick the right result; the holding takes the official name (e.g. *Parag Parikh Flexi Cap Fund - Direct Plan - Growth*) and the app fetches the latest NAV or price. Then enter:
 
-**Live prices (latest NAV and stock prices).** The app can keep your holdings' values up to date by itself.
+- **Units you hold** (from your statement or the Groww / Zerodha / fund app), and
+- **Average cost per unit** (shown as avg. NAV or avg. price in those apps).
 
-- **Mutual funds (free, nothing to sign up for).** Edit the holding (pencil icon). Under **Live NAV**, type part of the fund's name, press **Find**, and pick the exact plan you hold (Direct or Regular, Growth or IDCW; check your statement or app). Enter the **units** you hold today and save. The value becomes *units × latest NAV*. NAVs come from MFapi.in, a free service that republishes official AMFI NAVs several times a day.
-- **SIPs update units automatically.** For each SIP instalment (or lump sum) into a linked fund, the app looks up the NAV of that day and works out the units bought, so the value stays right month after month. An instalment whose NAV isn't published yet is counted at its rupee amount until the next refresh.
-- **Stocks and ETFs (optional, free key).** Get a free key at alphavantage.co (it allows 25 price checks a day), paste it in **Settings → Stock price key**, then edit each stock, enter its BSE symbol (e.g. `TCS`, `RELIANCE`, `NIFTYBEES`) and the number of shares. Stock prices refresh at most once a day. When you buy or sell shares, use **Update value** to enter your new share count.
-- **When prices update.** Automatically when you open the app (mutual funds at most every 3 hours), or any time with **Refresh prices** on the Investments page. You can turn automatic updates off in Settings.
-- **How it's recorded.** The change in value is saved as one *Market value* adjustment per holding per month, updated on each refresh. It changes your gain and net worth, never your income, spending or amount invested. These entries are hidden from the dashboard's recent list.
-- If a price can't be fetched (no internet, service down, wrong code), the holding keeps its last value and shows a short note explaining what to fix. **Update value** still works by hand.
+The app fills in the amount invested (units × average cost) and the current value (units × latest price). From then on the value is live. For FDs, PPF, gold and the like, type the current value yourself.
+
+- **Mutual funds:** search and NAVs are free, with nothing to sign up for. NAVs come from MFapi.in, which republishes the official AMFI NAVs several times a day.
+- **Stocks and ETFs:** searching companies and live prices needs a free key from alphavantage.co (25 lookups a day). Paste it in **Settings → Stock price key**. Without the key you can still type the company name and enter units and cost; it just won't be live.
+- **When prices update:** automatically when you open the app (funds at most every 3 hours, stocks once a day), or with **Refresh prices** on the Portfolio page. You can turn automatic updates off in Settings.
+- **How it's recorded:** changes in market value are saved as one *Market value* entry per holding per month. They change your profit and net worth, never your income, spending or amount invested, and are hidden from the dashboard's recent list.
+
+**SIP review.** On each SIP date the SIP amount goes out of your bank as money spent (shown as *Invested* on the dashboard) and the instalment is **marked for review**. Until you review it, it counts in the fund at its rupee cost. You have 5 days to enter the **units allotted** and the **NAV** from your statement, email or fund app (they usually appear 2–3 working days after the SIP date):
+
+- The **Portfolio** menu item shows a badge with the number waiting, the Portfolio page lists them under **Needs your review**, and the dashboard shows them in *Due in the next 30 days*. Overdue ones turn red.
+- Click **Enter units**. Fill either the units or the NAV; the other is worked out from the amount. For linked mutual funds the app also shows that day's NAV with a **Use this** button. Your statement may show slightly fewer units because of stamp duty; use its figure when you have it.
+- Once saved, the units are added to the holding and its value is updated at the latest price.
+- Lump sums added with the **+** button, and withdrawals, go through the same review.
 
 **SIPs.** Click **Add SIP** and fill in:
 
-- **SIP name** and **Invest into**: pick the fund, or choose *New fund or stock* to create the holding right there.
+- **SIP into**: a fund you already hold, or *A fund not added yet*. For a new fund, search for it by name; the SIP and the holding both take the fund's official name. If you already hold units, enter them and the average cost.
 - **SIP amount**, **How often** (monthly, weekly or every 3 months) and **Next SIP date**. A monthly SIP keeps that day, e.g. the 1st of every month (even after short months like February).
 - **Paid from**: your bank account.
 - Optional **yearly step-up %** (raises the amount once a year) and **stop date**.
 - **Invest automatically on the SIP date** (ticked by default).
 
-On or after each SIP date, the app records a transfer from your bank into the fund the moment you open it. Your bank balance goes down like an expense and the fund's value goes up by the same amount, so your net worth stays accurate. If you set the next SIP date in the past, the missed instalments are filled in. Each instalment has a fixed ID, so two devices can never record the same one twice. You can pause a SIP, or use **Invest now** to record one by hand.
+On or after each SIP date, the app records the payment from your bank the moment you open it and marks it for review (see above). Your bank balance goes down like an expense and the fund's value goes up by the same amount, so your net worth stays accurate. If you set the next SIP date in the past, the missed instalments are filled in. Each instalment has a fixed ID, so two devices can never record the same one twice. You can pause a SIP, or use **Invest now** to record one by hand.
 
 By default SIPs also count as *money going out* in the "Where the money went" chart, monthly totals and the 6-month chart (shown as *SIP & investments* / *Invested*). You can switch this off in **Settings → Count SIPs as money going out**.
 
@@ -238,7 +245,8 @@ All GitHub logic is in `app.js` and heavily commented. Search for these names:
 | `toBase64` / `fromBase64` | Unicode-safe Base64 conversion (GitHub requires file content in Base64). |
 | `commit()` | Every change in the app goes through this. It applies the change locally, saves it to the pending queue and schedules a sync. |
 | `buildPortfolio()`, `fdInfo()` | Portfolio value, invested amount, gains, allocation and FD estimates. |
-| `refreshPrices()`, `mfLatest()`, `mfHistory()`, `stockLatest()`, `holdingUnits()` | Live NAV / stock prices, units bought by SIPs, and the monthly market-value adjustment. API addresses are at the top of that section. |
+| `refreshPrices()`, `mfSearch()`, `stockSearch()`, `mfLatest()`, `stockLatest()`, `holdingUnits()` | Fund / company search, live NAV and stock prices, units held, and the monthly market-value entry. API addresses are at the top of that section. |
+| `unitReviews()`, `openReview()` | The SIP review list and the Enter units form. |
 | `sipTxn()`, `advanceSip()`, `processAutoPayments()` | SIP instalments and automatic recording of SIPs, EMIs and subscriptions. |
 | `runSync()` | The fetch → merge → commit loop. If someone else (another device) committed in between, GitHub answers `409 Conflict`; the app re-downloads and re-applies your changes, retrying up to 4 times. |
 | `scheduleSync()` | Batches rapid changes into one commit (waits 700 ms after the last change). |
@@ -284,6 +292,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 | Changes don't appear on another device | Open **Data → Reload from GitHub** on that device, or just refresh the page. |
 | Holding shows "Couldn't reach the price service" | No internet, or MFapi.in / Alpha Vantage is briefly down. Try **Refresh prices** later; values stay as they were. |
 | "Daily limit of the free stock price key reached" | The free stock key allows 25 checks a day. Prices refresh again tomorrow. |
+| A SIP stays in "Needs your review" | It waits until you enter its units. Open it with **Enter units**; the figures are in your fund app or the statement email. |
 | Holding asks you to enter units | Live value needs the units or shares you hold. Edit the holding (or use **Update value**) and enter them. |
 | Page looks unstyled | A CDN failed to load (network, ad-blocker or firewall). Refresh, or try another network. |
 
@@ -293,11 +302,14 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 
 - New name: **Kundan's Finance** (KOSH: Kundan On Savings Hustle), with a personal greeting.
 - Brighter design: peacock-navy sidebar, colourful net-worth banner, coloured tiles and colour-coded due dates.
-- New **Investments & SIPs** page: holdings, units and NAV, gain/loss, allocation chart, FD maturity estimates.
+- New **Portfolio** page with allocation chart and FD maturity estimates.
 - **SIPs** with automatic monthly investing, step-up, stop date, pause and "Invest now". Upcoming SIPs appear on the dashboard.
 - Monthly figures now split **spent** and **invested**; SIPs count as money going out (can be turned off).
 - New `sips.csv` export and investment columns in `accounts.csv`.
-- **Live prices:** mutual fund NAVs update automatically (free), stock and ETF prices with an optional free key; SIP units are worked out from the NAV on each SIP date.
+- **Portfolio page** laid out like a broker app: units, average cost, invested, latest price, current value and profit/loss per holding.
+- **Search by name** when adding a fund, stock or SIP; holdings take the official fund or company name.
+- **Units and average cost** entered once, then the value is **live** (mutual funds free; stocks with an optional free key).
+- **SIP review:** each SIP goes out as money spent on its date and waits for you to enter the units and NAV within 5 days (badge, list and dashboard reminders, with a suggested NAV).
 - Holding form now shows only the fields that fit the kind of investment (FD fields for deposits, NAV search for mutual funds, symbol for stocks).
 - Fully compatible with data from the earlier version.
 

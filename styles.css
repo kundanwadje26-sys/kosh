@@ -139,7 +139,7 @@ textarea.inp { min-height: 5.5rem; resize: vertical; }
 .pill.out { background: var(--loss-tint); color: var(--loss); }
 .pill.due { background: var(--marigold-tint); color: var(--marigold-ink); }
 .pill.blue { background: var(--royal-tint); color: var(--royal); }
-.pill.grow { background: var(--marigold-tint); color: var(--marigold-ink); }
+.pill.invest { background: var(--marigold-tint); color: var(--marigold-ink); }
 
 .bar { height: 8px; background: #EAEFF6; border-radius: 999px; overflow: hidden; display: flex; }
 .bar > span { display: block; height: 100%; border-radius: 999px; }
@@ -191,7 +191,7 @@ textarea.inp { min-height: 5.5rem; resize: vertical; }
 .stat-tile .stat-value { font-family: 'Bricolage Grotesque', sans-serif; font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; }
 .stat-tile.in { background: var(--gain-tint); } .stat-tile.in .stat-value { color: var(--gain); }
 .stat-tile.out { background: var(--loss-tint); } .stat-tile.out .stat-value { color: var(--loss); }
-.stat-tile.grow { background: var(--marigold-tint); } .stat-tile.grow .stat-value { color: var(--marigold-ink); }
+.stat-tile.invest { background: var(--marigold-tint); } .stat-tile.invest .stat-value { color: var(--marigold-ink); }
 .stat-label { font-size: .8125rem; color: var(--ink-2); font-weight: 500; }
 .stat-value { font-size: 1.25rem; font-weight: 700; }
 
@@ -203,7 +203,7 @@ textarea.inp { min-height: 5.5rem; resize: vertical; }
 .row-icon.in { background: var(--gain-tint); color: var(--gain); }
 .row-icon.out { background: var(--loss-tint); color: var(--loss); }
 .row-icon.move { background: var(--royal-tint); color: var(--royal); }
-.row-icon.grow { background: var(--marigold-tint); color: var(--marigold-ink); }
+.row-icon.invest { background: var(--marigold-tint); color: var(--marigold-ink); }
 .row-icon.t-cash { background: var(--marigold-tint); color: var(--marigold-ink); }
 .row-icon.t-bank { background: var(--royal-tint); color: var(--royal); }
 .row-icon.t-credit_card { background: var(--loss-tint); color: var(--loss); }
@@ -246,3 +246,38 @@ table.sched tr.done td { color: var(--ink-3); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Portfolio: fund / company search ---------- */
+.picker { background: var(--royal-tint); border-radius: 12px; padding: .85rem; }
+.pick-results { margin-top: .5rem; max-height: 15rem; overflow-y: auto; background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+.pick-results .hint { padding: .6rem .75rem; margin: 0; }
+.pick-item { display: block; width: 100%; text-align: left; padding: .55rem .75rem; font-size: .875rem; border: 0; background: none; cursor: pointer; color: var(--ink); font-family: inherit; }
+.pick-item + .pick-item { border-top: 1px solid #EEF2F8; }
+.pick-item:hover, .pick-item:focus-visible { background: var(--royal-tint); }
+.pick-linked { margin-top: .6rem; font-size: .8125rem; color: var(--ink); line-height: 1.5; }
+.pick-linked i { color: var(--marigold); margin-right: .2rem; }
+
+/* ---------- Portfolio: holdings table ---------- */
+table.holdings { width: 100%; border-collapse: collapse; font-size: .875rem; min-width: 760px; }
+table.holdings th { text-align: right; font-weight: 600; font-size: .75rem; color: var(--ink-3); padding: .55rem .75rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.holdings td { text-align: right; padding: .75rem; border-bottom: 1px solid #EEF2F8; vertical-align: top; white-space: nowrap; }
+table.holdings th:first-child, table.holdings td:first-child { text-align: left; padding-left: 1.25rem; white-space: normal; }
+table.holdings th:last-child, table.holdings td:last-child { padding-right: 1rem; }
+table.holdings td.name-cell { min-width: 15rem; max-width: 22rem; }
+table.holdings tr.group-row td { background: #F6F8FC; font-weight: 700; font-size: .8125rem; color: var(--ink-2); padding-top: .55rem; padding-bottom: .55rem; }
+table.holdings tbody tr:not(.group-row):hover td { background: #FAFBFE; }
+button.pill { border: 0; cursor: pointer; font-family: inherit; }
+
+/* Phones: keep name, value and profit; units / cost / price move under the name. */
+.phone-only { display: none; }
+@media (max-width: 639px) {
+  table.holdings { min-width: 0; }
+  table.holdings th:nth-child(n+2):nth-child(-n+5), table.holdings td:nth-child(n+2):nth-child(-n+5) { display: none; }
+  table.holdings td.name-cell { min-width: 0; }
+  table.holdings td:last-child .row-actions { flex-direction: column; }
+  .phone-only { display: block; }
+}
+.review-panel { border-left: 4px solid var(--violet); }
+.nav-badge { margin-left: auto; min-width: 1.35rem; height: 1.35rem; padding: 0 .35rem; border-radius: 999px; background: var(--marigold); color: var(--navy); font-size: .72rem; font-weight: 700; display: inline-grid; place-items: center; }
+.kind-bg-review { background: var(--violet-tint); color: var(--violet); }
+.kind-review { color: var(--violet); }

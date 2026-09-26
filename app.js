@@ -640,7 +640,7 @@ function buildModel() {
   T.assets = T.cash + T.bank + T.investment + T.cardCredit;
   T.liabilities = T.cardDebt + T.loans + T.cardEmis;
   T.netWorth = T.assets - T.liabilities;
-  return { balances, emis, emiBlocked, T, P: buildPortfolio(balances) };
+  return { balances, emis, emiBlocked, T, P: buildPortfolio(balances), reviews: unitReviews() };
 }
 
 /* ----- Investment portfolio -----
@@ -798,6 +798,9 @@ function upcomingItems(days = 30) {
     if (x.active && x.nextDate && x.nextDate <= limit && !sipEnded(x, x.nextDate)) {
       items.push({ date: x.nextDate, kind: 'sip', id: x.id, title: `${x.name} SIP`, sub: `${accountName(x.fromAccountId)} to ${accountName(x.fundAccountId)}${x.autoLog ? ', invests automatically' : ''}`, amount: sipAmountOn(x, x.nextDate) });
     }
+  }
+  for (const r of M.reviews) {
+    if (r.due <= limit) items.push({ date: r.due, kind: 'review', id: r.t.id, title: `Enter units: ${r.a.name}`, sub: `${r.t.relatedType === 'sip' ? 'SIP' : r.sell ? 'Withdrawal' : 'Purchase'} on ${fmtDate(r.t.date)}`, amount: num(r.t.amount) });
   }
   for (const h of M.P.holdings) {
     if (h.fd && !h.a.archived && h.fd.maturityDate >= today && h.fd.maturityDate <= limit) {
@@ -1047,7 +1050,7 @@ function bindModal() {
 const PAGES = {
   dashboard:     { title: 'Dashboard',        icon: 'fa-chart-pie' },
   accounts:      { title: 'Accounts',         icon: 'fa-building-columns' },
-  portfolio:     { title: 'Investments & SIPs', icon: 'fa-seedling' },
+  portfolio:     { title: 'Portfolio',        icon: 'fa-chart-line' },
   transactions:  { title: 'Transactions',     icon: 'fa-list' },
   emis:          { title: 'EMIs & loans',     icon: 'fa-calendar-check' },
   subscriptions: { title: 'Subscriptions',    icon: 'fa-rotate' },
@@ -1062,7 +1065,7 @@ function destroyCharts() { charts.forEach((c) => c.destroy()); charts = []; }
 function renderNav() {
   const cur = currentPage();
   $('#nav').innerHTML = Object.entries(PAGES).map(([k, p]) =>
-    `<a href="#${k}" class="nav-link ${k === cur ? 'active' : ''}" ${k === cur ? 'aria-current="page"' : ''}><i class="fa-solid ${p.icon}"></i>${p.title}</a>`).join('');
+    `<a href="#${k}" class="nav-link ${k === cur ? 'active' : ''}" ${k === cur ? 'aria-current="page"' : ''}><i class="fa-solid ${p.icon}"></i>${p.title}${k === 'portfolio' && M?.reviews?.length ? `<span class="nav-badge" title="SIP instalments waiting for units">${M.reviews.length}</span>` : ''}</a>`).join('');
 }
 
 /** Redraws the current page from `db`. Called after every change. */
@@ -1110,7 +1113,7 @@ function txnRow(t, withActions = true) {
   const kind = {
     expense:    { icon: 'fa-arrow-up', cls: 'out', label: 'Expense' },
     income:     { icon: 'fa-arrow-down', cls: 'in', label: 'Income' },
-    transfer:   t.relatedType === 'sip' || isInvestmentOutflow(t) ? { icon: 'fa-seedling', cls: 'grow', label: 'Investment' } : { icon: 'fa-right-left', cls: 'move', label: 'Transfer' },
+    transfer:   t.relatedType === 'sip' || isInvestmentOutflow(t) ? { icon: 'fa-seedling', cls: 'invest', label: 'Investment' } : { icon: 'fa-right-left', cls: 'move', label: 'Transfer' },
     adjustment: { icon: 'fa-scale-balanced', cls: '', label: 'Balance update' },
   }[t.type] || { icon: 'fa-circle', cls: '', label: t.type };
   const amt = num(t.amount);
@@ -1126,6 +1129,7 @@ function txnRow(t, withActions = true) {
       <div class="text-xs text-ink-3 flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
         <span>${fmtDate(t.date)}</span>
         ${t.category ? `<span class="pill">${esc(t.category)}</span>` : ''}
+        ${M?.reviews?.some((r) => r.t.id === t.id) ? '<span class="pill" style="background:var(--violet-tint);color:var(--violet)">Units pending</span>' : ''}
         <span class="truncate">${esc(flow)}</span>
       </div>
     </div>
@@ -1166,7 +1170,7 @@ function renderDashboard() {
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div class="stat-tile in"><div class="stat-label">Money in</div><div class="stat-value num">${money(s.income)}</div></div>
           <div class="stat-tile out"><div class="stat-label">Spent</div><div class="stat-value num">${money(s.spent)}</div></div>
-          <div class="stat-tile grow"><div class="stat-label">Invested</div><div class="stat-value num">${money(s.invested)}</div></div>
+          <div class="stat-tile invest"><div class="stat-label">Invested</div><div class="stat-value num">${money(s.invested)}</div></div>
           <div class="stat-tile"><div class="stat-label">Left over</div><div class="stat-value num ${s.left < 0 ? 'text-loss' : ''}">${money(s.left)}</div></div>
         </div>
         ${keepRate !== null ? `<p class="text-sm text-ink-2 mt-4">You kept or invested <b class="num">${keepRate}%</b> of what came in${s.invested ? `, including <b class="num">${money(s.invested)}</b> in SIPs and investments` : ''}.</p>` : ''}
@@ -1188,7 +1192,7 @@ function renderDashboard() {
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
       <section class="panel p-5 lg:col-span-2">
         <div class="panel-head"><h2 class="panel-title">Due in the next 30 days</h2>
-          <span class="text-sm text-ink-3 num">${upcoming.some((i) => i.kind !== 'fd') ? money(upcoming.filter((i) => i.kind !== 'fd').reduce((a, i) => a + i.amount, 0)) + ' to pay or invest' : ''}</span></div>
+          <span class="text-sm text-ink-3 num">${upcoming.some((i) => !['fd', 'review'].includes(i.kind)) ? money(upcoming.filter((i) => !['fd', 'review'].includes(i.kind)).reduce((a, i) => a + i.amount, 0)) + ' to pay or invest' : ''}</span></div>
         ${upcoming.length ? `<div class="divider">${upcoming.map(upcomingRow).join('')}</div>`
           : emptyState('fa-calendar-check', 'Nothing due. SIPs, EMIs, subscriptions and card bills will show up here.')}
       </section>
@@ -1272,12 +1276,13 @@ function portfolioMini() {
   const nextSip = db.sips.filter((x) => x.active && x.nextDate).sort((a, b) => a.nextDate.localeCompare(b.nextDate))[0];
   if (!M.P.holdings.length && !db.sips.length) {
     return `<section class="panel p-5">
-      <div class="panel-head"><h2 class="panel-title">Investments</h2></div>
+      <div class="panel-head"><h2 class="panel-title">Portfolio</h2></div>
       ${emptyState('fa-seedling', 'Add your mutual funds, stocks and FDs, and set up SIPs to invest automatically.', '<a class="btn btn-sm btn-primary" href="#portfolio">Set up investments</a>')}
     </section>`;
   }
   return `<section class="panel p-5 accent-leaf">
-    <div class="panel-head"><h2 class="panel-title">Investments</h2><a href="#portfolio" class="text-sm link">Open</a></div>
+    <div class="panel-head"><h2 class="panel-title">Portfolio</h2><a href="#portfolio" class="text-sm link">Open</a></div>
+    ${M.reviews.length ? `<a href="#portfolio" class="callout block mb-3 text-sm" style="background:var(--violet-tint)"><i class="fa-solid fa-clipboard-check mr-1" style="color:var(--violet)"></i>${M.reviews.length} SIP instalment${M.reviews.length === 1 ? '' : 's'} waiting for units</a>` : ''}
     <div class="stat-label">Current value</div>
     <div class="display text-3xl font-semibold num">${money(P.value)}</div>
     <div class="mt-1 text-sm num ${P.gain >= 0 ? 'text-gain' : 'text-loss'}">${money(P.gain, { sign: true })} (${pct(P.gainPct)}) on ${money(P.invested)} invested</div>
@@ -1293,9 +1298,9 @@ function upcomingRow(it) {
   const d = parseDate(it.date);
   const days = daysUntil(it.date);
   const pill = days < 0 ? 'out' : days <= 3 ? 'due' : '';
-  const action = { emi: 'pay-emi', subscription: 'pay-sub', card: 'pay-card', sip: 'pay-sip', fd: 'adjust-balance' }[it.kind];
-  const label = { card: 'Pay bill', sip: 'Invest now', fd: 'Update value' }[it.kind] || 'Record payment';
-  const icon = { emi: 'fa-calendar-check', subscription: 'fa-rotate', card: 'fa-credit-card', sip: 'fa-seedling', fd: 'fa-piggy-bank' }[it.kind];
+  const action = { emi: 'pay-emi', subscription: 'pay-sub', card: 'pay-card', sip: 'pay-sip', fd: 'adjust-balance', review: 'review-units' }[it.kind];
+  const label = { card: 'Pay bill', sip: 'Invest now', fd: 'Update value', review: 'Enter units' }[it.kind] || 'Record payment';
+  const icon = { emi: 'fa-calendar-check', subscription: 'fa-rotate', card: 'fa-credit-card', sip: 'fa-seedling', fd: 'fa-piggy-bank', review: 'fa-clipboard-check' }[it.kind];
   return `<div class="row">
     <div class="date-chip kind-bg-${it.kind}">
       <div class="display text-xl font-semibold leading-none num">${d.getDate()}</div>
@@ -1307,7 +1312,7 @@ function upcomingRow(it) {
     </div>
     <div class="text-right">
       <div class="num font-semibold">${money(it.amount)}</div>
-      <span class="pill ${pill} mt-1">${relDays(it.date)}</span>
+      <span class="pill ${pill} mt-1">${it.kind === 'review' && days >= 0 ? `Due ${relDays(it.date).toLowerCase()}` : relDays(it.date)}</span>
     </div>
     <button class="btn btn-sm hidden sm:inline-flex" data-action="${action}" data-id="${it.id}">${label}</button>
   </div>`;
@@ -1697,9 +1702,10 @@ function renderPortfolio() {
   const groups = [...new Set(P.holdings.map((h) => h.group))];
   const byGroup = (g) => P.holdings.filter((h) => h.group === g).sort((a, b) => (a.a.archived - b.a.archived) || b.value - a.value);
   const up = T.gain >= 0;
+  const anyLive = db.accounts.some((a) => a.type === 'investment' && hasLivePrice(a));
   return `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <p class="text-sm text-ink-2 max-w-2xl">Mutual funds, stocks, FDs and more. SIPs move money from your bank into the fund on their date, automatically if you like.</p>
+      <p class="text-sm text-ink-2 max-w-2xl">Your funds and shares at today's prices. Search a fund or company, enter the units and average cost once, and the value stays live.</p>
       <div class="flex gap-2 flex-wrap">
         <button class="btn" data-action="add-account" data-type="investment"><i class="fa-solid fa-plus"></i> Add holding</button>
         <button class="btn btn-primary" data-action="add-sip"><i class="fa-solid fa-seedling"></i> Add SIP</button>
@@ -1709,11 +1715,11 @@ function renderPortfolio() {
     <section class="hero hero-leaf p-5 sm:p-7">
       <div class="grid grid-cols-2 lg:grid-cols-5 gap-5">
         <div class="col-span-2">
-          <div class="text-sm hero-dim mb-1">Portfolio value</div>
+          <div class="text-sm hero-dim mb-1">Current value</div>
           <div class="display text-4xl sm:text-5xl font-semibold num">${money(Math.round(T.value))}</div>
         </div>
         <div><div class="text-sm hero-dim mb-1">Invested</div><div class="display text-2xl font-semibold num">${money(Math.round(T.invested))}</div></div>
-        <div><div class="text-sm hero-dim mb-1">${up ? 'Gain' : 'Loss'}</div>
+        <div><div class="text-sm hero-dim mb-1">Total ${up ? 'profit' : 'loss'}</div>
           <div class="display text-2xl font-semibold num">${money(Math.round(T.gain), { sign: true })}</div>
           <div class="text-sm num hero-dim">${pct(T.gainPct)}</div></div>
         <div><div class="text-sm hero-dim mb-1">SIPs per month</div><div class="display text-2xl font-semibold num">${money(T.sipMonthly)}</div>
@@ -1721,14 +1727,39 @@ function renderPortfolio() {
       </div>
     </section>
 
-    ${db.accounts.some((a) => a.type === 'investment' && hasLivePrice(a)) ? `
     <div class="flex flex-wrap items-center gap-3 mt-4 text-sm text-ink-2">
-      <span><i class="fa-solid fa-bolt mr-1" style="color:var(--marigold)"></i><span id="priceStatus">${esc(priceStatusText())}</span></span>
-      <button class="btn btn-sm" data-action="refresh-prices" ${priceState.busy ? 'disabled' : ''}><i class="fa-solid fa-arrows-rotate"></i> Refresh prices</button>
-    </div>` : `
-    <p class="text-sm text-ink-2 mt-4"><i class="fa-solid fa-bolt mr-1" style="color:var(--marigold)"></i>Edit a mutual fund and use <b>Find</b> under "Live NAV" to update its value automatically from the latest NAV.</p>`}
+      ${anyLive ? `<span><i class="fa-solid fa-bolt mr-1" style="color:var(--marigold)"></i><span id="priceStatus">${esc(priceStatusText())}</span></span>
+        <button class="btn btn-sm" data-action="refresh-prices" ${priceState.busy ? 'disabled' : ''}><i class="fa-solid fa-arrows-rotate"></i> Refresh prices</button>`
+      : '<span><i class="fa-solid fa-bolt mr-1" style="color:var(--marigold)"></i>Edit a fund or stock and search its name to link it to live prices.</span>'}
+    </div>
+
+    ${M.reviews.length ? reviewPanel() : ''}
+
+    ${groups.length ? `<section class="panel mt-6 overflow-hidden">
+      <div class="panel-head px-5 pt-5"><h2 class="panel-title">Holdings</h2><span class="text-sm text-ink-3">${P.holdings.length} holding${P.holdings.length === 1 ? '' : 's'}</span></div>
+      <div class="overflow-x-auto relative"><table class="holdings">
+        <thead><tr><th>Name</th><th>Units</th><th>Avg. cost</th><th>Invested</th><th>Latest price</th><th>Current value</th><th>Profit / loss</th><th aria-label="Actions"></th></tr></thead>
+        ${groups.map((g) => {
+          const list = byGroup(g);
+          const tv = list.reduce((x, h) => x + h.value, 0), ti = list.reduce((x, h) => x + h.invested, 0);
+          return `<tbody>
+            <tr class="group-row"><td><i class="fa-solid ${GROUP_ICONS[g] || 'fa-shapes'} mr-1.5" style="color:${GROUP_COLORS[g]}"></i>${esc(g)}</td><td></td><td></td>
+              <td class="num">${money(Math.round(ti))}</td><td></td><td class="num">${money(Math.round(tv))}</td>
+              <td class="num ${tv - ti >= 0 ? 'text-gain' : 'text-loss'}">${money(Math.round(tv - ti), { sign: true })}</td><td></td></tr>
+            ${list.map(holdingRow).join('')}
+          </tbody>`;
+        }).join('')}
+      </table></div>
+    </section>`
+    : `<section class="panel mt-6">${emptyState('fa-seedling', 'No holdings yet. Add each mutual fund, stock or FD: search its name, then enter your units and average cost.', '<button class="btn btn-primary" data-action="add-account" data-type="investment"><i class="fa-solid fa-plus"></i> Add holding</button>')}</section>`}
 
     <div class="grid grid-cols-1 lg:grid-cols-5 gap-6 mt-6">
+      <section class="panel p-5 lg:col-span-3">
+        <div class="panel-head"><h2 class="panel-title">SIPs</h2>
+          <button class="btn btn-sm" data-action="add-sip"><i class="fa-solid fa-plus"></i> Add SIP</button></div>
+        ${sips.length ? `<div class="divider">${sips.map(sipRow).join('')}</div>`
+          : emptyState('fa-seedling', 'No SIPs yet. Add one: it goes out of your bank on its date and asks you for the units a few days later.', '<button class="btn btn-primary" data-action="add-sip"><i class="fa-solid fa-seedling"></i> Add your first SIP</button>')}
+      </section>
       <section class="panel p-5 lg:col-span-2">
         <div class="panel-head"><h2 class="panel-title">Allocation</h2></div>
         ${P.allocation.length ? `
@@ -1736,77 +1767,87 @@ function renderPortfolio() {
           <div class="space-y-3 mt-5">${P.allocation.map((g) => {
             const share = T.value > 0 ? g.value / T.value : 0;
             return `<div><div class="flex justify-between text-sm mb-1 gap-2"><span class="font-medium">${esc(g.group)}</span>
-              <span class="num text-ink-2">${money(g.value)} <span class="text-ink-3">${Math.round(share * 100)}%</span></span></div>
+              <span class="num text-ink-2">${money(Math.round(g.value))} <span class="text-ink-3">${Math.round(share * 100)}%</span></span></div>
               <div class="bar"><span style="width:${share * 100}%;background:${GROUP_COLORS[g.group] || '#94A3B8'}"></span></div></div>`;
           }).join('')}</div>`
         : emptyState('fa-chart-pie', 'Add a holding to see how your money is spread.')}
       </section>
+    </div>`;
+}
 
-      <section class="panel p-5 lg:col-span-3">
-        <div class="panel-head"><h2 class="panel-title">SIPs</h2>
-          <button class="btn btn-sm" data-action="add-sip"><i class="fa-solid fa-plus"></i> Add SIP</button></div>
-        ${sips.length ? `<div class="divider">${sips.map(sipRow).join('')}</div>`
-          : emptyState('fa-seedling', 'No SIPs yet. Add one and it invests on its date every month.', '<button class="btn btn-primary" data-action="add-sip"><i class="fa-solid fa-seedling"></i> Add your first SIP</button>')}
-      </section>
+function reviewPanel() {
+  return `<section class="panel p-5 mt-6 review-panel">
+    <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-clipboard-check mr-1.5" style="color:var(--violet)"></i>Needs your review</h2>
+      <span class="text-sm text-ink-3">Enter the units allotted within ${REVIEW_DAYS} days</span></div>
+    <div class="divider">${M.reviews.map(reviewRow).join('')}</div>
+  </section>`;
+}
+function reviewRow({ t, a, due, sell }) {
+  const days = daysUntil(due);
+  const pill = days < 0 ? `<span class="pill out">${-days} day${days === -1 ? '' : 's'} overdue</span>` : `<span class="pill due">${days === 0 ? 'Due today' : `Due in ${days} day${days === 1 ? '' : 's'}`}</span>`;
+  const what = t.relatedType === 'sip' ? 'SIP' : sell ? 'Withdrawal' : 'Purchase';
+  return `<div class="row">
+    <div class="row-icon" style="background:var(--violet-tint);color:var(--violet)"><i class="fa-solid ${sell ? 'fa-arrow-up-from-bracket' : 'fa-seedling'}"></i></div>
+    <div class="min-w-0 flex-1">
+      <div class="font-medium truncate">${esc(a.name)}</div>
+      <div class="text-xs text-ink-3 mt-0.5">${what} of ${money(t.amount)} on ${fmtDate(t.date)}</div>
     </div>
-
-    ${groups.length ? groups.map((g) => {
-      const list = byGroup(g);
-      const total = list.reduce((s, h) => s + h.value, 0);
-      return `<section class="panel p-5 mt-6">
-        <div class="panel-head"><div class="flex items-baseline gap-3">
-          <h2 class="panel-title"><i class="fa-solid ${GROUP_ICONS[g] || 'fa-shapes'} mr-1.5" style="color:${GROUP_COLORS[g]}"></i>${esc(g)}</h2>
-          <span class="text-sm text-ink-3 num">${money(total)}</span></div></div>
-        <div class="divider">${list.map(holdingRow).join('')}</div>
-      </section>`;
-    }).join('')
-    : `<section class="panel mt-6">${emptyState('fa-seedling', 'No holdings yet. Add each fund, stock or FD with its current value.', '<button class="btn btn-primary" data-action="add-account" data-type="investment"><i class="fa-solid fa-plus"></i> Add holding</button>')}</section>`}`;
+    <div class="hidden sm:block">${pill}</div>
+    <button class="btn btn-sm btn-primary" data-action="review-units" data-id="${t.id}">Enter units</button>
+  </div>`;
 }
 
 function holdingRow(h) {
   const a = h.a;
-  const sips = db.sips.filter((x) => x.active && x.fundAccountId === a.id);
-  const bits = [accountSubtitle(a)];
-  if (num(a.units) && !(hasLivePrice(a) && a.priceDate)) bits.push(`${num(a.units).toLocaleString('en-IN', { maximumFractionDigits: 4 })} units${num(a.unitPrice) ? ` at ${money(a.unitPrice)}` : ''}`);
-  if (h.fd) bits.push(`${num(a.interestRate)}% p.a., ${h.fd.matured ? 'matured' : 'matures'} ${fmtDate(h.fd.maturityDate)} (about ${money(h.fd.maturityValue)})`);
-  else if (a.maturityDate) bits.push(`matures ${fmtDate(a.maturityDate)}`);
-  if (hasLivePrice(a) && num(a.unitPrice) && a.priceDate) {
-    const u = holdingUnits(a).units;
-    bits.push(`${u ? `${u.toLocaleString('en-IN', { maximumFractionDigits: 3 })} units, ` : ''}${isMF(a) ? 'NAV' : 'price'} ${money(a.unitPrice)} on ${fmtDate(a.priceDate)}`);
-  }
+  const tracked = isUnitTracked(a);
+  const U = tracked ? holdingUnits(a) : null;
+  const units = U ? U.units : 0;
+  const waiting = U ? U.pendingBuys.length + U.missing.length : 0;
+  const avg = units > 0 ? h.invested / units : 0;
+  const live = hasLivePrice(a) && num(a.unitPrice);
   const problem = priceState.problems[a.id];
-  const livePill = hasLivePrice(a) ? `<span class="pill blue" title="${esc(a.schemeName || avSymbol(a.ticker))}"><i class="fa-solid fa-bolt"></i> Live</span>` : '';
-  const sipBadge = sips.map((x) => `<span class="pill grow">SIP ${money(sipAmountOn(x, todayStr()))}</span>`).join(' ');
-  return `<div class="row ${a.archived ? 'opacity-60' : ''}">
-    <div class="row-icon t-investment" style="color:${GROUP_COLORS[h.group]}"><i class="fa-solid ${GROUP_ICONS[h.group] || 'fa-shapes'}"></i></div>
-    <div class="min-w-0 flex-1">
-      <div class="font-medium truncate">${esc(a.name)} ${livePill} ${sipBadge} ${a.archived ? '<span class="pill">Archived</span>' : ''}</div>
-      <div class="text-xs text-ink-3 mt-0.5">${bits.filter(Boolean).join(', ') || esc(a.subtype || 'Investment')}</div>
+  const sips = db.sips.filter((x) => x.active && x.fundAccountId === a.id);
+  const sub = [a.institution, h.fd ? `${num(a.interestRate)}% p.a., ${h.fd.matured ? 'matured' : 'matures'} ${fmtDate(h.fd.maturityDate)} (about ${money(h.fd.maturityValue)})` : a.maturityDate ? `matures ${fmtDate(a.maturityDate)}` : '']
+    .filter(Boolean).map(esc).join(', ');
+  const dash = '<span class="text-ink-3">—</span>';
+  return `<tr class="${a.archived ? 'opacity-60' : ''}">
+    <td class="name-cell">
+      <div class="font-medium">${esc(a.name)}</div>
+      <div class="flex flex-wrap gap-1 mt-1">
+        ${live ? '<span class="pill blue"><i class="fa-solid fa-bolt"></i> Live</span>' : ''}
+        ${sips.map((x) => `<span class="pill invest">SIP ${money(sipAmountOn(x, todayStr()))}</span>`).join('')}
+        ${waiting ? `<button class="pill" style="background:var(--violet-tint);color:var(--violet)" data-action="review-units" data-id="${(U.pendingBuys[0] || U.missing[0]).id}">${waiting} to review</button>` : ''}
+        ${a.archived ? '<span class="pill">Archived</span>' : ''}
+      </div>
+      ${sub ? `<div class="text-xs text-ink-3 mt-1">${sub}</div>` : ''}
+      ${units > 0 ? `<div class="text-xs text-ink-2 mt-1 phone-only">${units.toLocaleString('en-IN', { maximumFractionDigits: 3 })} units${avg > 0 ? `, avg. ${money(round2(avg))}` : ''}${live ? `, ${isMF(a) ? 'NAV' : 'price'} ${money(a.unitPrice)}` : ''}</div>` : ''}
       ${problem ? `<div class="text-xs mt-1" style="color:var(--marigold-ink)"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${esc(problem)}</div>` : ''}
-    </div>
-    <div class="text-right whitespace-nowrap">
-      <div class="num font-semibold">${money(h.value)}</div>
-      ${h.invested > 0 && h.gain !== 0 ? `<div class="text-xs num ${h.gain >= 0 ? 'text-gain' : 'text-loss'}">${money(h.gain, { sign: true })} (${pct(h.gainPct)})</div>` : ''}
-    </div>
-    <div class="row-actions">
+    </td>
+    <td class="num">${units > 0 ? units.toLocaleString('en-IN', { maximumFractionDigits: 3 }) : dash}</td>
+    <td class="num">${avg > 0 ? money(round2(avg)) : dash}</td>
+    <td class="num">${money(Math.round(h.invested))}</td>
+    <td class="num">${live ? `${money(a.unitPrice)}<div class="text-xs text-ink-3">${a.priceDate ? fmtDate(a.priceDate) : ''}</div>` : dash}</td>
+    <td class="num font-semibold">${money(Math.round(h.value))}</td>
+    <td class="num ${h.gain >= 0 ? 'text-gain' : 'text-loss'}">${h.invested > 0 ? `${money(Math.round(h.gain), { sign: true })}<div class="text-xs">${pct(h.gainPct)}</div>` : dash}</td>
+    <td><div class="row-actions justify-end">
       <button class="icon-btn sm" data-action="invest-more" data-id="${a.id}" title="Add money" aria-label="Add money to ${esc(a.name)}"><i class="fa-solid fa-plus"></i></button>
-      <button class="icon-btn sm" data-action="adjust-balance" data-id="${a.id}" title="Update value" aria-label="Update value"><i class="fa-solid fa-scale-balanced"></i></button>
+      ${live ? '' : `<button class="icon-btn sm" data-action="adjust-balance" data-id="${a.id}" title="Update value" aria-label="Update value"><i class="fa-solid fa-scale-balanced"></i></button>`}
       <button class="icon-btn sm" data-action="edit-account" data-id="${a.id}" title="Edit" aria-label="Edit holding"><i class="fa-regular fa-pen-to-square"></i></button>
-    </div>
-  </div>`;
+    </div></td>
+  </tr>`;
 }
 
 function sipRow(x) {
   const days = x.nextDate ? daysUntil(x.nextDate) : null;
   const ended = sipEnded(x, x.nextDate || todayStr());
   const pill = !x.active ? `<span class="pill">${ended ? 'Ended' : 'Paused'}</span>`
-    : `<span class="pill ${days < 0 ? 'out' : days <= 3 ? 'due' : 'grow'}">${relDays(x.nextDate)}</span>`;
+    : `<span class="pill ${days < 0 ? 'out' : days <= 3 ? 'due' : 'invest'}">${relDays(x.nextDate)}</span>`;
   const extra = [num(x.stepUpPercent) ? `steps up ${num(x.stepUpPercent)}% a year` : '', x.endDate ? `until ${fmtDate(x.endDate)}` : ''].filter(Boolean).join(', ');
   return `<div class="row ${x.active ? '' : 'opacity-60'}">
-    <div class="row-icon grow"><i class="fa-solid fa-seedling"></i></div>
+    <div class="row-icon invest"><i class="fa-solid fa-seedling"></i></div>
     <div class="min-w-0 flex-1">
-      <div class="font-medium truncate">${esc(x.name)} ${x.autoLog && x.active ? '<span class="pill grow" title="Invested automatically on the SIP date">Auto</span>' : ''}</div>
-      <div class="text-xs text-ink-3 mt-0.5">${esc(sipScheduleLabel(x))}, ${esc(accountName(x.fromAccountId))} to ${esc(accountName(x.fundAccountId))}${extra ? `, ${esc(extra)}` : ''}</div>
+      <div class="font-medium truncate">${esc(x.name)} ${x.autoLog && x.active ? '<span class="pill invest" title="Invested automatically on the SIP date">Auto</span>' : ''}</div>
+      <div class="text-xs text-ink-3 mt-0.5">${esc(sipScheduleLabel(x))}, from ${esc(accountName(x.fromAccountId))}${x.name !== accountName(x.fundAccountId) ? ` into ${esc(accountName(x.fundAccountId))}` : ''}${extra ? `, ${esc(extra)}` : ''}</div>
     </div>
     <div class="text-right">
       <div class="num font-semibold">${money(sipAmountOn(x, x.nextDate || todayStr()))}</div>
@@ -1842,56 +1883,59 @@ function openSipForm(existing, presetFundId) {
   };
   const funds = db.accounts.filter((a) => a.type === 'investment' && (!a.archived || a.id === x.fundAccountId))
     .sort((a, b) => a.name.localeCompare(b.name));
-  const fundOpts = [['', 'Choose a holding'], ...funds.map((a) => [a.id, `${a.name}${a.subtype ? ` (${a.subtype})` : ''}`]), ['__new', '+ New fund or stock']];
+  const fundOpts = [['', 'Choose a fund you already hold'], ...funds.map((a) => [a.id, a.name]), ['__new', '+ A fund not added yet']];
   const selectedFund = x.fundAccountId || (funds.length ? '' : '__new');
   const freqOpts = SIP_FREQUENCIES.map((k) => [k, FREQUENCIES[k].label]);
   const body = `
-    ${field('SIP name', input('name', x.name, 'required maxlength="80" placeholder="e.g. Parag Parikh Flexi Cap, Nifty 50 index"'))}
-    ${field('Invest into', select('fundAccountId', fundOpts, selectedFund, 'required'), 'The fund or stock this SIP buys. Pick "New" if you haven\'t added it yet.')}
-    ${showFor('__new', twoCol(field('Kind', select('newKind', INVESTMENT_KINDS, 'Mutual fund')), field('Platform (optional)', input('newPlatform', '', 'placeholder="e.g. Groww, Zerodha, Kuvera"'))) +
-      twoCol(field('Current value (if you already hold it)', moneyInput('newValue', '', 'min="0" placeholder="0"')),
-        field('Amount invested so far', moneyInput('newInvested', '', 'min="0" placeholder="0"'))) +
-      twoCol(field('Units you hold now (optional)', input('newUnits', '', 'type="number" step="any" min="0" placeholder="0"')), '<div></div>') +
-      schemePicker({}))}
+    ${field('SIP into', select('fundAccountId', fundOpts, selectedFund, 'required'), 'The SIP takes the fund\'s name.')}
+    ${showFor('__new', instrumentPicker({}, { kind: 'mf', queryName: 'pickName', label: 'Find the mutual fund' }) +
+      twoCol(field('Units you already hold (optional)', input('newUnits', '', 'type="number" step="any" min="0" placeholder="0 if this is a new SIP"')),
+        field('Average cost per unit (optional)', moneyInput('newAvgCost', '', 'min="0" placeholder="e.g. 64.20"'))) +
+      field('Platform (optional)', input('newPlatform', '', 'placeholder="e.g. Groww, Zerodha Coin, Kuvera"')))}
     ${twoCol(field('SIP amount', moneyInput('amount', x.amount, 'required min="1"')), field('How often', select('frequency', freqOpts, x.frequency)))}
     ${twoCol(field('Next SIP date', input('nextDate', x.nextDate, 'type="date" required'), 'Monthly SIPs repeat on this day, e.g. the 1st of every month.'),
       field('Paid from', accountSelect('fromAccountId', x.fromAccountId || firstAccountOf(['bank']), { types: ['bank', 'cash'], placeholder: 'Choose a bank account' })))}
     ${twoCol(field('Yearly step-up % (optional)', input('stepUpPercent', x.stepUpPercent || '', 'type="number" min="0" max="100" step="0.5" placeholder="e.g. 10"'), 'Raises the SIP amount once a year.'),
       field('Stop after (optional)', input('endDate', x.endDate, 'type="date"')))}
-    ${checkbox('autoLog', x.autoLog, 'Invest automatically on the SIP date', 'On or after each SIP date the app records the transfer from your bank into the fund, so your bank balance drops like an expense and the fund grows. A date in the past fills in the missed instalments.')}
+    ${checkbox('autoLog', x.autoLog, 'Record automatically on the SIP date', `The amount goes out of your bank as money spent on the SIP date and is marked for review. Within ${REVIEW_DAYS} days you enter the units allotted and the NAV, and they are added to your holding. A date in the past fills in missed instalments.`)}
     ${isNew ? '' : checkbox('active', x.active, 'Active', 'Untick to pause without deleting.')}
     ${field('Notes (optional)', textarea('notes', x.notes, 'rows="2" placeholder="Folio number, goal..."'))}`;
 
   openModal({
-    title: isNew ? 'Add SIP' : `Edit ${x.name}`,
+    title: isNew ? 'Add SIP' : `Edit ${x.name} SIP`,
     body,
     submitLabel: isNew ? 'Add SIP' : 'Save changes',
-    onOpen: (form) => { bindShowHide(form, 'fundAccountId'); bindSchemePicker(form); },
+    onOpen: (form) => { bindShowHide(form, 'fundAccountId'); bindInstrumentPicker(form); },
     onSubmit: (d) => {
       const ops = [];
       let fundId = d.fundAccountId;
-      if (!fundId) { toast('Choose the fund or stock this SIP invests into.', 'error'); return false; }
+      if (!fundId) { toast('Choose the fund this SIP invests into.', 'error'); return false; }
       if (!d.fromAccountId) { toast('Choose the account the SIP is paid from.', 'error'); return false; }
       if (d.endDate && d.endDate < d.nextDate) { toast('The stop date is before the next SIP date.', 'error'); return false; }
+      let fundName;
       if (fundId === '__new') {
-        const hasValue = num(d.newValue) > 0;
+        fundName = (d.schemeName || d.pickName || '').trim();
+        if (!fundName) { toast('Search for the fund and pick it from the list (or type its name).', 'error'); return false; }
+        const units = num(d.newUnits), cost = num(d.newAvgCost), price = num(d.latestPrice);
+        const invested = round2(units * cost);
+        const value = units > 0 ? round2(units * (price || cost)) : 0;
         const fund = {
-          id: uid('acc'), name: d.name, type: 'investment', subtype: d.newKind || 'Mutual fund', institution: d.newPlatform || '', last4: '',
-          openingBalance: round2(num(d.newValue)), investedAmount: round2(num(d.newInvested) || num(d.newValue)),
-          // If you already hold units, their value is "as on today". Otherwise the fund
-          // starts at zero on the first SIP date so every instalment adds to it.
-          openingDate: hasValue || d.nextDate > todayStr() ? todayStr() : d.nextDate,
+          id: uid('acc'), name: fundName, type: 'investment', subtype: 'Mutual fund', institution: d.newPlatform || '', last4: '',
+          openingBalance: value, investedAmount: invested || value,
+          // Units you already hold are "as on today"; a brand-new fund starts empty on its first SIP date.
+          openingDate: units > 0 || d.nextDate > todayStr() ? todayStr() : d.nextDate,
           creditLimit: null, statementDay: null, dueDay: null, interestRate: null, maturityDate: '', notes: '', archived: false,
-          units: d.newUnits === '' ? null : num(d.newUnits), unitsDate: d.newUnits === '' ? '' : todayStr(),
-          schemeCode: (d.newKind || 'Mutual fund') === 'Mutual fund' ? d.schemeCode || '' : '', schemeName: d.schemeCode ? d.schemeName || '' : '',
+          units: units > 0 ? units : null, unitsDate: units > 0 ? todayStr() : '',
+          schemeCode: d.schemeCode || '', schemeName: d.schemeCode ? d.schemeName || fundName : '',
+          unitPrice: price || null, priceDate: price ? d.latestDate || todayStr() : '',
         };
         ops.push(opUpsert('accounts', fund));
         fundId = fund.id;
-      }
+      } else fundName = accountName(fundId);
       const sameDate = existing && existing.nextDate === d.nextDate;
       const rec = {
         ...(existing || {}), id: existing?.id || uid('sip'),
-        name: d.name, fundAccountId: fundId, fromAccountId: d.fromAccountId,
+        name: fundName, fundAccountId: fundId, fromAccountId: d.fromAccountId,
         amount: round2(num(d.amount)), frequency: d.frequency,
         day: sameDate && existing.day ? existing.day : parseDate(d.nextDate).getDate(),
         startDate: existing?.startDate || d.nextDate, nextDate: d.nextDate, endDate: d.endDate || '',
@@ -1902,11 +1946,11 @@ function openSipForm(existing, presetFundId) {
       commit(ops, `${isNew ? 'Add' : 'Edit'} SIP ${rec.name}`);
       toast(isNew ? 'SIP added' : 'SIP saved', 'success');
       if (rec.autoLog) setTimeout(processAutoPayments, 50);
-      const fundAcc = accountById(fundId) || ops.find((o) => o.coll === 'accounts')?.rec;
+      const fundAcc = accountById(fundId);
       if (fundAcc && hasLivePrice(fundAcc) && navigator.onLine) setTimeout(() => refreshPrices({ onlyId: fundId }), 400);
     },
     onDelete: existing ? () => {
-      if (!confirm(`Delete the ${x.name} SIP? Instalments already recorded stay in your transactions and the fund keeps its value.`)) return false;
+      if (!confirm(`Delete the ${x.name} SIP? Instalments already recorded stay in your transactions and the fund keeps its units.`)) return false;
       commit([opDelete('sips', x.id)], `Delete SIP ${x.name}`);
       toast('SIP deleted');
     } : null,
@@ -1924,7 +1968,7 @@ function paySip(id) {
     title: `Record ${x.name} SIP`,
     body: `${twoCol(field('Amount', moneyInput('amount', txn.amount, 'required min="0.01"')), field('Date', input('date', due, 'type="date" required')))}
       ${field('Paid from', accountSelect('fromAccountId', x.fromAccountId, { types: ['bank', 'cash'] }))}
-      <p class="callout">Moves the money into <b>${esc(accountName(x.fundAccountId))}</b>. The next SIP moves to ${fmtDate(next)}.</p>`,
+      <p class="callout">Records the payment into <b>${esc(accountName(x.fundAccountId))}</b> and marks it for review, so you can enter the units once they're allotted. The next SIP moves to ${fmtDate(next)}.</p>`,
     submitLabel: 'Record SIP',
     onSubmit: (d) => {
       commit([
@@ -1965,8 +2009,9 @@ function investMore(id) {
                    + units bought by later SIPs / lump sums
                    - units sold by later withdrawals
      value       = units held x latest NAV or price
-   For SIPs the app works out the units itself from the NAV on the SIP
-   date and saves them on the transaction (`units`, `unitNav`).
+   Each SIP instalment (or lump sum) goes on a review list until you enter
+   the units allotted and the NAV; they are saved on the transaction
+   (`units`, `unitNav`). Until then it counts at its rupee cost.
    The change in value is saved as ONE "Market value" adjustment per
    holding per month (id txn_mkt_<account>_<YYYY-MM>), which is updated
    on every refresh, so market moves never count as income or spending.
@@ -2093,37 +2138,19 @@ async function refreshPrices({ auto = false, onlyId = null } = {}) {
   for (const a of targets) {
     try {
       const live = isMF(a) ? await mfLatest(a.schemeCode) : await stockLatest(a.ticker, key);
-      const overrides = {};
-      let { units, pendingBuys, missing } = holdingUnits(a);
 
-      // SIPs, lump sums and withdrawals in a mutual fund: work out the units
-      // from the NAV of that day (or the next day a NAV was published).
-      if (isMF(a) && (pendingBuys.length || missing.length)) {
-        const needs = [...pendingBuys, ...missing];
-        const from = needs.reduce((m, t) => (t.date < m ? t.date : m), todayStr());
-        const hist = await mfHistory(a.schemeCode, from, todayStr());
-        for (const t of needs) {
-          const row = hist.find((r) => r.date >= t.date);  // NAV of that day, or the next working day
-          if (!row) continue;                              // not allotted yet (NAV not published)
-          overrides[t.id] = Math.round((num(t.amount) / row.nav) * 1000) / 1000;
-          ops.push(opUpsert('transactions', { ...t, units: overrides[t.id], unitNav: row.nav }));
-        }
-        ({ units, pendingBuys, missing } = holdingUnits(a, overrides));
-      }
+      const { units, pendingBuys, missing } = holdingUnits(a);
       if (missing.length) {
-        priceState.problems[a.id] = 'A withdrawal has no units. Use "Update value" to enter the units you hold now.';
-        continue;
-      }
-      if (!units && !pendingBuys.length) {
-        priceState.problems[a.id] = 'Enter the units you hold (edit the holding) to value it at the live price.';
+        priceState.problems[a.id] = 'A withdrawal is waiting for its units. Enter them under "Needs your review".';
         ops.push(opUpsert('accounts', { ...a, unitPrice: live.price, priceDate: live.date }));
         continue;
       }
-      if (!isMF(a) && pendingBuys.length) {
-        priceState.problems[a.id] = 'Money was added without a share count. Use "Update value" to enter the shares you hold now.';
+      if (!units && !pendingBuys.length) {
+        priceState.problems[a.id] = 'Enter the units you hold (edit the holding) to see its live value.';
+        ops.push(opUpsert('accounts', { ...a, unitPrice: live.price, priceDate: live.date }));
         continue;
       }
-      // Purchases still waiting for their NAV are counted at cost until they are allotted.
+      // Instalments still waiting for you to enter their units count at cost until reviewed.
       const waiting = pendingBuys.reduce((s, t) => s + num(t.amount), 0);
       const target = round2(units * live.price + waiting);
       const label = isMF(a) ? 'NAV' : 'Price';
@@ -2142,7 +2169,7 @@ async function refreshPrices({ auto = false, onlyId = null } = {}) {
   if (ops.length) commit(ops, `Update live prices (${updated} holding${updated === 1 ? '' : 's'})`);
   else render();
   const failed = targets.filter((a) => priceState.problems[a.id]).length;
-  if (!auto || failed) {
+  if (!auto) { // on app start it stays quiet; notes show next to each holding
     if (updated) toast(`Prices updated for ${updated} holding${updated === 1 ? '' : 's'}${failed ? `, ${failed} need attention` : ''}.`, failed ? 'info' : 'success');
     else if (failed) toast(`Couldn't update prices: ${priceState.problems[targets.find((a) => priceState.problems[a.id]).id]}`, 'error');
   }
@@ -2163,40 +2190,170 @@ function renderPriceStatus() {
   if (btn) btn.disabled = priceState.busy;
 }
 
-/* ----- "Find your fund" picker used in the holding and SIP forms ----- */
-function schemePicker(a = {}) {
-  const current = a.schemeCode ? [[a.schemeCode, a.schemeName || `Scheme ${a.schemeCode}`]] : [];
-  return `<div class="callout space-y-3" data-scheme-picker>
-    <div class="font-semibold text-sm"><i class="fa-solid fa-bolt mr-1" style="color:var(--marigold)"></i>Live NAV (optional)</div>
+async function stockSearch(q, key) {
+  const j = await fetchJSON(`${ALPHA}?function=SYMBOL_SEARCH&keywords=${encodeURIComponent(q)}&apikey=${encodeURIComponent(key)}`);
+  if (j.Note || j.Information) throw new Error('Daily limit of the free stock price key reached. Try again tomorrow.');
+  const all = (j.bestMatches || []).map((m) => ({ code: m['1. symbol'], name: m['2. name'], region: m['4. region'] || '' }));
+  const india = all.filter((m) => /\.(BSE|NSE)$/i.test(m.code) || /india/i.test(m.region));
+  return (india.length ? india : all).map((m) => ({ code: m.code, name: m.name, extra: m.code }));
+}
+
+/* ----- Fund / company search used in the holding and SIP forms -----
+   kind: 'mf' (mutual funds), 'stock', or 'auto' (follows the Kind select).
+   On a pick it fills the official name, links the scheme code / symbol and
+   fetches the latest NAV or price. */
+function instrumentPicker(a = {}, { kind = 'auto', queryName = '', label = 'Find the fund or company' } = {}) {
+  const linked = a.schemeCode ? { code: a.schemeCode, name: a.schemeName || a.name, k: 'NAV' } : a.ticker ? { code: a.ticker, name: a.name, k: 'Price' } : null;
+  return `<div class="picker" data-picker data-kind="${kind}">
+    <span class="lbl">${label}</span>
     <div class="flex gap-2">
-      <input class="inp" data-scheme-q placeholder="Type the fund name, e.g. parag parikh flexi" value="">
-      <button type="button" class="btn" data-scheme-find>Find</button>
+      <input class="inp" data-pick-q ${queryName ? `name="${queryName}"` : ''} value="${esc(queryName ? a.name || '' : '')}" placeholder="Type a few letters, e.g. parag parikh, tata motors" autocomplete="off">
+      <button type="button" class="btn" data-pick-find><i class="fa-solid fa-magnifying-glass"></i> Search</button>
     </div>
-    ${select('schemeCode', [['', current.length ? 'Not linked' : 'Search above, then pick your plan'], ...current], a.schemeCode || '')}
+    <div class="pick-results" data-pick-results hidden></div>
+    <div class="pick-linked" data-pick-linked ${linked ? '' : 'hidden'}>${linked ? `<i class="fa-solid fa-bolt"></i> Linked to <b>${esc(linked.name)}</b>${a.unitPrice ? `. Latest ${linked.k.toLowerCase()} ${money(a.unitPrice)}${a.priceDate ? ` on ${fmtDate(a.priceDate)}` : ''}` : ''}` : ''}</div>
+    <input type="hidden" name="schemeCode" value="${esc(a.schemeCode || '')}">
     <input type="hidden" name="schemeName" value="${esc(a.schemeName || '')}">
-    <span class="hint">Pick the exact plan you hold (Direct or Regular, Growth or IDCW). The app then updates the value from the latest NAV.</span>
+    <input type="hidden" name="ticker" value="${esc(a.ticker || '')}">
+    <input type="hidden" name="latestPrice" value="${esc(a.unitPrice ?? '')}">
+    <input type="hidden" name="latestDate" value="${esc(a.priceDate || '')}">
   </div>`;
 }
-function bindSchemePicker(form) {
-  const box = $('[data-scheme-picker]', form);
+function bindInstrumentPicker(form, { onPick } = {}) {
+  const box = $('[data-picker]', form);
   if (!box) return;
-  const q = $('[data-scheme-q]', box), sel = $('select[name="schemeCode"]', box), nameInp = $('input[name="schemeName"]', box);
-  const find = async () => {
-    const text = q.value.trim();
-    if (text.length < 3) { toast('Type at least 3 letters of the fund name.'); return; }
-    const btn = $('[data-scheme-find]', box);
-    btn.disabled = true; btn.textContent = 'Searching…';
-    try {
-      const list = (await mfSearch(text)).slice(0, 60);
-      sel.innerHTML = `<option value="">${list.length ? `${list.length} found, pick your plan` : 'No funds found, try other words'}</option>` +
-        list.map((s) => `<option value="${esc(s.schemeCode)}">${esc(s.schemeName)}</option>`).join('');
-      if (list.length) sel.focus();
-    } catch (e) { toast(e.message, 'error'); }
-    finally { btn.disabled = false; btn.textContent = 'Find'; }
+  const q = $('[data-pick-q]', box), results = $('[data-pick-results]', box), linked = $('[data-pick-linked]', box);
+  const h = (n) => $(`input[name="${n}"]`, box);
+  const kind = () => {
+    if (box.dataset.kind !== 'auto') return box.dataset.kind;
+    const sub = $$('select[name="subtype"]', form).find((el) => !el.disabled)?.value || '';
+    return sub === 'Mutual fund' ? 'mf' : ['Stocks', 'ETF'].includes(sub) ? 'stock' : '';
   };
-  $('[data-scheme-find]', box).addEventListener('click', find, { signal: modalSignal() });
-  q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); find(); } }, { signal: modalSignal() });
-  sel.addEventListener('change', () => { nameInp.value = sel.value ? sel.selectedOptions[0].textContent : ''; }, { signal: modalSignal() });
+  const signal = { signal: modalSignal() };
+  let seq = 0;
+  const search = async () => {
+    const text = q.value.trim();
+    const k = kind();
+    if (text.length < 3) { results.hidden = false; results.innerHTML = '<p class="hint">Type at least 3 letters.</p>'; return; }
+    const key = String(db.settings.stockApiKey || '').trim();
+    if (k === 'stock' && !key) {
+      results.hidden = false;
+      results.innerHTML = '<p class="hint">Company search and live stock prices need the free stock price key (Settings). You can still type the company name and enter units and cost yourself.</p>';
+      return;
+    }
+    const my = ++seq;
+    results.hidden = false; results.innerHTML = '<p class="hint">Searching…</p>';
+    try {
+      const list = k === 'stock' ? await stockSearch(text, key)
+        : (await mfSearch(text)).map((x) => ({ code: String(x.schemeCode), name: x.schemeName }));
+      if (my !== seq) return;
+      results.innerHTML = list.length
+        ? list.slice(0, 40).map((x) => `<button type="button" class="pick-item" data-code="${esc(x.code)}" data-name="${esc(x.name)}">${esc(x.name)}${x.extra ? ` <span class="text-ink-3">${esc(x.extra)}</span>` : ''}</button>`).join('')
+        : '<p class="hint">Nothing found. Try fewer or different words.</p>';
+    } catch (e) { if (my === seq) results.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+  };
+  const pick = async (code, name) => {
+    const k = kind();
+    results.hidden = true;
+    q.value = name;
+    h('schemeCode').value = k === 'mf' ? code : '';
+    h('schemeName').value = k === 'mf' ? name : '';
+    h('ticker').value = k === 'stock' ? code : '';
+    const nameInput = $$('input[name="name"]', form).find((el) => !el.disabled);
+    if (nameInput) nameInput.value = name;
+    linked.hidden = false;
+    linked.innerHTML = `<i class="fa-solid fa-bolt"></i> Linked to <b>${esc(name)}</b>. Getting the latest ${k === 'mf' ? 'NAV' : 'price'}…`;
+    try {
+      const live = k === 'mf' ? await mfLatest(code) : await stockLatest(code, String(db.settings.stockApiKey || '').trim());
+      h('latestPrice').value = live.price; h('latestDate').value = live.date;
+      linked.innerHTML = `<i class="fa-solid fa-bolt"></i> Linked to <b>${esc(name)}</b>. Latest ${k === 'mf' ? 'NAV' : 'price'} <b class="num">${money(live.price)}</b> on ${fmtDate(live.date)}.`;
+    } catch (e) {
+      linked.innerHTML = `<i class="fa-solid fa-bolt"></i> Linked to <b>${esc(name)}</b>. The latest price couldn't be fetched right now (${esc(e.message)}); it will update later.`;
+    }
+    onPick?.();
+  };
+  $('[data-pick-find]', box).addEventListener('click', search, signal);
+  q.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); search(); } }, signal);
+  // Mutual fund search is free, so it searches as you type; stock search uses the daily quota, so it waits for the button.
+  const typeAhead = debounce(() => { if (kind() === 'mf' && q.value.trim().length >= 3) search(); }, 400);
+  q.addEventListener('input', () => {
+    if (h('schemeCode').value || h('ticker').value) { // typing again unlinks
+      h('schemeCode').value = ''; h('ticker').value = ''; h('schemeName').value = ''; h('latestPrice').value = ''; h('latestDate').value = '';
+      linked.hidden = true;
+    }
+    typeAhead();
+  }, signal);
+  results.addEventListener('click', (e) => { const b = e.target.closest('.pick-item'); if (b) pick(b.dataset.code, b.dataset.name); }, signal);
+}
+
+/* ----- Units review -----
+   Every purchase (SIP instalment, lump sum) or withdrawal in a holding whose
+   units you track waits here until you enter the units and NAV/price from
+   your statement. Due 5 days after the transaction date. */
+const REVIEW_DAYS = 5;
+const isUnitTracked = (a) => a.type === 'investment' && (hasLivePrice(a) || num(a.units) > 0);
+function unitReviews() {
+  const today = todayStr();
+  const out = [];
+  for (const a of db.accounts) {
+    if (!isUnitTracked(a) || a.archived) continue;
+    const { pendingBuys, missing } = holdingUnits(a);
+    for (const t of [...pendingBuys, ...missing]) {
+      if ((t.date || '') > today) continue;
+      out.push({ t, a, due: addDays(t.date, REVIEW_DAYS), sell: t.fromAccountId === a.id });
+    }
+  }
+  return out.sort((x, y) => x.due.localeCompare(y.due));
+}
+/** Market-value ops for a holding at its last known price (no network). */
+function revalueOps(a, overrides = {}) {
+  if (!num(a.unitPrice)) return [];
+  const { units, pendingBuys, missing } = holdingUnits(a, overrides);
+  if (missing.length) return [];
+  const waiting = pendingBuys.reduce((s, t) => s + num(t.amount), 0);
+  return marketValueOps(a, round2(units * num(a.unitPrice) + waiting), `${isMF(a) ? 'NAV' : 'Price'} ${a.unitPrice} on ${a.priceDate || ''}, ${units} units`);
+}
+
+function openReview(txnId) {
+  const r = M.reviews.find((x) => x.t.id === txnId);
+  if (!r) return;
+  const { t, a, sell } = r;
+  const amt = num(t.amount);
+  const what = t.relatedType === 'sip' ? 'SIP instalment' : sell ? 'withdrawal' : 'purchase';
+  openModal({
+    title: `Enter units: ${a.name}`,
+    body: `<p class="callout">${money(amt)} ${what} on <b>${fmtDate(t.date)}</b>${sell ? ' from' : ' into'} <b>${esc(a.name)}</b>. Enter the ${sell ? 'units sold' : 'units allotted'} and the ${isMF(a) ? 'NAV' : 'price'} from your statement, email or fund app. They usually appear 2 to 3 working days after the ${t.relatedType === 'sip' ? 'SIP date' : 'payment'}.</p>
+      ${twoCol(field(sell ? 'Units sold' : 'Units allotted', input('units', '', 'type="number" step="any" min="0.0001" required placeholder="e.g. 58.914"')),
+        field(`${isMF(a) ? 'NAV' : 'Price'} per unit`, moneyInput('nav', '', 'min="0" placeholder="e.g. 84.60"'), 'Fill either box; the other is worked out from the amount.'))}
+      <div data-suggest class="text-sm text-ink-2"></div>`,
+    submitLabel: 'Save units',
+    onOpen: (form) => {
+      const u = form.elements.units, n = form.elements.nav;
+      const sig = { signal: modalSignal() };
+      u.addEventListener('input', () => { if (num(u.value) > 0) n.value = round2(amt / num(u.value)); }, sig);
+      n.addEventListener('input', () => { if (num(n.value) > 0) u.value = Math.round((amt / num(n.value)) * 1000) / 1000; }, sig);
+      if (isMF(a) && navigator.onLine) {
+        const box = $('[data-suggest]', form);
+        box.textContent = 'Looking up the NAV for that day…';
+        mfHistory(a.schemeCode, t.date, addDays(t.date, 10)).then((hist) => {
+          const row = hist.find((x) => x.date >= t.date);
+          if (!row || !box.isConnected) { if (box.isConnected) box.textContent = ''; return; }
+          const est = Math.round((amt / row.nav) * 1000) / 1000;
+          box.innerHTML = `NAV on ${fmtDate(row.date)} was <b class="num">${money(row.nav)}</b>, about <b class="num">${est}</b> units. <button type="button" class="btn btn-sm ml-1" data-use>Use this</button><span class="hint">Your statement may show slightly fewer units because of stamp duty; use its figure if you have it.</span>`;
+          $('[data-use]', box).addEventListener('click', () => { n.value = row.nav; u.value = est; }, sig);
+        }).catch(() => { if (box.isConnected) box.textContent = ''; });
+      }
+    },
+    onSubmit: (d) => {
+      const units = num(d.units);
+      if (units <= 0) { toast('Enter the units.', 'error'); return false; }
+      const nav = num(d.nav) || round2(amt / units);
+      const ops = [opUpsert('transactions', { ...t, units, unitNav: nav, reviewedAt: new Date().toISOString() })];
+      ops.push(...revalueOps(a, { [t.id]: units }));
+      commit(ops, `Units for ${a.name} on ${t.date}`);
+      toast('Units saved. The live value now includes them.', 'success');
+    },
+  });
 }
 
 /* ---------------------------------------------------------------------
@@ -2344,16 +2501,16 @@ function openAccountForm(existing, presetType = 'bank') {
       twoCol(field('Statement date (day of month)', input('statementDay', a.statementDay, 'type="number" min="1" max="31" placeholder="e.g. 15"')),
         field('Payment due date (day of month)', input('dueDay', a.dueDay, 'type="number" min="1" max="31" placeholder="e.g. 5"'))))}
     ${showFor('investment', twoCol(field('Kind', select('subtype', INVESTMENT_KINDS, a.subtype || 'Mutual fund')), field('Platform or institution', input('institution', a.institution, 'placeholder="e.g. Groww, Zerodha, SBI"'))) +
-      twoCol(field('Units or shares (optional)', input('units', a.units ?? '', 'type="number" step="any" min="0" placeholder="e.g. 152.347"'), a.unitsDate && num(a.units) ? `As on ${fmtDate(a.unitsDate)}. Units bought by SIPs after that are added automatically.` : ''),
-        field('Price or NAV per unit (optional)', moneyInput('unitPrice', a.unitPrice ?? '', 'min="0" placeholder="e.g. 78.42"'))) +
+      `<div data-sub="Mutual Stocks ETF">${instrumentPicker(a)}</div>` +
+      `<div data-sub="Mutual Stocks ETF Gold Crypto">${twoCol(
+        field('Units you hold', input('units', a.units ?? '', 'type="number" step="any" min="0" placeholder="e.g. 152.347"'), existing && num(a.units) ? `As on ${fmtDate(a.unitsDate || a.openingDate)}. Units from later SIPs you review are added on top.` : 'From your statement or the Groww / Zerodha / fund app.'),
+        field('Average cost per unit', moneyInput('avgCost', existing && num(a.units) > 0 ? round2(num(a.investedAmount ?? a.openingBalance) / num(a.units)) : '', 'min="0" placeholder="e.g. 64.20"'), 'Shown as "avg. NAV" or "avg. price" in most apps.'))}</div>` +
       `<div data-sub="Fixed Recurring PPF Bonds NPS Gold Other" class="space-y-4">${twoCol(field('Interest rate % (optional)', input('interestRate', a.interestRate, 'type="number" step="0.01" min="0"'), 'For FDs, RDs, PPF and bonds.'),
         field('Maturity date (optional)', input('maturityDate', a.maturityDate, 'type="date"')))}</div>` +
-      `<div data-sub="Fixed">${field('FD start date (optional)', input('depositDate', a.depositDate, 'type="date"'), 'The day the deposit was made. Used with the rate and maturity date to estimate its value.')}</div>` +
-      `<div data-sub="Mutual fund">${schemePicker(a)}</div>` +
-      `<div data-sub="Stocks ETF">${field('BSE symbol for live price (optional)', input('ticker', a.ticker, 'placeholder="e.g. TCS, RELIANCE, NIFTYBEES" autocapitalize="characters" spellcheck="false"'), 'Needs the free stock price key in Settings. Enter the units above too.')}</div>`)}
+      `<div data-sub="Fixed">${field('FD start date (optional)', input('depositDate', a.depositDate, 'type="date"'), 'The day the deposit was made. Used with the rate and maturity date to estimate its value.')}</div>`)}
     ${showFor('cash bank', field('Balance', moneyInput('openingBalance', a.type !== 'credit_card' && existing ? a.openingBalance : '', 'placeholder="0"'), 'The balance on the date below.'))}
-    ${showFor('investment', twoCol(field('Current value', moneyInput('openingBalance', a.type === 'investment' && existing ? a.openingBalance : '', 'placeholder="0"'), 'The value on the date below. Fills in by itself from units and price.'),
-      field('Amount invested', moneyInput('investedAmount', a.type === 'investment' && existing ? (a.investedAmount ?? a.openingBalance) : '', 'min="0" placeholder="Same as value"'), 'What you paid in total up to that date. Used to work out your gain.')))}
+    ${showFor('investment', twoCol(field('Amount invested', moneyInput('investedAmount', a.type === 'investment' && existing ? (a.investedAmount ?? a.openingBalance) : '', 'min="0" placeholder="Units x average cost"'), 'What you paid in total. Fills in from units and average cost.'),
+      field('Current value', moneyInput('openingBalance', a.type === 'investment' && existing ? a.openingBalance : '', 'placeholder="0"'), 'Fills in from units x the latest NAV or price once linked. Type it for FDs, PPF and the like.')))}
     ${field('Balance as on', input('openingDate', a.openingDate || todayStr(), 'type="date" required'), 'Transactions dated before this day do not change the balance, because it already includes them.')}
     ${field('Notes (optional)', textarea('notes', a.notes, 'rows="2"'))}
     ${isNew ? '' : checkbox('archived', a.archived, 'Archive this account', 'Hides it from pickers. Its balance still counts in net worth.')}`;
@@ -2364,15 +2521,17 @@ function openAccountForm(existing, presetType = 'bank') {
     submitLabel: isNew ? 'Add account' : 'Save changes',
     onOpen: (form) => {
       bindShowHide(form, 'type');
-      // Units x price -> current value, so you can copy numbers straight from your app.
-      const fill = () => {
-        const u = num(form.elements.units?.value), p = num(form.elements.unitPrice?.value);
-        const box = $$('[name="openingBalance"]', form).find((el) => !el.disabled);
-        if (u > 0 && p > 0 && box) box.value = round2(u * p);
-      };
-      form.addEventListener('input', (e) => { if (['units', 'unitPrice'].includes(e.target.name)) fill(); }, { signal: modalSignal() });
       bindSubtypeBlocks(form);
-      bindSchemePicker(form);
+      // units x average cost -> amount invested; units x latest price -> current value
+      const el = (n) => $$(`[name="${n}"]`, form).find((x) => !x.disabled);
+      const sync = (src) => {
+        const u = num(el('units')?.value), c = num(el('avgCost')?.value), inv = el('investedAmount'), val = el('openingBalance'), lp = num(el('latestPrice')?.value);
+        if (src === 'investedAmount') { if (u > 0 && num(inv?.value) > 0 && el('avgCost')) el('avgCost').value = Math.round((num(inv.value) / u) * 10000) / 10000; }
+        else if (u > 0 && c > 0 && inv) inv.value = round2(u * c);
+        if (u > 0 && lp > 0 && val) val.value = round2(u * lp);
+      };
+      form.addEventListener('input', (e) => { if (['units', 'avgCost', 'investedAmount'].includes(e.target.name)) sync(e.target.name); }, { signal: modalSignal() });
+      bindInstrumentPicker(form, { onPick: () => sync('pick') });
     },
     onSubmit: (d) => {
       const type = d.type;
@@ -2390,13 +2549,14 @@ function openAccountForm(existing, presetType = 'bank') {
         maturityDate: type === 'investment' ? d.maturityDate || '' : '',
         ...(type === 'investment' ? {
           investedAmount: d.investedAmount === '' ? round2(num(d.openingBalance)) : round2(num(d.investedAmount)),
-          units: d.units === '' ? null : num(d.units),
-          unitPrice: d.unitPrice === '' ? null : num(d.unitPrice),
+          units: d.units === '' || d.units === undefined ? null : num(d.units),
+          unitPrice: num(d.latestPrice) || (d.schemeCode || d.ticker ? existing?.unitPrice ?? null : null),
+          priceDate: num(d.latestPrice) ? d.latestDate || todayStr() : (d.schemeCode || d.ticker ? existing?.priceDate || '' : ''),
           depositDate: d.depositDate || '',
           // Units entered here are "as on" the balance date for a new holding, or today when edited.
-          unitsDate: d.units === '' ? (existing?.unitsDate ?? '') : num(d.units) === num(existing?.units) && existing?.unitsDate !== undefined ? existing.unitsDate : (isNew ? d.openingDate : todayStr()),
+          unitsDate: d.units === '' || d.units === undefined ? (existing?.unitsDate ?? '') : num(d.units) === num(existing?.units) && existing?.unitsDate !== undefined ? existing.unitsDate : (isNew ? d.openingDate : todayStr()),
           schemeCode: d.subtype === 'Mutual fund' ? d.schemeCode || '' : '',
-          schemeName: d.subtype === 'Mutual fund' && d.schemeCode ? d.schemeName || existing?.schemeName || '' : '',
+          schemeName: d.subtype === 'Mutual fund' && d.schemeCode ? d.schemeName || '' : '',
           ticker: ['Stocks', 'ETF'].includes(d.subtype) ? String(d.ticker || '').trim().toUpperCase() : '',
         } : {}),
         notes: d.notes || '',
@@ -3102,6 +3262,7 @@ const ACTIONS = {
   'toggle-sip': (d) => toggleSip(d.id),
   'invest-more': (d) => investMore(d.id),
   'refresh-prices': () => refreshPrices(),
+  'review-units': (d) => openReview(d.id),
   'add-budget': (d) => openBudgetForm(null, d.category),
   'edit-budget': (d) => openBudgetForm(db.budgets.find((b) => b.id === d.id)),
   'export-zip': () => exportZip(),
