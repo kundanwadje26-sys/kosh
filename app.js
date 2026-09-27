@@ -4185,9 +4185,9 @@ function logNudge() {
    - PhonePe transaction statement (PDF, from PhonePe > History > Download statement)
    - Bank / card statements as CSV or Excel (columns are detected; you can fix them)
    - Other PDF statements (best effort: lines that start with a date and end with amounts)
-   Only rows inside the date range you pick are shown. Each row gets a type and
-   category from your rules (learned from your earlier choices) and common
-   keywords, and rows that are already in the app are flagged as duplicates.
+   Only rows inside the date range you pick are shown. Each row gets an account,
+   a type and a category: from what you chose before for the same payee, then
+   common keywords. Rows already in the app (from any statement) are matched.
    Libraries are loaded only when needed:
      pdf.js (cdnjs)  for PDFs,  SheetJS (cdnjs) for Excel. */
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
@@ -4268,6 +4268,38 @@ async function readTable(file) {
 }
 
 /* ----- PhonePe PDF ----- */
+
+/* ----- Account numbers, payees and reference numbers in statement text ----- */
+// Masked account/card numbers: "XXXXXXXX1234", "xx50", "**** 9950", "A/c XX5678"
+const MASKED_RE = /(?:[Xx*•]{2,}[\s-]*|\bA\/?c(?:count)?\s*(?:no\.?)?\s*:?\s*[Xx*]*)(\d{2,4})\b/g;
+function maskedTails(text) { return [...String(text || '').matchAll(MASKED_RE)].map((m) => m[1]); }
+// 12-digit UTR / RRN numbers, and PhonePe transaction IDs, used to spot the same payment in two statements.
+function refsIn(...texts) {
+  const out = new Set();
+  for (const t of texts) for (const m of String(t || '').matchAll(/\b([A-Z]{1,3}\d{12,24}|\d{12})\b/g)) out.add(m[1]);
+  return [...out];
+}
+const PAYEE_NOISE = /\b(upi|imps|neft|rtgs|p2a|p2m|payment|paid|to|from|received|transfer|transferred|order|pvt|private|ltd|limited|india|technologies|services|retail|the|bank|ac|a c|mb|ib|dr|cr|ref|txn|by)\b/g;
+/** A readable payee name from a PhonePe line or a bank narration like "UPI-SWIGGY-swiggy@axb-...". */
+function extractPayee(desc) {
+  const s = String(desc || '').trim();
+  const pp = s.match(/^(?:Paid to|Received from|Transfer to|Transferred to|Payment to|Refund from|Cashback from)\s+(.+)$/i);
+  if (pp) return pp[1].trim();
+  if (/^(UPI|IMPS|NEFT|RTGS|MMT|POS|ECOM|ACH|NACH)\b/i.test(s)) {
+    const parts = s.split(/[-/:]+/).map((p) => p.trim()).filter(Boolean);
+    const words = parts.slice(1).filter((p) => /[A-Za-z]{3,}/.test(p) && !/@/.test(p) && !/^(upi|imps|neft|rtgs|p2a|p2m|ib|mb|payment|ref|sbin|hdfc|icic|utib|kkbk|yesb)/i.test(p) && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(p));
+    if (words[0]) return words[0].replace(/\s+/g, ' ');
+    const vpa = parts.find((p) => /@/.test(p));
+    if (vpa) return vpa.split('@')[0];
+  }
+  return s;
+}
+/** The key used to remember choices: "Swiggy Limited", "SWIGGY" and "UPI-SWIGGY-..." all become "swiggy". */
+function normPayee(desc) {
+  return extractPayee(desc).toLowerCase().replace(/@\S+/g, ' ').replace(/[^a-z ]/g, ' ').replace(PAYEE_NOISE, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/* ----- PhonePe PDF ----- */
 const PP_DATE = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}/i;
 function isPhonePe(lines) { return lines.some((l) => /phonepe/i.test(l)) || (lines.filter((l) => PP_DATE.test(l)).length > 1 && lines.some((l) => /\b(DEBIT|CREDIT)\b/.test(l) && /(Paid to|Received from)/i.test(l))); }
 function parsePhonePe(lines) {
@@ -4285,10 +4317,15 @@ function parsePhonePe(lines) {
     const amtM = after.match(/(?:₹|Rs\.?|INR)?\s*([\d,]+\.\d{1,2}|[\d,]{1,12})/);
     const amount = amtM ? parseAmt(amtM[1]) : 0;
     const desc = (text.replace(PP_DATE, '').match(/((?:Paid to|Received from|Transfer to|Transferred to|Payment to|Bill paid[^A-Za-z]*|Mobile recharged|Recharged|Refund from|Cashback from|Added to|Paid)\s*.*?)(?=\s+\b(DEBIT|CREDIT)\b)/i) || [])[1] || '';
-    const payee = desc.replace(/^(Paid to|Received from|Transfer to|Transferred to|Payment to|Refund from|Cashback from)\s*/i, '').replace(/\s*\d{1,2}:\d{2}\s*[ap]m.*/i, '').trim();
-    const ref = (text.match(/UTR\s*No\.?\s*:?\s*([A-Za-z0-9]{6,})/i) || text.match(/Transaction ID\s*:?\s*([A-Za-z0-9]{6,})/i) || [])[1] || '';
-    const last4 = (text.match(/(?:Paid by|Debited from|Credited to)\s*:?\s*X*\**(\d{4})\b/i) || [])[1] || '';
-    return { date, out: /debit/i.test(dir), amount, desc: payee || desc || 'PhonePe payment', raw: desc, ref, last4 };
+    const payee = extractPayee(desc).replace(/\s*\d{1,2}:\d{2}\s*[ap]m.*/i, '').trim();
+    // "Paid by XXXXXXXX1234", "Debited from XX50", "Credited to XXXXXX1234" = your account or card.
+    const own = text.match(/(?:Paid by|Debited from|Credited to|Paid using|Paid via)\s*:?\s*[A-Za-z ]{0,20}?[Xx*•]+[\s-]*(\d{2,4})\b/i);
+    const tail = own ? own[1] : '';
+    // Any other masked number (e.g. "Transfer to XXXX5678") is the other side: maybe your own account.
+    const others = maskedTails(text).filter((t) => t !== tail);
+    const utr = (text.match(/UTR\s*No\.?\s*:?\s*([A-Za-z0-9]{6,})/i) || [])[1] || '';
+    const tid = (text.match(/Transaction ID\s*:?\s*([A-Za-z0-9]{6,})/i) || [])[1] || '';
+    return { date, out: /debit/i.test(dir), amount, desc: payee || desc || 'PhonePe payment', raw: desc, ref: utr || tid, refs: [utr, tid].filter(Boolean), tail, others };
   }).filter((r) => r && r.amount > 0);
 }
 /* ----- Other PDFs: lines that start with a date and end with amounts ----- */
@@ -4303,12 +4340,12 @@ function parseGenericPdf(lines) {
     const amtTok = nums.length >= 2 ? nums[nums.length - 2] : nums[0];
     const amount = Math.abs(parseAmt(amtTok[1]));
     let outFlow = null;
-    if (/\bdr\b/i.test(amtTok[3] || '') || /\b(DR|Dr)\b/.test(l.slice(amtTok.index, amtTok.index + 30))) outFlow = true;
+    if (/\bdr\b/i.test(amtTok[3] || '')) outFlow = true;
     else if (/\bcr\b/i.test(amtTok[3] || '')) outFlow = false;
     else if (bal !== null && prevBal !== null) outFlow = bal < prevBal;
     if (bal !== null) prevBal = bal;
-    const desc = l.replace(/^\S+(\s+\S+)?/, (m0) => (parseStmtDate(m0) ? '' : m0)).slice(0, amtTok.index).replace(/\d{1,2}[/-]\w{2,3}[/-]\d{2,4}/g, '').trim();
-    out.push({ date, out: outFlow ?? true, amount, desc: desc || 'Statement entry', ref: (l.match(/\b(\d{12})\b/) || [])[1] || '', guessed: outFlow === null });
+    const raw = l.slice(0, amtTok.index).replace(/^\s*\S+(\s+\d{1,2}[/-]\w{2,3}[/-]\d{2,4})?/, '').replace(/\d{1,2}[/-]\w{2,3}[/-]\d{2,4}/g, '').trim();
+    out.push({ date, out: outFlow ?? true, amount, desc: extractPayee(raw) || 'Statement entry', raw, refs: refsIn(raw), ref: refsIn(raw)[0] || '', others: maskedTails(raw), guessed: outFlow === null });
   }
   return out.filter((r) => r.amount > 0);
 }
@@ -4319,7 +4356,7 @@ function guessMapping(rows) {
   let hi = rows.findIndex((r) => r.some((c) => COLS.date.test(String(c).trim())) && r.some((c) => COLS.desc.test(String(c)) || COLS.debit.test(String(c)) || COLS.amount.test(String(c))));
   if (hi < 0) hi = 0;
   const head = rows[hi].map((c) => String(c).trim());
-  const find = (re, not) => head.findIndex((h, i) => re.test(h) && !(not || []).includes(i));
+  const find = (re) => head.findIndex((h) => re.test(h));
   const map = { header: hi, date: find(COLS.date), desc: find(COLS.desc), debit: find(COLS.debit), credit: find(COLS.credit), amount: -1, drcr: find(COLS.drcr), ref: find(COLS.ref) };
   if (map.debit < 0 && map.credit < 0) map.amount = find(COLS.amount);
   if (map.credit === map.debit) map.credit = -1;
@@ -4341,15 +4378,34 @@ function parseTableRows(rows, map) {
       outFlow = flag ? /d/i.test(flag) : a < 0;
     }
     if (!amount) continue;
-    out.push({ date, out: outFlow, amount: round2(amount), desc: String(r[map.desc] ?? '').trim() || 'Statement entry', ref: map.ref >= 0 ? String(r[map.ref] ?? '').trim() : '' });
+    const raw = String(r[map.desc] ?? '').trim();
+    const refCol = map.ref >= 0 ? String(r[map.ref] ?? '').trim() : '';
+    const refs = refsIn(raw, refCol);
+    if (refCol && !refs.includes(refCol) && refCol.length >= 6) refs.push(refCol);
+    out.push({ date, out: outFlow, amount: round2(amount), desc: extractPayee(raw) || 'Statement entry', raw, ref: refs[0] || '', refs, others: maskedTails(raw) });
   }
   return out;
+}
+
+/* ----- Finding your accounts from masked numbers ----- */
+/** "1234" -> the account whose last 4 digits are 1234; "50" (cards often show xx50) -> the account ending in 50. */
+function accountForTail(tail, { exclude = '', preferCard = false } = {}) {
+  if (!tail) return '';
+  const learned = db.rules.find((x) => x.type === 'acct' && x.tail === tail);
+  if (learned && accountById(learned.accountId) && learned.accountId !== exclude) return learned.accountId;
+  const list = db.accounts.filter((a) => MONEY_TYPES.includes(a.type) && !a.archived && a.id !== exclude && a.last4 && String(a.last4).endsWith(tail));
+  if (list.length === 1) return list[0].id;
+  if (list.length > 1 && (preferCard || tail.length <= 2)) {
+    const cards = list.filter((a) => a.type === 'credit_card');
+    if (cards.length === 1) return cards[0].id;
+  }
+  return '';
 }
 
 /* ----- Suggesting type and category ----- */
 const KEYWORD_CATEGORIES = [
   [/swiggy|zomato|domino|pizza|kfc|mcdonald|burger|restaurant|cafe|starbucks|chai|biryani|eatsure|hotel/i, 'Food & dining'],
-  [/bigbasket|blinkit|zepto|instamart|dmart|d-mart|grocer|kirana|jiomart|reliance fresh|more retail|milk|dairy|vegetable/i, 'Groceries'],
+  [/bigbasket|blinkit|zepto|instamart|dmart|d-mart|d mart|grocer|kirana|jiomart|reliance fresh|more retail|milk|dairy|vegetable/i, 'Groceries'],
   [/uber|ola|rapido|metro|irctc|railway|redbus|bus|auto|cab|fastag|parking|toll/i, 'Transport'],
   [/petrol|fuel|diesel|hpcl|bpcl|iocl|indian oil|shell|hp pay/i, 'Fuel'],
   [/electric|mseb|mahadiscom|bescom|tneb|power|water bill|gas|piped|broadband|airtel|jio|vodafone|\bvi\b|bsnl|act fibernet|recharge|dth|tata play/i, 'Utilities'],
@@ -4365,49 +4421,119 @@ const KEYWORD_CATEGORIES = [
   [/charges|fee|gst|penalty|late payment|annual fee/i, 'Fees & charges'],
 ];
 const INCOME_KEYWORDS = [[/salary|payroll|sal cr|stipend/i, 'Salary'], [/refund|reversal/i, 'Refund'], [/cashback|reward/i, 'Cashback'], [/interest|int\.? cr/i, 'Interest'], [/dividend/i, 'Dividends']];
-const normKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
-function suggestFor(r) {
-  const key = normKey(r.desc);
-  const rule = db.rules.slice().sort((a, b) => b.match.length - a.match.length).find((x) => x.match && key.includes(x.match) && (x.dir || (r.out ? 'out' : 'in')) === (r.out ? 'out' : 'in'));
-  if (rule) return { kind: rule.kind, category: rule.category, target: rule.target || '', ruled: true };
-  const person = db.accounts.find((a) => a.type === 'person' && !a.archived && key.includes(normKey(a.name)) && normKey(a.name).length >= 3);
-  if (person) return { kind: 'person', target: person.id, category: '' };
-  const own = db.accounts.find((a) => MONEY_TYPES.includes(a.type) && !a.archived && a.last4 && key.includes(a.last4) && a.type === 'credit_card');
-  if (own && r.out) return { kind: 'transfer', target: own.id, category: '' };
-  if (!r.out) {
-    const hit = INCOME_KEYWORDS.find(([re]) => re.test(r.desc));
-    return { kind: 'income', category: pickCat(hit ? hit[1] : 'Other', db.settings.incomeCategories) };
-  }
-  const hit = KEYWORD_CATEGORIES.find(([re]) => re.test(r.desc));
-  return { kind: 'expense', category: pickCat(hit ? hit[1] : 'Other', db.settings.expenseCategories) };
-}
 const pickCat = (c, list) => (list.includes(c) ? c : list.includes('Other') ? 'Other' : list[0]);
-function isDuplicate(r, accId) {
-  if (r.ref && db.transactions.some((t) => t.ref && t.ref === r.ref)) return true;
-  return db.transactions.some((t) => Math.abs(num(t.amount) - r.amount) < 0.01 && Math.abs(parseDate(t.date) - parseDate(r.date)) <= 86400000
-    && (r.out ? t.fromAccountId === accId : t.toAccountId === accId));
+const payeeRules = () => db.rules.filter((x) => x.type !== 'acct' && x.match);
+/** The rule for a payee: exact name first, then one name containing the other (at least 4 letters). */
+function ruleFor(key, dir) {
+  if (!key) return null;
+  const list = payeeRules().filter((x) => (x.dir || dir) === dir);
+  return list.find((x) => x.match === key)
+    || list.filter((x) => x.match.length >= 4 && (key.includes(x.match) || (key.length >= 4 && x.match.includes(key)))).sort((a, b) => b.match.length - a.match.length)[0] || null;
+}
+/** What you did last time with this payee, from transactions already in the app. */
+let historyIndex = null;
+function buildHistoryIndex() {
+  historyIndex = new Map();
+  for (const t of sortTxns(db.transactions).reverse()) { // oldest first, so the newest wins
+    if (!t.description || t.relatedType === 'sip' || t.relatedType === 'emi') continue;
+    const key = normPayee(t.description);
+    if (key.length < 3) continue;
+    let kind, target = '';
+    if (t.forHome) kind = 'home';
+    else if (t.type === 'expense' || t.type === 'income') kind = t.type;
+    else if (t.type === 'transfer') { const p = [accountById(t.toAccountId), accountById(t.fromAccountId)].find((a) => a?.type === 'person'); kind = p ? 'person' : 'transfer'; target = p ? p.id : ''; }
+    else continue;
+    if (kind === 'transfer') continue; // transfers depend on the account, not the payee
+    const dir = t.type === 'income' || (t.type === 'transfer' && accountById(t.fromAccountId)?.type === 'person') ? 'in' : 'out';
+    historyIndex.set(`${dir}|${key}`, { kind, category: t.category || '', target });
+  }
+}
+function suggestFor(r) {
+  const dir = r.out ? 'out' : 'in';
+  const key = normPayee(r.raw || r.desc);
+  // 1. Your own account on the other side: a self transfer.
+  for (const tl of r.others || []) {
+    const other = accountForTail(tl, { exclude: r.accountId });
+    if (other) return { kind: 'transfer', target: other, category: '', how: 'self' };
+  }
+  // 1b. Money to or from someone with your own name, when you have exactly one other bank account.
+  const me = normPayee(db.settings.ownerName || '').split(' ')[0];
+  if (me && me.length >= 3 && key.split(' ')[0] === me && !ruleFor(key, dir)) {
+    const banks = db.accounts.filter((a) => a.type === 'bank' && !a.archived && a.id !== r.accountId);
+    if (banks.length === 1) return { kind: 'transfer', target: banks[0].id, category: '', how: 'selfname' };
+  }
+  // 2. What you chose before for this payee (remembered choices, then your past entries).
+  const rule = ruleFor(key, dir);
+  if (rule && (rule.kind !== 'person' || accountById(rule.target)) && (rule.kind !== 'transfer' || (accountById(rule.target) && rule.target !== r.accountId))) return { kind: rule.kind, category: rule.category, target: rule.target || '', how: 'rule' };
+  const hist = historyIndex.get(`${dir}|${key}`);
+  if (hist) return { ...hist, how: 'history' };
+  // 3. A person you've added.
+  const person = db.accounts.find((a) => a.type === 'person' && !a.archived && normPayee(a.name).length >= 3 && key.split(' ').includes(normPayee(a.name).split(' ')[0]));
+  if (person) return { kind: 'person', target: person.id, category: '', how: 'person' };
+  // 4. Common keywords.
+  if (!r.out) {
+    const hit = INCOME_KEYWORDS.find(([re]) => re.test(r.raw || r.desc));
+    return { kind: 'income', category: pickCat(hit ? hit[1] : 'Other', db.settings.incomeCategories), how: hit ? 'keyword' : '' };
+  }
+  const hit = KEYWORD_CATEGORIES.find(([re]) => re.test(r.raw || r.desc));
+  return { kind: 'expense', category: pickCat(hit ? hit[1] : 'Other', db.settings.expenseCategories), how: hit ? 'keyword' : '' };
+}
+/** Remember a choice for a payee (used by imports and when you edit a transaction's category). */
+function learnPayee(desc, dir, kind, category, target = '') {
+  const key = normPayee(desc);
+  if (key.length < 3 || !['expense', 'income', 'home', 'person', 'transfer'].includes(kind)) return null;
+  const existing = db.rules.find((x) => x.type !== 'acct' && x.match === key && (x.dir || dir) === dir);
+  if (existing && existing.kind === kind && existing.category === category && (existing.target || '') === target) return null;
+  return opUpsert('rules', { ...(existing || {}), id: existing?.id || uid('rule'), type: 'payee', match: key, dir, kind, category: category || '', target: target || '' });
+}
+
+/* ----- Matching rows with transactions already in the app ----- */
+function findMatch(r, accId, used) {
+  const refs = (r.refs || []).filter(Boolean);
+  const cands = db.transactions.filter((t) => !used.has(t.id) && Math.abs(num(t.amount) - r.amount) < 0.01 && t.type !== 'adjustment');
+  // Same UTR / reference number: the same payment, whichever statement it came from.
+  const byRef = refs.length && cands.find((t) => [t.ref, ...(t.refs || [])].some((x) => x && refs.includes(x)));
+  if (byRef) return { t: byRef, how: 'ref' };
+  const dayDiff = (t) => Math.abs(parseDate(t.date) - parseDate(r.date)) / 86400000;
+  const side = (t) => (r.out ? t.fromAccountId : t.toAccountId);
+  // Same amount within 2 days on the same account.
+  const byAcc = accId && cands.filter((t) => side(t) === accId && dayDiff(t) <= 2).sort((a, b) => dayDiff(a) - dayDiff(b))[0];
+  if (byAcc) return { t: byAcc, how: 'amount' };
+  // Imported earlier without a reliable account (e.g. PhonePe): same amount, same day, same direction.
+  const loose = cands.filter((t) => t.importBatch && dayDiff(t) <= 1 && (r.out ? !!t.fromAccountId : !!t.toAccountId) && !(r.refs?.length && t.refs?.length)).sort((a, b) => dayDiff(a) - dayDiff(b))[0];
+  if (loose && normPayee(loose.description) && normPayee(loose.description) === normPayee(r.raw || r.desc)) return { t: loose, how: 'payee' };
+  return null;
 }
 
 /* ----- The Import page ----- */
-const imp = { step: 1, file: null, kind: '', rows: [], table: null, map: null, head: null, accountId: '', from: '', to: todayStr(), password: '', outside: 0, error: '' };
+const AUTO = '__auto';
+const imp = { step: 1, file: null, kind: '', rows: [], table: null, map: null, head: null, accountId: '', from: '', to: todayStr(), outside: 0, error: '', learn: true };
 function lastEntryDate(accId) { return sortTxns(db.transactions.filter((t) => t.fromAccountId === accId || t.toAccountId === accId))[0]?.date || ''; }
+function throughSelect() {
+  const opts = db.accounts.filter((a) => MONEY_TYPES.includes(a.type) && !a.archived && a.type !== 'investment');
+  const group = (type) => { const l = opts.filter((a) => a.type === type); return l.length ? `<optgroup label="${esc(ACCOUNT_TYPES[type].label)}">${l.map((a) => `<option value="${a.id}" ${imp.accountId === a.id ? 'selected' : ''}>${esc(a.name)}${a.last4 ? ` (…${esc(a.last4)})` : ''}</option>`).join('')}</optgroup>` : ''; };
+  return `<select class="inp" name="impAccount"><option value="${AUTO}" ${imp.accountId === AUTO ? 'selected' : ''}>Read it from the statement (PhonePe, several accounts)</option>${['bank', 'credit_card', 'cash'].map(group).join('')}</select>`;
+}
 function renderImport() {
-  if (!imp.accountId) imp.accountId = firstAccountOf(['bank']) || firstAccountOf(['cash', 'credit_card']);
+  if (!imp.accountId) imp.accountId = AUTO;
   if (!imp.from) imp.from = `${thisMonth()}-01`;
   const lastBatch = sortTxns(db.transactions.filter((t) => t.importBatch))[0]?.importBatch;
   const batchCount = lastBatch ? db.transactions.filter((t) => t.importBatch === lastBatch).length : 0;
+  const noDigits = db.accounts.filter((a) => ['bank', 'credit_card'].includes(a.type) && !a.archived && !a.last4);
   return `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <p class="text-sm text-ink-2 max-w-2xl">Bring in transactions from a PhonePe statement (PDF) or a bank or card statement (CSV, Excel or PDF). You check every row before anything is added.</p>
-      ${batchCount ? `<button class="btn btn-sm" data-action="import-undo" data-batch="${lastBatch}"><i class="fa-solid fa-rotate-left"></i> Undo last import (${batchCount})</button>` : ''}
+      <p class="text-sm text-ink-2 max-w-2xl">Bring in transactions from a PhonePe statement (PDF) or a bank or card statement (CSV, Excel or PDF). You check every row before anything is added, and the app remembers your choices for next time.</p>
+      <div class="flex gap-2 flex-wrap">${batchCount ? `<button class="btn btn-sm" data-action="import-undo" data-batch="${lastBatch}"><i class="fa-solid fa-rotate-left"></i> Undo last import (${batchCount})</button>` : ''}
+        <button class="btn btn-sm" data-action="rules-open"><i class="fa-solid fa-brain"></i> Remembered choices (${db.rules.length})</button></div>
     </div>
+    ${noDigits.length ? `<p class="callout warn mb-5"><b>Tip:</b> add the last 4 digits to ${noDigits.map((a) => esc(a.name)).join(', ')} (Accounts → edit) so statement rows are matched to the right account by themselves. For cards, the full last 4 (e.g. 9950) also matches statements that show only xx50.</p>` : ''}
     <section class="panel p-5">
       <div class="panel-head"><h2 class="panel-title">1. Choose the statement</h2></div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>${field('Statement file', `<input type="file" class="inp" id="stmtFile" accept=".pdf,.csv,.xlsx,.xls,.txt">`, 'PhonePe: History → tap the download icon → choose dates → the PDF arrives by email or in the app. Banks: download the statement as Excel or CSV if you can (it is the most reliable).')}
+        <div>${field('Statement file', `<input type="file" class="inp" id="stmtFile" accept=".pdf,.csv,.xlsx,.xls,.txt">`, 'PhonePe: History → download icon → choose dates → the PDF arrives by email or in the app. Banks: download the statement as Excel or CSV if you can (most reliable).')}
           ${imp.file ? `<p class="text-sm mt-2"><i class="fa-solid fa-file-lines mr-1 text-ink-3"></i>${esc(imp.file.name)}${imp.kind ? ` <span class="pill blue">${esc(imp.kind)}</span>` : ''}</p>` : ''}</div>
         <div class="space-y-4">
-          ${field('Money went through', accountSelect('impAccount', imp.accountId, { types: MONEY_TYPES }), 'The bank account, card or wallet in the statement. PhonePe rows that show a card or account number are matched to your accounts by their last 4 digits.')}
+          ${field('Money went through', throughSelect(), 'For a PhonePe statement leave it on "Read it from the statement": each row is matched to your account or card by its number (…1234 or xx50). For a statement of one bank account or card, choose that account.')}
           <div><span class="lbl">Only import these dates</span>
             <div class="grid grid-cols-2 gap-2"><input type="date" class="inp" id="impFrom" value="${imp.from}"><input type="date" class="inp" id="impTo" value="${imp.to}"></div>
             <div class="flex flex-wrap gap-1.5 mt-2">
@@ -4430,37 +4556,52 @@ function mappingPanel() {
   return `<section class="panel p-5 mt-6"><div class="panel-head"><h2 class="panel-title">Columns</h2><span class="text-xs text-ink-3">Detected automatically. Fix them if a column is wrong.</span></div>
     <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">${sel('date', 'Date')}${sel('desc', 'Description')}${sel('debit', 'Money out')}${sel('credit', 'Money in')}${sel('amount', 'Single amount')}${sel('drcr', 'Dr / Cr')}${sel('ref', 'Reference')}</div></section>`;
 }
+function rowAccountSelect(r, i) {
+  const list = db.accounts.filter((a) => MONEY_TYPES.includes(a.type) && !a.archived && a.type !== 'investment');
+  return `<select class="inp inp-sm ${r.accountId ? '' : 'need'}" data-imp-acc="${i}"><option value="">Choose…</option>${list.map((a) => `<option value="${a.id}" ${a.id === r.accountId ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>`;
+}
 function rowTypeOptions(r) {
   const own = db.accounts.filter((a) => MONEY_TYPES.includes(a.type) && !a.archived && a.id !== r.accountId);
   const ppl = db.accounts.filter((a) => a.type === 'person' && !a.archived);
   const o = r.out
-    ? [['expense', 'Expense'], ['home', 'Home expense (take back)'], ...own.map((a) => [`transfer:${a.id}`, `Transfer to ${a.name}`]), ...ppl.map((a) => [`person:${a.id}`, `Gave to ${a.name}`]), ['skip', 'Skip']]
-    : [['income', 'Income'], ...own.map((a) => [`transfer:${a.id}`, `Transfer from ${a.name}`]), ...ppl.map((a) => [`person:${a.id}`, `Got from ${a.name}`]), ['skip', 'Skip']];
+    ? [['expense', 'Expense'], ['home', 'Home expense (take back)'], ...own.map((a) => [`transfer:${a.id}`, `Self transfer to ${a.name}`]), ...ppl.map((a) => [`person:${a.id}`, `Gave to ${a.name}`]), ['skip', 'Skip']]
+    : [['income', 'Income'], ...own.map((a) => [`transfer:${a.id}`, `Self transfer from ${a.name}`]), ...ppl.map((a) => [`person:${a.id}`, `Got from ${a.name}`]), ['skip', 'Skip']];
   const cur = r.kind === 'transfer' || r.kind === 'person' ? `${r.kind}:${r.target}` : r.kind;
   return o.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(l)}</option>`).join('');
 }
+const HOW_PILL = { rule: '<span class="pill blue" title="You chose this before for this payee">Remembered</span>', history: '<span class="pill blue" title="Same as your earlier entries for this payee">From your entries</span>',
+  self: '<span class="pill" style="background:var(--violet-tint);color:var(--violet)" title="The other account number is one of yours">Your own account</span>',
+  selfname: '<span class="pill" style="background:var(--violet-tint);color:var(--violet)" title="The name matches yours; check the account">Your own account?</span>', person: '', keyword: '', '': '' };
 function previewPanel() {
   const rows = imp.rows;
-  const chosen = rows.filter((r) => r.include);
-  const out = chosen.filter((r) => r.out && r.kind !== 'skip').reduce((s, r) => s + r.amount, 0), inn = chosen.filter((r) => !r.out && r.kind !== 'skip').reduce((s, r) => s + r.amount, 0);
+  const chosen = rows.filter((r) => r.include && r.kind !== 'skip');
+  const out = chosen.filter((r) => r.out).reduce((s, r) => s + r.amount, 0), inn = chosen.filter((r) => !r.out).reduce((s, r) => s + r.amount, 0);
+  const matched = rows.filter((r) => r.match), fixes = matched.filter((r) => r.fix);
+  const needAcc = chosen.filter((r) => !r.accountId).length;
   return `<section class="panel p-5 mt-6">
     <div class="panel-head"><div><h2 class="panel-title">2. Check and import</h2>
-      <div class="text-xs text-ink-3 mt-0.5">${rows.length} row${rows.length === 1 ? '' : 's'} between ${fmtDate(imp.from)} and ${fmtDate(imp.to)}${imp.outside ? `; ${imp.outside} outside the dates left out` : ''}. ${rows.filter((r) => r.dup).length ? `${rows.filter((r) => r.dup).length} look already added and are unticked.` : ''}</div></div>
-      <div class="flex gap-2"><button class="btn btn-sm" data-action="imp-all" data-v="1">Tick all</button><button class="btn btn-sm" data-action="imp-all" data-v="0">Untick all</button></div></div>
-    ${rows.length ? `<div class="overflow-x-auto"><table class="sched imp-table"><thead><tr><th></th><th>Date</th><th>Description</th><th>Type</th><th>Category</th><th>Amount</th></tr></thead><tbody>
+      <div class="text-xs text-ink-3 mt-0.5">${rows.length} row${rows.length === 1 ? '' : 's'} between ${fmtDate(imp.from)} and ${fmtDate(imp.to)}${imp.outside ? `; ${imp.outside} outside the dates left out` : ''}.
+        ${matched.length ? ` ${matched.length} already in the app (matched and unticked)${fixes.length ? `; ${fixes.length} of those will get their account corrected` : ''}.` : ''}</div></div>
+      <div class="flex gap-2"><button class="btn btn-sm" data-action="imp-all" data-v="1">Tick new</button><button class="btn btn-sm" data-action="imp-all" data-v="0">Untick all</button></div></div>
+    ${rows.length ? `<div class="overflow-x-auto"><table class="sched imp-table"><thead><tr><th></th><th>Date</th><th>Description</th><th>Account</th><th>Type</th><th>Category</th><th>Amount</th></tr></thead><tbody>
       ${rows.map((r, i) => `<tr class="${r.include ? '' : 'off'}">
-        <td><input type="checkbox" data-imp-inc="${i}" ${r.include ? 'checked' : ''}></td>
+        <td><input type="checkbox" data-imp-inc="${i}" ${r.include ? 'checked' : ''} aria-label="Import this row"></td>
         <td class="whitespace-nowrap">${fmtDate(r.date)}</td>
-        <td class="imp-desc"><div class="font-medium">${esc(r.desc)}</div>${r.dup ? '<span class="pill due">Already added?</span>' : ''}${r.guessed ? '<span class="pill">Check in / out</span>' : ''}${r.ruled ? '<span class="pill blue" title="From your earlier choice">Remembered</span>' : ''}${r.accountId !== imp.accountId ? `<span class="pill">${esc(accountName(r.accountId))}</span>` : ''}</td>
+        <td class="imp-desc"><div class="font-medium">${esc(r.desc)}</div>
+          ${r.match ? `<span class="pill due" title="${esc(r.match.t.description || '')}">In the app already${r.match.t.source ? ` (${esc(r.match.t.source)})` : ''}${r.match.how === 'ref' ? ', same UTR' : ''}</span>${r.fixable ? `<label class="pill blue cursor-pointer"><input type="checkbox" data-imp-fix="${i}" ${r.fix ? 'checked' : ''} style="margin-right:.25rem">Correct its account to ${esc(accountName(r.accountId))}</label>` : ''}` : ''}
+          ${r.guessed ? '<span class="pill">Check in / out</span>' : ''}${HOW_PILL[r.how] || ''}
+          ${r.tail ? `<span class="pill" title="Account or card number on the statement">${r.tail.length <= 2 ? 'xx' : '…'}${esc(r.tail)}</span>` : ''}</td>
+        <td>${rowAccountSelect(r, i)}</td>
         <td><select class="inp inp-sm" data-imp-kind="${i}">${rowTypeOptions(r)}</select></td>
         <td>${['expense', 'home'].includes(r.kind) ? `<select class="inp inp-sm" data-imp-cat="${i}">${uniq([...db.settings.expenseCategories, r.category]).map((c) => `<option ${c === r.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`
           : r.kind === 'income' ? `<select class="inp inp-sm" data-imp-cat="${i}">${uniq([...db.settings.incomeCategories, r.category]).map((c) => `<option ${c === r.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : '<span class="text-ink-3">—</span>'}</td>
         <td class="whitespace-nowrap ${r.out ? 'text-loss' : 'text-gain'}">${r.out ? '−' : '+'}${money(r.amount)}</td></tr>`).join('')}
       </tbody></table></div>
+      ${needAcc ? `<p class="callout warn mt-4">${needAcc} row${needAcc === 1 ? '' : 's'} need an account (marked in red). Pick it once; the app remembers that number for next time.</p>` : ''}
       <div class="flex flex-wrap items-center justify-between gap-3 mt-4">
-        <div class="text-sm">${chosen.length} to import: <span class="text-loss num">−${money(out)}</span>, <span class="text-gain num">+${money(inn)}</span></div>
-        <div class="flex items-center gap-3">${checkbox('impLearn', imp.learn !== false, 'Remember my changes for next time')}
-          <button class="btn btn-primary" data-action="imp-go" ${chosen.length ? '' : 'disabled'}><i class="fa-solid fa-file-import"></i> Import ${chosen.length}</button></div>
+        <div class="text-sm">${chosen.length} new to import: <span class="text-loss num">−${money(out)}</span>, <span class="text-gain num">+${money(inn)}</span></div>
+        <div class="flex items-center gap-3">${checkbox('impLearn', imp.learn !== false, 'Remember my choices for these payees')}
+          <button class="btn btn-primary" data-action="imp-go" ${chosen.length || fixes.length ? '' : 'disabled'}><i class="fa-solid fa-file-import"></i> ${chosen.length ? `Import ${chosen.length}` : 'Apply corrections'}</button></div>
       </div>`
       : emptyState('fa-magnifying-glass', 'No transactions found in these dates. Check the date range, or the file type.')}
   </section>`;
@@ -4492,31 +4633,49 @@ async function importRead() {
       const g = guessMapping(rows);
       imp.table = rows; imp.map = g.map; imp.head = g.head; imp.kind = /\.xlsx?$/i.test(f.name) ? 'Excel' : 'CSV';
       parsed = parseTableRows(rows, imp.map);
+      if (imp.accountId === AUTO) imp.error = 'A bank or card statement belongs to one account: choose it under "Money went through" so every row goes to it.';
     }
     buildImportRows(parsed);
   } catch (e) { imp.error = e.message || String(e); }
   render();
 }
 function buildImportRows(parsed) {
+  buildHistoryIndex();
   const inRangeRows = parsed.filter((r) => r.date >= imp.from && r.date <= imp.to);
   imp.outside = parsed.length - inRangeRows.length;
   imp.parsed = parsed;
+  const used = new Set();
   imp.rows = inRangeRows.sort((a, b) => a.date.localeCompare(b.date)).map((r) => {
-    const byLast4 = r.last4 && db.accounts.find((a) => MONEY_TYPES.includes(a.type) && a.last4 === r.last4);
-    const accountId = byLast4 ? byLast4.id : imp.accountId;
-    const s = suggestFor({ ...r, accountId });
-    const dup = isDuplicate(r, accountId);
-    return { ...r, accountId, ...s, suggested: { ...s }, dup, include: !dup };
+    const accountId = imp.accountId !== AUTO ? imp.accountId : accountForTail(r.tail);
+    const row = { ...r, accountId };
+    Object.assign(row, suggestFor(row));
+    row.suggested = { kind: row.kind, category: row.category, target: row.target || '' };
+    if (row.kind === 'transfer' && /^[\sXx*•\d-]*$/.test(row.desc)) row.desc = `Self transfer ${r.out ? 'to' : 'from'} ${accountName(row.target)}`;
+    const m = findMatch(row, accountId, used);
+    if (m) {
+      used.add(m.t.id);
+      row.match = m;
+      const side = r.out ? m.t.fromAccountId : m.t.toAccountId;
+      // A statement for a specific account is the best source for which account the money moved through.
+      row.fixable = imp.accountId !== AUTO && !!accountId && side !== accountId && accountById(side)?.type !== 'person' && m.how !== 'amount';
+      row.fix = row.fixable;
+    }
+    row.include = !m;
+    return row;
   });
   imp.step = 2;
 }
 function importGo() {
   const learn = $('[name="impLearn"]')?.checked !== false;
+  const todo = imp.rows.filter((x) => x.include && x.kind !== 'skip');
+  const missing = todo.filter((r) => !r.accountId).length;
+  if (missing) { toast(`Choose the account for ${missing} row${missing === 1 ? '' : 's'} first (marked in red).`, 'error'); return; }
   const batch = uid('imp');
-  const ops = [], rules = new Map();
+  const ops = [];
+  const learned = new Map();
   let homeTo = null;
-  for (const r of imp.rows.filter((x) => x.include && x.kind !== 'skip')) {
-    const base = { id: uid('txn'), date: r.date, amount: round2(r.amount), description: r.desc.slice(0, 140), notes: 'Imported', relatedType: '', relatedId: '', ref: r.ref || '', importBatch: batch, source: imp.kind };
+  for (const r of todo) {
+    const base = { id: uid('txn'), date: r.date, amount: round2(r.amount), description: r.desc.slice(0, 140), notes: r.raw && r.raw !== r.desc ? `Imported: ${r.raw.slice(0, 200)}` : 'Imported', relatedType: '', relatedId: '', ref: r.ref || '', refs: r.refs || [], importBatch: batch, source: imp.kind };
     if (r.kind === 'expense') ops.push(opUpsert('transactions', { ...base, type: 'expense', category: r.category, fromAccountId: r.accountId, toAccountId: '' }));
     else if (r.kind === 'income') ops.push(opUpsert('transactions', { ...base, type: 'income', category: r.category, fromAccountId: '', toAccountId: r.accountId }));
     else if (r.kind === 'home') {
@@ -4528,32 +4687,44 @@ function importGo() {
       ops.push(opUpsert('transactions', { ...base, type: 'transfer', category: r.kind === 'person' ? (r.out ? 'Lent' : 'Borrowed') : transferCategory(r.out ? r.accountId : other, r.out ? other : r.accountId),
         fromAccountId: r.out ? r.accountId : other, toAccountId: r.out ? other : r.accountId, ...(r.kind === 'person' ? { relatedType: 'person', relatedId: other } : {}) }));
     }
-    // Learn: if you changed what the app suggested, remember it for this payee.
-    const changed = r.kind !== r.suggested.kind || r.category !== r.suggested.category || (r.target || '') !== (r.suggested.target || '');
-    const key = normKey(r.desc).split(' ').slice(0, 3).join(' ');
-    if (learn && changed && key.length >= 3) rules.set(`${key}|${r.out ? 'out' : 'in'}`, { match: key, dir: r.out ? 'out' : 'in', kind: r.kind, category: r.category || '', target: r.target || '' });
+    // Remember every choice for this payee (self transfers are recognised by account number instead).
+    if (learn && r.how !== 'self' && r.how !== 'selfname') {
+      const op = learnPayee(r.raw || r.desc, r.out ? 'out' : 'in', r.kind, r.category || '', r.kind === 'person' ? r.target : r.kind === 'transfer' ? r.target : '');
+      if (op) learned.set(op.rec.match + op.rec.dir, op);
+    }
   }
-  for (const rule of rules.values()) {
-    const existing = db.rules.find((x) => x.match === rule.match && x.dir === rule.dir);
-    ops.push(opUpsert('rules', { ...(existing || {}), id: existing?.id || uid('rule'), ...rule }));
+  // Remember which account a statement number belongs to (e.g. card xx50).
+  const tails = new Map();
+  for (const r of imp.rows) if (r.tail && r.accountId && (r.include || r.match) && accountForTail(r.tail) !== r.accountId) tails.set(r.tail, r.accountId);
+  for (const [tail, accountId] of tails) {
+    const ex = db.rules.find((x) => x.type === 'acct' && x.tail === tail);
+    ops.push(opUpsert('rules', { ...(ex || {}), id: ex?.id || uid('rule'), type: 'acct', tail, accountId }));
   }
-  const n = ops.filter((o) => o.coll === 'transactions').length;
-  commit(ops, `Import ${n} transactions from ${imp.kind}`);
-  toast(`Imported ${n} transaction${n === 1 ? '' : 's'}${rules.size ? `, and remembered ${rules.size} choice${rules.size === 1 ? '' : 's'}` : ''}.`, 'success');
-  Object.assign(imp, { step: 1, rows: [], table: null, file: null, kind: '', error: '' });
+  // Rows already in the app: correct the account where this bank's statement says otherwise.
+  let fixed = 0;
+  for (const r of imp.rows.filter((x) => x.match && x.fix)) {
+    const t = r.match.t;
+    ops.push(opUpsert('transactions', { ...t, ...(r.out ? { fromAccountId: r.accountId } : { toAccountId: r.accountId }), refs: [...new Set([...(t.refs || []), t.ref, ...(r.refs || [])].filter(Boolean))], notes: `${t.notes || ''} Account confirmed by ${imp.kind} statement.`.trim() }));
+    fixed++;
+  }
+  ops.push(...learned.values());
+  const n = todo.length;
+  commit(ops, `Import ${n} transactions from ${imp.kind}${fixed ? `, ${fixed} corrected` : ''}`);
+  toast(`Imported ${n}${fixed ? `, corrected ${fixed}` : ''}${learned.size ? `; remembered ${learned.size} payee choice${learned.size === 1 ? '' : 's'}` : ''}${tails.size ? ` and ${tails.size} account number${tails.size === 1 ? '' : 's'}` : ''}.`, 'success');
+  Object.assign(imp, { step: 1, rows: [], table: null, file: null, kind: '', error: '', parsed: null });
   location.hash = '#transactions';
 }
 function importUndo(batch) {
   const list = db.transactions.filter((t) => t.importBatch === batch);
-  if (!list.length || !confirm(`Remove the ${list.length} transactions from the last import?`)) return;
+  if (!list.length || !confirm(`Remove the ${list.length} transactions from the last import? Your remembered choices are kept.`)) return;
   commit(list.map((t) => opDelete('transactions', t.id)), `Undo import (${list.length})`);
-  toast('Import undone');
+  toast('Import undone. Remembered choices are kept for next time.');
 }
 function importRange(r) {
   const acc = $('[name="impAccount"]')?.value || imp.accountId;
   if (r === 'month') { imp.from = `${thisMonth()}-01`; imp.to = todayStr(); }
-  if (r === 'last') { const lm = addMonths(`${thisMonth()}-01`, -1); imp.from = lm; imp.to = addDays(`${thisMonth()}-01`, -1); }
-  if (r === 'since') { const l = lastEntryDate(acc); imp.from = l ? addDays(l, 1) : `${thisMonth()}-01`; imp.to = todayStr(); }
+  if (r === 'last') { imp.from = addMonths(`${thisMonth()}-01`, -1); imp.to = addDays(`${thisMonth()}-01`, -1); }
+  if (r === 'since') { const l = acc === AUTO ? sortTxns(db.transactions.filter((t) => t.importBatch))[0]?.date : lastEntryDate(acc); imp.from = l ? addDays(l, 1) : `${thisMonth()}-01`; imp.to = todayStr(); }
   if (r === 'all') { imp.from = '2000-01-01'; imp.to = todayStr(); }
   imp.accountId = acc;
   if (imp.parsed) buildImportRows(imp.parsed);
@@ -4563,20 +4734,60 @@ function importRange(r) {
 function onImportChange(e) {
   const el = e.target;
   if (el.id === 'impFrom' || el.id === 'impTo') { imp[el.id === 'impFrom' ? 'from' : 'to'] = el.value; if (imp.parsed) { buildImportRows(imp.parsed); render(); } return true; }
-  if (el.name === 'impAccount') { imp.accountId = el.value; if (imp.parsed) { buildImportRows(imp.parsed); render(); } return true; }
+  if (el.name === 'impAccount') { imp.accountId = el.value; if (imp.parsed) { imp.error = ''; buildImportRows(imp.parsed); render(); } return true; }
   if (el.dataset.map) { imp.map[el.dataset.map] = int(el.value); buildImportRows(parseTableRows(imp.table, imp.map)); render(); return true; }
   if (el.dataset.impInc !== undefined) { imp.rows[int(el.dataset.impInc)].include = el.checked; render(); return true; }
-  if (el.dataset.impKind !== undefined) {
-    const r = imp.rows[int(el.dataset.impKind)], [k, id] = el.value.split(':');
-    r.kind = k; r.target = id || '';
-    if (k === 'expense' || k === 'home') r.category = db.settings.expenseCategories.includes(r.category) ? r.category : pickCat('Other', db.settings.expenseCategories);
-    if (k === 'income') r.category = db.settings.incomeCategories.includes(r.category) ? r.category : pickCat('Other', db.settings.incomeCategories);
+  if (el.dataset.impFix !== undefined) { imp.rows[int(el.dataset.impFix)].fix = el.checked; render(); return true; }
+  if (el.dataset.impAcc !== undefined) {
+    const i = int(el.dataset.impAcc), r = imp.rows[i];
+    r.accountId = el.value;
+    // Apply the same account to other rows showing the same number.
+    if (r.tail) imp.rows.forEach((x) => { if (x.tail === r.tail && !x.accountId) x.accountId = el.value; });
     render(); return true;
   }
-  if (el.dataset.impCat !== undefined) { imp.rows[int(el.dataset.impCat)].category = el.value; return true; }
+  if (el.dataset.impKind !== undefined) {
+    const r = imp.rows[int(el.dataset.impKind)], [k, id] = el.value.split(':');
+    r.kind = k; r.target = id || ''; r.how = r.how === 'self' && k !== 'transfer' ? '' : r.how;
+    if (k === 'expense' || k === 'home') r.category = db.settings.expenseCategories.includes(r.category) ? r.category : pickCat('Other', db.settings.expenseCategories);
+    if (k === 'income') r.category = db.settings.incomeCategories.includes(r.category) ? r.category : pickCat('Other', db.settings.incomeCategories);
+    if (k !== 'skip' && !r.match) r.include = true;
+    // Same payee further down: follow this choice too.
+    const key = normPayee(r.raw || r.desc);
+    imp.rows.forEach((x) => { if (x !== r && !x.match && x.out === r.out && normPayee(x.raw || x.desc) === key && x.how !== 'self') { x.kind = r.kind; x.target = r.target; x.category = r.category; } });
+    render(); return true;
+  }
+  if (el.dataset.impCat !== undefined) {
+    const r = imp.rows[int(el.dataset.impCat)];
+    r.category = el.value;
+    const key = normPayee(r.raw || r.desc);
+    let n = 0;
+    imp.rows.forEach((x) => { if (x !== r && !x.match && x.kind === r.kind && normPayee(x.raw || x.desc) === key) { x.category = r.category; n++; } });
+    if (n) { toast(`Also set ${n} other ${r.desc} row${n === 1 ? '' : 's'} to ${r.category}.`); render(); }
+    return true;
+  }
   if (el.name === 'impLearn') { imp.learn = el.checked; return true; }
   if (el.id === 'stmtFile') { imp.file = el.files[0] || null; imp.parsed = null; imp.step = 1; imp.rows = []; imp.table = null; imp.needPassword = false; importRead(); return true; }
   return false;
+}
+
+/* ----- Remembered choices ----- */
+function openRules() {
+  const kindLabel = (x) => ({ expense: 'Expense', income: 'Income', home: 'Home expense', person: `${x.dir === 'out' ? 'Gave to' : 'Got from'} ${accountName(x.target)}`, transfer: `Self transfer ${x.dir === 'out' ? 'to' : 'from'} ${accountName(x.target)}` }[x.kind] || x.kind);
+  const pr = payeeRules().slice().sort((a, b) => a.match.localeCompare(b.match));
+  const ar = db.rules.filter((x) => x.type === 'acct');
+  openModal({
+    title: 'Remembered choices',
+    wide: true,
+    body: `<p class="text-sm text-ink-2">Used when you import a statement. They're learned from your imports and from editing a transaction's category, and they stay even if you delete or undo transactions.</p>
+      ${ar.length ? `<h3 class="font-semibold mt-4 mb-2">Account and card numbers</h3><div class="divider">${ar.map((x) => `<div class="row text-sm"><span class="pill">${x.tail.length <= 2 ? 'xx' : '…'}${esc(x.tail)}</span><div class="flex-1">${esc(accountName(x.accountId))}</div>
+        <button type="button" class="icon-btn sm" data-action="rule-del" data-id="${x.id}" aria-label="Forget"><i class="fa-regular fa-trash-can"></i></button></div>`).join('')}</div>` : ''}
+      <h3 class="font-semibold mt-4 mb-2">Payees (${pr.length})</h3>
+      ${pr.length ? `<div class="divider max-h-96 overflow-y-auto">${pr.map((x) => `<div class="row text-sm"><div class="flex-1 min-w-0"><b>${esc(x.match)}</b> <span class="text-ink-3">${x.dir === 'in' ? 'money in' : 'money out'}</span></div>
+        <div class="text-ink-2">${esc(kindLabel(x))}${x.category ? `, ${esc(x.category)}` : ''}</div>
+        <button type="button" class="icon-btn sm" data-action="rule-del" data-id="${x.id}" aria-label="Forget"><i class="fa-regular fa-trash-can"></i></button></div>`).join('')}</div>`
+        : '<p class="text-sm text-ink-3">Nothing yet. Import a statement and your choices appear here.</p>'}`,
+    submitLabel: 'Done', cancelLabel: 'Close', onSubmit: () => {},
+  });
 }
 
 /* ===== Tax helper (India, estimate only) =====
@@ -4947,6 +5158,12 @@ function openTxnForm(existing, preset = {}) {
       // Units bought/sold were worked out from the old amount or date; let the next price refresh redo them.
       if (existing && existing.units != null && (rec.amount !== existing.amount || rec.date !== existing.date || rec.toAccountId !== existing.toAccountId || rec.fromAccountId !== existing.fromAccountId)) { delete rec.units; delete rec.unitNav; }
       if (d.type === 'expense') localStorage.setItem(LAST_ACCOUNT_KEY, rec.fromAccountId);
+      // Changing the category of a transaction teaches the importer for next time.
+      if (existing && rec.description && (existing.category !== rec.category || !!existing.forHome !== !!rec.forHome)) {
+        const kind = rec.forHome ? 'home' : rec.type;
+        const op = learnPayee(rec.description, rec.type === 'income' ? 'in' : 'out', kind, rec.category || '');
+        if (op) extraOps.push(op);
+      }
       commit([...extraOps, opUpsert('transactions', rec)], `${isNew ? 'Add' : 'Edit'} ${rec.forHome ? 'home expense' : rec.type} ${money(amount)}${rec.description ? ` (${rec.description})` : ''}`);
       toast(isNew ? (rec.forHome ? `Home expense added. ${accountName(claimTo)} owes you ${money(amount)} more.` : `${cap(rec.type)} added`) : 'Transaction saved', 'success');
     },
@@ -5797,7 +6014,9 @@ const ACTIONS = {
   'tax-del': (d) => commit([opDelete('taxItems', d.id)], 'Remove tax deduction'),
   'imp-read': () => importRead(),
   'imp-range': (d) => importRange(d.r),
-  'imp-all': (d) => { imp.rows.forEach((r) => { r.include = d.v === '1'; }); render(); },
+  'imp-all': (d) => { imp.rows.forEach((r) => { r.include = d.v === '1' && !r.match && r.kind !== 'skip'; }); render(); },
+  'rules-open': () => openRules(),
+  'rule-del': (d, el) => { commit([opDelete('rules', d.id)], 'Forget a remembered choice'); el.closest('.row')?.remove(); },
   'imp-go': () => importGo(),
   'import-undo': (d) => importUndo(d.batch),
   'recurring-from': (d) => { openSubForm.presetKind = 'subscription'; openSubForm.presetValues = { name: d.name, amount: num(d.amount), category: d.category }; openSubForm(null); },

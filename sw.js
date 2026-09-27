@@ -3,7 +3,7 @@
      the cached copy is used when you're offline.
    - Libraries and fonts from CDNs: cached after first use, so the app opens offline.
    - GitHub, price and notification services are never cached. */
-const VERSION = 'kosh-v5';
+const VERSION = 'kosh-v6';
 const APP_FILES = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/apple-touch-icon.png'];
 const NEVER_CACHE = ['api.github.com', 'api.mfapi.in', 'www.alphavantage.co', 'ntfy.sh'];
 

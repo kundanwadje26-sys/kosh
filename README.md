@@ -244,11 +244,18 @@ By default SIPs also count as *money going out* in the "Where the money went" ch
 
 **Import statement** (also a button on Transactions).
 
-1. Choose the file. **PhonePe:** open PhonePe → *History* → the download icon at the top → choose the dates → the statement PDF comes by email or in the app. **Banks and cards:** download the statement as **Excel or CSV** where possible (most reliable); PDF also works for many banks.
-2. Choose which account the money went through, and the **dates to import** (buttons: this month, last month, since my last entry, everything). Rows outside the dates are left out.
-3. Press **Read statement**. For a password-protected PDF, enter the password it asks for.
-4. Check each row. The app suggests a type (expense, income, home expense, transfer to your own account, money given to or got from a person) and a category, from your earlier choices first and then common Indian merchants (Swiggy, Blinkit, Uber, Airtel...). PhonePe rows are matched to your account by the last 4 digits shown on the statement (fill in *Last 4 digits* on your accounts), and payments to people you've added (e.g. "Paid to Dad") become *Gave to Dad*. Rows already in the app are unticked as *Already added?*.
-5. Press **Import**. If you changed a suggestion, the app remembers it for that payee next time. **Undo last import** removes everything from the latest import.
+1. **Fill in the last 4 digits of every bank account and card** (Accounts → edit → *Last 4 digits*), e.g. `1234` for your SBI account and `9950` for your credit card. This is how the app knows which account each row belongs to. Cards often appear as `xx50` on PhonePe: the app matches that to your card ending 9950 by itself.
+2. Choose the file. **PhonePe:** open PhonePe → *History* → download icon → choose dates → the statement PDF comes by email or in the app. **Banks and cards:** download the statement as **Excel or CSV** where possible (most reliable); PDF also works for many banks.
+3. **Money went through:**
+   - For a **PhonePe** statement keep **Read it from the statement**: each row goes to the account or card whose number it shows (`…1234` or `xx50`). If a number isn't recognised, that row's account is marked in red: pick it once and the app **remembers that number** from then on.
+   - For **one bank's or card's statement** (e.g. HDFC), choose that account: every row goes to it.
+4. Choose the **dates to import** (this month, last month, since my last entry, everything). Rows outside the dates are left out.
+5. Press **Read statement** (enter the password if the PDF has one), then check each row: account, type, category.
+   - **Self transfers:** if the other side of a payment is an account number that's yours (e.g. *Transfer to XXXXXX5678* and 5678 is your HDFC account), the row becomes *Self transfer to HDFC* automatically, so it isn't counted as spending. Money to or from your own name is also suggested as a self transfer when you have one other bank account.
+   - **Categories:** the app suggests what you chose before for the same payee (*Remembered*), then what your existing entries use (*From your entries*), then common merchants. "Swiggy", "Swiggy Limited" and "UPI-SWIGGY-swiggy@axb-…" all count as the same payee. Change one row and the other rows for that payee follow.
+   - **Already in the app:** rows that match an existing transaction are unticked with *In the app already*. Matching uses the UTR / reference number first (so a PhonePe payment and the same payment in your HDFC statement are recognised as one), then same amount, account and date within 2 days. When a bank statement shows that a matched payment went through a different account than was recorded, tick *Correct its account* to fix it.
+6. Press **Import**. With *Remember my choices* ticked (the default), the app saves the type and category for every payee you imported, plus the account for any card or account number. **These memories stay even if you undo the import or delete the transactions**, so you can delete old entries and re-import: your categories come back. Changing a transaction's category later (Transactions → edit) also updates the memory.
+7. **Remembered choices** (button on the Import page) lists everything the app has learned, and lets you forget any of it. **Undo last import** removes the latest import's transactions (memories are kept).
 
 **People.** Add Dad, friends and anyone you lend to or borrow from. **I gave** / **I got** record money going either way (lent, paid back, borrowed, got back); each person shows *Owes you* or *You owe*, with a full history. These balances count in net worth (*Owed to me* and *I owe* in the equation).
 
@@ -365,6 +372,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 | "Daily limit of the free stock price key reached" | The free stock key allows 25 checks a day. Prices refresh again tomorrow. |
 | An entry stays in "Units to confirm" | The app couldn't find its NAV or price. Click **Enter units** and type the figures from your fund app or statement email. |
 | Holding asks you to enter units | Live value needs the units or shares you hold. Edit the holding (or use **Update value**) and enter them. |
+| A row's account is red on import | The statement's number (e.g. xx77) doesn't match any account's *Last 4 digits*. Pick the account once; it's remembered. Or add the last 4 digits to that account. |
 | A PhonePe PDF shows no transactions | Make sure it's the *transaction statement* PDF from PhonePe. If it still fails, the layout may differ from the one the app expects; send a screenshot (hide personal details) so the reader can be adjusted. |
 | Bank PDF rows look wrong | Download the statement as Excel or CSV instead; you can then fix any column under *Columns*. |
 | No notification arrives | Check you subscribed to exactly the same topic in ntfy, press *Send a test*, and look under *Actions* in your data repository to see if the job ran. |
@@ -374,6 +382,8 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 ---
 
 ## Part 10 — What changed in this version
+
+**Newest:** statement import reads account and card numbers (including short `xx50` card numbers), has a *Read it from the statement* option, turns payments to your own account numbers into self transfers, matches payments across PhonePe and bank statements by UTR (and can correct the account), and remembers your categories and account numbers permanently, including after you delete transactions or edit a category.
 
 **Latest update:** Insights tab and dashboard insights; statement import (PhonePe PDF, bank CSV/Excel/PDF) with date range, duplicate check and learned categories; People (money lent and borrowed) and home expenses to take back; goals and wishlist; recurring bills and income (rent, salary); tax helper (new/old regime estimate, Section 123/80C tracker); installable iPhone/Android app that works offline; daily reminders (dashboard, calendar, phone notifications via ntfy).
 

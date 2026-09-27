@@ -395,3 +395,5 @@ header.sticky { padding-top: env(safe-area-inset-top); }
 .nudge.install > i { color: var(--royal); }
 #nav { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.2) transparent; }
 .nav-link { padding-top: .5rem; padding-bottom: .5rem; }
+.inp-sm.need { border-color: var(--loss); box-shadow: 0 0 0 2px var(--loss-tint); }
+table.imp-table label.pill input { accent-color: var(--royal); vertical-align: -2px; }
