@@ -2,7 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- Installable app (Add to Home Screen on iPhone, Install on Android/desktop) -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="KOSH">
   <title>Kundan's Finance</title>
   <!-- KOSH = Kundan On Savings Hustle -->
   <meta name="description" content="Kundan's Finance (KOSH: Kundan On Savings Hustle). Personal expense tracker, fund manager and investment portfolio that stores its data in a private GitHub repository.">
@@ -62,7 +69,7 @@
           <div class="brand-sub" title="KOSH: Kundan On Savings Hustle"><b>K</b>undan <b>O</b>n <b>S</b>avings <b>H</b>ustle</div>
         </div>
       </div>
-      <nav id="nav" class="px-3 space-y-0.5" aria-label="Main"></nav>
+      <nav id="nav" class="px-3 space-y-0.5 flex-1 min-h-0 overflow-y-auto" aria-label="Main"></nav>
       <div class="mt-auto px-5 py-5 text-xs text-ink-3 leading-relaxed" id="sidebarFoot"></div>
     </aside>
     <div id="navBackdrop" class="fixed inset-0 z-30 bg-ink/40 hidden lg:hidden"></div>

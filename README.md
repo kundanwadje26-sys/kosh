@@ -4,23 +4,26 @@
 
 Kundan's Finance is a single-page web app that runs entirely in your browser and is hosted free on GitHub Pages. There is no server and no database: your data lives in one file, `data.json`, inside a **private** GitHub repository that only you can see. The app reads and writes that file through the GitHub REST API using a personal access token.
 
-The app is three files:
+The app is these files (upload all of them, keeping the `icons` folder):
 
 | File | What it does |
 |---|---|
 | `index.html` | The page skeleton. Loads Tailwind, fonts, icons, Chart.js and JSZip from CDNs. |
 | `styles.css` | Colours, typography and component styles. |
-| `app.js` | Everything else: data model, calculations, pages, forms, SIPs, export, and the GitHub sync engine. |
+| `app.js` | Everything else: data model, calculations, pages, forms, SIPs, import, insights, export, and the GitHub sync engine. |
+| `sw.js` | Service worker: lets the installed app open offline and load fast. |
+| `manifest.webmanifest` | App name, icon and colours for "Add to Home Screen". |
+| `icons/` | Home-screen icons (iPhone and Android). |
 
 ---
 
 ## Already using the earlier version? Update without losing anything
 
-Your data is not in these files; it lives in `data.json` in your private `kosh-data` repository (and a copy in each browser). The new version reads the same file and the same browser storage, and only adds an empty list for SIPs. Nothing is renamed, moved or deleted.
+Your data is not in these files; it lives in `data.json` in your private `kosh-data` repository (and a copy in each browser). The new version reads the same file and the same browser storage, and only adds empty lists for new features (SIPs, charts, goals, wishlist, import rules, tax items). Nothing is renamed, moved or deleted.
 
 1. **Optional safety step:** open the app, go to **Export & backup → Download JSON**, and keep the file.
 2. Open your **public** app repository (`kosh`) on GitHub → **Add file → Upload files**.
-3. Drag in the new `index.html`, `styles.css` and `app.js`. Files with the same name are replaced. Click **Commit changes**.
+3. Unzip the download and drag in **everything**: `index.html`, `styles.css`, `app.js`, `sw.js`, `manifest.webmanifest` and the **`icons` folder** (drag the folder itself; GitHub keeps it as a folder). Files with the same name are replaced. Click **Commit changes**.
 4. Wait 1–2 minutes for GitHub Pages to update.
 5. On **every** device you use (laptop, phone), open the app and do a hard refresh so the browser picks up the new files: **Ctrl + Shift + R** on Windows, **Cmd + Shift + R** on Mac. On a phone, close the tab completely and reopen it (or clear the site's cache).
 6. You're done. Settings, token and data carry over. You don't need to reconnect GitHub.
@@ -71,7 +74,7 @@ Budget about 20 minutes. You need a computer for setup; afterwards you can use t
 3. Select **Public**.
 4. Tick **Add a README file**, then **Create repository**.
 5. On the new repository's page, click **Add file** → **Upload files**.
-6. Drag in **`index.html`, `styles.css` and `app.js`**. Upload them loose, not inside a folder, so `index.html` sits at the top level of the repository. (Uploading this `README.md` too is fine but optional.)
+6. Drag in **`index.html`, `styles.css`, `app.js`, `sw.js`, `manifest.webmanifest`** and the **`icons` folder**. Upload the files loose, not inside another folder, so `index.html` sits at the top level of the repository (only the icons stay in `icons/`). Uploading this `README.md` too is fine but optional.
 7. Scroll down and click **Commit changes**.
 
 ### Step 4: Turn on GitHub Pages
@@ -121,7 +124,14 @@ Setup is done.
 2. Open **Settings** and enter the same details and token (or create a separate token for each device, which lets you revoke one without affecting the others).
 3. Save. The app downloads your data from GitHub.
 
-Tip: on your phone, use the browser's **Add to Home screen** option to get an app-like icon.
+### Step 8: Install it as an app on your iPhone
+
+1. Open `https://YOUR-USERNAME.github.io/kosh/` in **Safari** (it must be Safari on iPhone).
+2. Tap the **Share** button (square with an arrow), scroll down, tap **Add to Home Screen**, then **Add**.
+3. A **KOSH** icon appears on your home screen. It opens full-screen like a normal app, remembers your settings, and works offline once opened online.
+4. The first time you open the installed app, enter your GitHub details in Settings again (iPhone keeps home-screen apps separate from Safari).
+
+On Android (Chrome) or a computer (Chrome/Edge), the dashboard shows an **Install** button, or use the browser menu → *Install app*.
 
 ---
 
@@ -228,6 +238,41 @@ By default SIPs also count as *money going out* in the "Where the money went" ch
 
 ---
 
+### New pages in this version
+
+**Insights.** A report on any month, compared with your own *usual*: the average of the three months before it. For the current month it compares with the days gone so far (fixed costs like rent are not scaled) and projects where spending will end up: spending so far, plus your everyday rate for the days left, plus bills and EMIs still due. Insights include how much of your income you kept, categories well above or below usual, budgets you went over, unusually large expenses (over three times your typical one in that category), where you spend most, new places, weekend vs weekday spending, no-spend days, fixed costs as a share of income, money invested, goals falling behind, home expenses to take back, money you owe, and payments that look regular (with an *Add to Recurring* button). Below them: a category table (this month, usual, difference) and your biggest expenses. The dashboard shows the top three insights.
+
+**Import statement** (also a button on Transactions).
+
+1. Choose the file. **PhonePe:** open PhonePe → *History* → the download icon at the top → choose the dates → the statement PDF comes by email or in the app. **Banks and cards:** download the statement as **Excel or CSV** where possible (most reliable); PDF also works for many banks.
+2. Choose which account the money went through, and the **dates to import** (buttons: this month, last month, since my last entry, everything). Rows outside the dates are left out.
+3. Press **Read statement**. For a password-protected PDF, enter the password it asks for.
+4. Check each row. The app suggests a type (expense, income, home expense, transfer to your own account, money given to or got from a person) and a category, from your earlier choices first and then common Indian merchants (Swiggy, Blinkit, Uber, Airtel...). PhonePe rows are matched to your account by the last 4 digits shown on the statement (fill in *Last 4 digits* on your accounts), and payments to people you've added (e.g. "Paid to Dad") become *Gave to Dad*. Rows already in the app are unticked as *Already added?*.
+5. Press **Import**. If you changed a suggestion, the app remembers it for that payee next time. **Undo last import** removes everything from the latest import.
+
+**People.** Add Dad, friends and anyone you lend to or borrow from. **I gave** / **I got** record money going either way (lent, paid back, borrowed, got back); each person shows *Owes you* or *You owe*, with a full history. These balances count in net worth (*Owed to me* and *I owe* in the equation).
+
+**Home expenses to take back.** When you add an expense you paid for home, tick **Paid for home: I'll take it back** and choose who pays you back (Dad by default). It stays out of your own spending and appears under **People → Home expenses to take back** (the People menu item shows how many). When you're paid, tick them and **Mark ticked as taken back**: either *money was paid to me* (choose the account it came into) or *adjust against what I owe* (no money moves; handy if you had borrowed from Dad).
+
+**Goals & wishlist.** A goal has a target, an optional date and an icon; *Add money* sets money aside for it (your account balances don't change), and you can count an account towards it (for example an RD kept for that goal). Each goal shows how much to save each month and whether you're on track. The wishlist holds things you want to buy, like a 3D printer, with price and priority; each shows about how many months of your usual leftover it needs. **Start saving** turns an item into a goal; **Mark bought** marks it and opens the expense form with the price filled in.
+
+**Recurring** (was Subscriptions). Three kinds: *subscriptions* (Netflix, Spotify...), *bills* (rent, electricity, maid) and *income* (salary). Tick *Record it automatically* and each logs itself on its date: rent as an expense, salary as income into your bank.
+
+**Tax helper.** A planning estimate for any financial year (April to March) from the income you log: tax under the new regime (default) and the old regime, and which is lower. From 1 April 2026 the Income-tax Act, 2025 applies: the old Section 80C is now Section 123 and 80D is Section 126, with the same limits. Rules used: new regime slabs 0–4L nil, 4–8L 5%, 8–12L 10%, 12–16L 15%, 16–20L 20%, 20–24L 25%, above 30%, no tax up to ₹12 lakh taxable income, ₹75,000 standard deduction for salary; old regime 0–2.5L nil, 2.5–5L 5%, 5–10L 20%, above 30%, ₹50,000 standard deduction; 4% cess. The deductions tracker (old regime only) counts money into PPF/EPF, NPS and funds named ELSS or *tax saver* by itself; add others (LIC, health insurance...) by hand. It's an estimate: surcharge, capital gains, HRA and other exemptions are not included. Check with a CA before filing. If a future budget changes slabs, they're in `TAX_RULES` at the top of that section of `app.js`.
+
+### Reminders to log your expenses
+
+A website can't wake your phone on a schedule by itself, so there are three options (all in **Settings → Reminders**):
+
+1. **On the dashboard:** after 7 pm, if nothing is logged today, a reminder bar appears.
+2. **Calendar (simplest, works on iPhone):** choose a time and press **Add to my calendar**. Open the downloaded file and tap *Add All*; your calendar alerts you every day.
+3. **Phone notifications (smart):** a small scheduled job in your **private data repository** (GitHub Actions, free) checks your data every evening and sends a notification through **ntfy.sh** only when nothing is logged that day or a bill, subscription, salary or SIP is due tomorrow. On Sundays it also mentions home expenses still to take back. Messages never include amounts.
+   1. Install the free **ntfy** app (App Store / Play Store).
+   2. In Settings press **New** to create a private topic name, then in ntfy tap **+** and subscribe to exactly that name (use **Copy**).
+   3. Press **Send a test**; it should arrive in a few seconds.
+   4. Press **Turn on daily reminders**. This needs one extra permission on your token: GitHub → Settings → Developer settings → Fine-grained tokens → your token → **Repository permissions → Workflows: Read and write**. Without it, the app shows the file to add yourself (Add file → Create new file → `.github/workflows/kosh-reminder.yml`).
+   GitHub may run the job up to about 15 minutes late. Keep the topic name private: anyone who knows it could read the messages. **Turn off** removes the job.
+
 ## Part 5 — Exporting to Power BI, Excel or Power Automate
 
 Open **Data** and click **Download all (ZIP)**. Single tables can also be downloaded as individual CSVs. The ZIP contains flat, one-row-per-record CSV files that share ID columns so they join cleanly:
@@ -240,6 +285,7 @@ Open **Data** and click **Download all (ZIP)**. Single tables can also be downlo
 | `emis.csv` | EMI or loan | `emi_id`, `account_id` |
 | `emi_schedule.csv` | EMI installment | `emi_id`, installment number, principal, interest, balance |
 | `subscriptions.csv` | subscription | `subscription_id`, `account_id` |
+| `goals.csv` / `wishlist.csv` | goal / wishlist item | saved so far, % done, monthly amount needed; price, status |
 | `sips.csv` | SIP | `sip_id`, `fund_account_id`, `from_account_id`, amount invested so far |
 | `budgets.csv` | budget | `category` |
 | `categories.csv` | category | `category`, `kind` |
@@ -286,6 +332,8 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 - **Keep the data repository private.** The Test connection button warns you if it isn't.
 - **Scope the token to one repository** with only *Contents: Read and write*, and give it an expiry date. If you think it has leaked, delete it at GitHub → Settings → Developer settings → Personal access tokens, then create a new one.
 - **Price lookups share no personal data.** The app sends only fund scheme codes to MFapi.in and stock symbols (with your key) to Alpha Vantage, never amounts, units or names. The stock price key is saved with your settings in your private data file.
+- **Statement files never leave your device.** They're read in the browser; only the transactions you import are saved to your data file.
+- **Reminder notifications** go through ntfy.sh, a public service: they contain only short text (no amounts), and your topic name acts as the password, so keep it private.
 - The app page has a `noindex` tag so search engines won't list it, but the app repository itself is public. That's fine: it contains only code.
 
 ---
@@ -293,7 +341,8 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 ## Part 8 — Offline use and limits
 
 - If you lose internet, keep using the app. Changes are queued on the device (the chip shows **Offline** or **N pending**) and pushed automatically when you're back online.
-- The **first** time a device opens the app it needs internet to load Tailwind, fonts, icons and charts from their CDNs. After that the browser usually caches them, but a fully offline cold start isn't guaranteed.
+- The **first** time a device opens the app it needs internet to load Tailwind, fonts, icons and charts from their CDNs. The service worker (`sw.js`) then keeps copies, so the app opens offline afterwards. App updates arrive the next time you open it online; no hard refresh needed any more.
+- Statement import needs internet the first time to load its PDF or Excel reader.
 - If two devices edit while both are offline, both sets of changes are merged when they sync. If both edited the *same* entry, the one that syncs last wins.
 - Live prices depend on free third-party services (MFapi.in, Alpha Vantage). They're reliable but not guaranteed; if one is down, values simply stay as they were. NAVs are end-of-day figures and stock prices may be delayed, so treat them as close estimates, not trading prices.
 - GitHub's API allows 5,000 requests per hour per token, far beyond what personal use needs. The Contents API handles files up to 100 MB; a decade of personal transactions is typically a few MB.
@@ -316,11 +365,19 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 | "Daily limit of the free stock price key reached" | The free stock key allows 25 checks a day. Prices refresh again tomorrow. |
 | An entry stays in "Units to confirm" | The app couldn't find its NAV or price. Click **Enter units** and type the figures from your fund app or statement email. |
 | Holding asks you to enter units | Live value needs the units or shares you hold. Edit the holding (or use **Update value**) and enter them. |
+| A PhonePe PDF shows no transactions | Make sure it's the *transaction statement* PDF from PhonePe. If it still fails, the layout may differ from the one the app expects; send a screenshot (hide personal details) so the reader can be adjusted. |
+| Bank PDF rows look wrong | Download the statement as Excel or CSV instead; you can then fix any column under *Columns*. |
+| No notification arrives | Check you subscribed to exactly the same topic in ntfy, press *Send a test*, and look under *Actions* in your data repository to see if the job ran. |
+| The installed iPhone app asks for GitHub details again | iPhone keeps home-screen apps separate from Safari; enter them once in the app's Settings. |
 | Page looks unstyled | A CDN failed to load (network, ad-blocker or firewall). Refresh, or try another network. |
 
 ---
 
 ## Part 10 — What changed in this version
+
+**Latest update:** Insights tab and dashboard insights; statement import (PhonePe PDF, bank CSV/Excel/PDF) with date range, duplicate check and learned categories; People (money lent and borrowed) and home expenses to take back; goals and wishlist; recurring bills and income (rent, salary); tax helper (new/old regime estimate, Section 123/80C tracker); installable iPhone/Android app that works offline; daily reminders (dashboard, calendar, phone notifications via ntfy).
+
+**Earlier in this version:**
 
 - New name: **Kundan's Finance** (KOSH: Kundan On Savings Hustle), with a personal greeting.
 - Brighter design: peacock-navy sidebar, colourful net-worth banner, coloured tiles and colour-coded due dates.
