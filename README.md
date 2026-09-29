@@ -238,6 +238,10 @@ By default SIPs also count as *money going out* in the "Where the money went" ch
 
 ---
 
+### Description suggestions
+
+Every description you type when adding a transaction is remembered. Next time, start typing and matching descriptions appear under the box: type **b** and *Breakfast* shows up. Ones that start with what you typed come first, then ones with a word starting with it (typing *gif* finds *Birthday gift*); the ones you use most and most recently rank higher. Tap one (or use the arrow keys and Enter) to fill it in; its usual category is filled in too, unless you already picked a category. The **×** next to a suggestion forgets it, handy for typos. Descriptions stay remembered even if you delete the transaction.
+
 ### New pages in this version
 
 **Insights.** A report on any month, compared with your own *usual*: the average of the three months before it. For the current month it compares with the days gone so far (fixed costs like rent are not scaled) and projects where spending will end up: spending so far, plus your everyday rate for the days left, plus bills and EMIs still due. Insights include how much of your income you kept, categories well above or below usual, budgets you went over, unusually large expenses (over three times your typical one in that category), where you spend most, new places, weekend vs weekday spending, no-spend days, fixed costs as a share of income, money invested, goals falling behind, home expenses to take back, money you owe, and payments that look regular (with an *Add to Recurring* button). Below them: a category table (this month, usual, difference) and your biggest expenses. The dashboard shows the top three insights.
@@ -408,7 +412,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 
 ## Part 10 — What changed in this version
 
-**Newest:** custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
+**Newest:** description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
 
 **Before that:** statement import reads account and card numbers (including short `xx50` card numbers), has a *Read it from the statement* option, turns payments to your own account numbers into self transfers, matches payments across PhonePe and bank statements by UTR (and can correct the account), and remembers your categories and account numbers permanently, including after you delete transactions or edit a category.
 

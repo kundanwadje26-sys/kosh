@@ -5616,6 +5616,142 @@ function changeTopic() {
   scheduleNotifySync();
 }
 
+/* ===== Description suggestions =====
+   Every description you save is remembered (settings.savedDescriptions, kept
+   even if the transaction is deleted). While you type in a transaction's
+   description, matching ones appear below the box: words that START with what
+   you typed come first, then ones that contain it; more used and more recent
+   ones rank higher. Picking one also fills its usual category when you haven't
+   chosen one yourself. The × next to a suggestion forgets it (e.g. a typo). */
+const DESC_MAX = 400;
+const descKey = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+function descriptionIndex() {
+  const idx = new Map();
+  const hidden = new Set((db.settings.hiddenDescriptions || []).map(descKey));
+  const add = (text, { type, category, date, count = 1 }) => {
+    const k = descKey(text);
+    if (!k || k.length < 2 || hidden.has(k)) return;
+    const e = idx.get(k) || { text: text.trim(), count: 0, last: '', types: {}, cats: {} };
+    e.count += count;
+    if ((date || '') >= e.last) { e.last = date || e.last; e.text = text.trim(); }
+    if (type) e.types[type] = (e.types[type] || 0) + count;
+    if (category) e.cats[`${type}|${category}`] = (e.cats[`${type}|${category}`] || 0) + count;
+    idx.set(k, e);
+  };
+  for (const s of db.settings.savedDescriptions || []) add(s.t, { type: s.type, category: s.cat, date: s.last, count: s.n || 1 });
+  for (const t of db.transactions) if (t.description && !['sip', 'emi', 'market'].includes(t.relatedType) && t.type !== 'adjustment') add(t.description, { type: t.forHome ? 'expense' : t.type, category: t.category, date: t.date });
+  return idx;
+}
+function descSuggestions(q, type, limit = 6) {
+  const k = descKey(q);
+  const all = [...descriptionIndex().values()];
+  const score = (e) => {
+    const t = descKey(e.text);
+    let s = 0;
+    if (!k) s = 1;
+    else if (t.startsWith(k)) s = 3;
+    else if (t.split(' ').some((w) => w.startsWith(k))) s = 2;
+    else if (k.length >= 3 && t.includes(k)) s = 1;
+    if (!s || t === k) return 0;
+    const sameType = (e.types[type] || 0) > 0 ? 1.5 : 1;
+    const recent = e.last ? Math.max(0, 1 - (parseDate(todayStr()) - parseDate(e.last)) / (180 * 864e5)) : 0;
+    return s * 10 + Math.log2(1 + e.count) * sameType + recent * 2;
+  };
+  return all.map((e) => ({ e, s: score(e) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, limit).map((x) => x.e);
+}
+const usualCategory = (e, type) => Object.entries(e.cats).filter(([k]) => k.startsWith(`${type}|`)).sort((a, b) => b[1] - a[1])[0]?.[0].split('|')[1] || '';
+/** Remember a description after a transaction is saved (returns a settings op, or null). */
+function rememberDescription(rec) {
+  const text = String(rec.description || '').trim();
+  if (text.length < 2 || ['sip', 'emi', 'market'].includes(rec.relatedType)) return null;
+  const type = rec.forHome ? 'expense' : rec.type;
+  const list = (db.settings.savedDescriptions || []).slice();
+  const i = list.findIndex((x) => descKey(x.t) === descKey(text) && x.type === type);
+  const entry = { t: text, type, cat: rec.category || '', n: (i >= 0 ? list[i].n || 1 : 0) + 1, last: rec.date || todayStr() };
+  if (i >= 0) list.splice(i, 1);
+  list.unshift(entry);
+  const hidden = (db.settings.hiddenDescriptions || []).filter((h) => descKey(h) !== descKey(text));
+  return opSettings({ savedDescriptions: list.slice(0, DESC_MAX), ...(hidden.length !== (db.settings.hiddenDescriptions || []).length ? { hiddenDescriptions: hidden } : {}) });
+}
+function forgetDescription(text) {
+  const k = descKey(text);
+  commit([opSettings({
+    savedDescriptions: (db.settings.savedDescriptions || []).filter((x) => descKey(x.t) !== k),
+    hiddenDescriptions: [...new Set([...(db.settings.hiddenDescriptions || []), text.trim()])].slice(-500),
+  })], 'Forget a description');
+}
+/** Attach the suggestion list to a form's description box. */
+function attachDescriptionSuggest(form) {
+  const inp = form.elements.description;
+  if (!inp || inp.dataset.suggest) return;
+  inp.dataset.suggest = '1';
+  inp.setAttribute('autocomplete', 'off');
+  inp.setAttribute('role', 'combobox');
+  inp.setAttribute('aria-autocomplete', 'list');
+  inp.setAttribute('aria-expanded', 'false');
+  const wrap = document.createElement('div');
+  wrap.className = 'desc-wrap';
+  inp.parentNode.insertBefore(wrap, inp);
+  wrap.appendChild(inp);
+  const box = document.createElement('div');
+  box.className = 'desc-list';
+  box.id = 'descList';
+  box.setAttribute('role', 'listbox');
+  box.hidden = true;
+  wrap.appendChild(box);
+  inp.setAttribute('aria-controls', 'descList');
+  let items = [], active = -1, touchedCategory = false;
+  const typeNow = () => form.elements.type?.value || 'expense';
+  const catSelect = () => $$('select[name="category"]', form).find((el) => !el.disabled);
+  form.addEventListener('change', (e) => { if (e.target.name === 'category') touchedCategory = true; }, { signal: modalSignal() });
+  const close = () => { box.hidden = true; box.innerHTML = ''; active = -1; inp.setAttribute('aria-expanded', 'false'); };
+  const show = () => {
+    items = descSuggestions(inp.value, typeNow());
+    if (!items.length) return close();
+    const k = descKey(inp.value);
+    box.innerHTML = items.map((e, i) => {
+      const cat = usualCategory(e, typeNow());
+      const t = esc(e.text);
+      const hi = k && descKey(e.text).startsWith(k) ? `<b>${esc(e.text.slice(0, k.length))}</b>${esc(e.text.slice(k.length))}` : t;
+      return `<div class="desc-item ${i === active ? 'on' : ''}" role="option" data-i="${i}" aria-selected="${i === active}">
+        <span class="flex-1 min-w-0 truncate">${hi}</span>${cat ? `<span class="pill">${esc(cat)}</span>` : ''}<span class="text-xs text-ink-3">${e.count}×</span>
+        <button type="button" class="desc-x" data-forget="${i}" title="Forget this" aria-label="Forget ${t}">×</button></div>`;
+    }).join('');
+    box.hidden = false;
+    inp.setAttribute('aria-expanded', 'true');
+  };
+  const pick = (i) => {
+    const e = items[i];
+    if (!e) return;
+    inp.value = e.text;
+    const cat = usualCategory(e, typeNow()), sel = catSelect();
+    if (cat && sel && !touchedCategory && [...sel.options].some((o) => o.value === cat)) { sel.value = cat; sel.dispatchEvent(new Event('change', { bubbles: true })); touchedCategory = false; }
+    close();
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    close();
+  };
+  const sig = { signal: modalSignal() };
+  inp.addEventListener('input', (e) => { if (e.isTrusted !== false) { active = -1; show(); } }, sig);
+  inp.addEventListener('focus', show, sig);
+  inp.addEventListener('keydown', (e) => {
+    if (box.hidden) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); active = (active + 1) % items.length; show(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); active = (active - 1 + items.length) % items.length; show(); }
+    else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); pick(active); }
+    else if (e.key === 'Tab' && items.length && inp.value.trim()) { if (active < 0 && descKey(items[0].text).startsWith(descKey(inp.value))) { pick(0); } }
+    else if (e.key === 'Escape') { e.stopPropagation(); close(); }
+  }, sig);
+  // pointerdown (not click) so the choice lands before the box loses focus
+  box.addEventListener('pointerdown', (e) => {
+    const f = e.target.closest('[data-forget]');
+    if (f) { e.preventDefault(); forgetDescription(items[+f.dataset.forget].text); items.splice(+f.dataset.forget, 1); setTimeout(show, 50); return; }
+    const it = e.target.closest('.desc-item');
+    if (it) { e.preventDefault(); pick(+it.dataset.i); }
+  }, sig);
+  inp.addEventListener('blur', () => setTimeout(close, 120), sig);
+  form.addEventListener('change', (e) => { if (e.target.name === 'type' && !box.hidden) show(); }, sig);
+}
+
 /* ---------------------------------------------------------------------
    9. FORMS & ACTIONS
    --------------------------------------------------------------------- */
@@ -5682,6 +5818,7 @@ function openTxnForm(existing, preset = {}) {
     submitLabel: isNew ? 'Add transaction' : 'Save changes',
     onOpen: (form) => {
       bindShowHide(form, 'type');
+      attachDescriptionSuggest(form); // suggestions from descriptions you've used before
       const sig = { signal: modalSignal() };
       const claim = $('[data-claim]', form), newP = $('[data-newperson]', form);
       form.addEventListener('change', (e) => {
@@ -5729,6 +5866,8 @@ function openTxnForm(existing, preset = {}) {
         const op = learnPayee(rec.description, rec.type === 'income' ? 'in' : 'out', kind, rec.category || '');
         if (op) extraOps.push(op);
       }
+      const remembered = rememberDescription(rec);
+      if (remembered) extraOps.push(remembered);
       commit([...extraOps, opUpsert('transactions', rec)], `${isNew ? 'Add' : 'Edit'} ${rec.forHome ? 'home expense' : rec.type} ${money(amount)}${rec.description ? ` (${rec.description})` : ''}`);
       toast(isNew ? (rec.forHome ? `Home expense added. ${accountName(claimTo)} owes you ${money(amount)} more.` : `${cap(rec.type)} added`) : 'Transaction saved', 'success');
     },
