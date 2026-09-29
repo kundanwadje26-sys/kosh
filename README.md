@@ -238,6 +238,15 @@ By default SIPs also count as *money going out* in the "Where the money went" ch
 
 ---
 
+### Calendar
+
+Open **Calendar** in the menu (or the *Calendar* link on the dashboard's This month panel). Each day of the month shows what you spent in **red**, income in **green** and money invested in **amber**, and days are shaded darker the more you spent, so heavy days stand out at a glance. A **Week** column on the right totals each week. The switch at the top shows both, only spending or only income.
+
+- Tap any day to see its transactions, with buttons to **add an expense or income on that date** (handy when you forgot to log something).
+- Days ahead show what's scheduled, with small icons and amounts: bills and subscriptions, salary and other income due, SIPs, EMIs and credit card due dates. **Coming up this month** lists them under the calendar.
+- At the top: total spent and income for the month, average spend per day, and your number of no-spend days. For a future month it shows what's scheduled to go out, income expected, and SIPs instead.
+- The biggest spending day of the month is linked below the calendar.
+
 ### Description suggestions
 
 Every description you type when adding a transaction is remembered. Next time, start typing and matching descriptions appear under the box: type **b** and *Breakfast* shows up. Ones that start with what you typed come first, then ones with a word starting with it (typing *gif* finds *Birthday gift*); the ones you use most and most recently rank higher. Tap one (or use the arrow keys and Enter) to fill it in; its usual category is filled in too, unless you already picked a category. The **×** next to a suggestion forgets it, handy for typos. Descriptions stay remembered even if you delete the transaction.
@@ -412,7 +421,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 
 ## Part 10 — What changed in this version
 
-**Newest:** description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
+**Newest:** a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
 
 **Before that:** statement import reads account and card numbers (including short `xx50` card numbers), has a *Read it from the statement* option, turns payments to your own account numbers into self transfers, matches payments across PhonePe and bank statements by UTR (and can correct the account), and remembers your categories and account numbers permanently, including after you delete transactions or edit a category.
 

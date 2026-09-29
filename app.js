@@ -1076,6 +1076,7 @@ const PAGES = {
   dashboard:     { title: 'Dashboard',        icon: 'fa-chart-pie' },
   insights:      { title: 'Insights',         icon: 'fa-lightbulb' },
   transactions:  { title: 'Transactions',     icon: 'fa-list' },
+  calendar:      { title: 'Calendar',         icon: 'fa-calendar-days' },
   import:        { title: 'Import statement', icon: 'fa-file-import' },
   accounts:      { title: 'Accounts',         icon: 'fa-building-columns' },
   portfolio:     { title: 'Portfolio',        icon: 'fa-chart-line' },
@@ -1112,7 +1113,7 @@ function render() {
   $$('[data-brand]').forEach((el) => { el.textContent = brand; });
   const view = $('#view');
   const fn = {
-    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, notifications: renderNotifications, transactions: renderTransactions,
+    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, notifications: renderNotifications, transactions: renderTransactions,
     emis: renderEmis, subscriptions: renderSubscriptions, budgets: renderBudgets, data: renderData,
   }[page];
   view.innerHTML = fn();
@@ -1207,7 +1208,7 @@ function renderDashboard() {
       <section class="panel p-5 lg:col-span-2">
         <div class="panel-head">
           <h2 class="panel-title">${dashMonth === thisMonth() ? 'This month' : fmtMonth(dashMonth)}</h2>
-          ${monthSelect('dashMonth', dashMonth)}
+          <div class="flex items-center gap-3"><a href="#calendar" class="text-sm link"><i class="fa-regular fa-calendar mr-1"></i>Calendar</a>${monthSelect('dashMonth', dashMonth)}</div>
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div class="stat-tile in"><div class="stat-label">Money in</div><div class="stat-value num">${money(s.income)}</div></div>
@@ -5752,6 +5753,171 @@ function attachDescriptionSuggest(form) {
   form.addEventListener('change', (e) => { if (e.target.name === 'type' && !box.hidden) show(); }, sig);
 }
 
+/* ===== Calendar =====
+   A month grid: each day shows money spent (red), income (green) and money
+   invested (amber), shaded by how much was spent. Days ahead show what is
+   scheduled: subscriptions and bills, salary, SIPs, EMIs and card due dates.
+   Tap a day to see its transactions and add one on that date. */
+let calMonth = thisMonth();
+let calView = 'both'; // both | spent | income
+const WEEK_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/** Money in, out and invested per day of a month, plus the transactions of each day. */
+function calendarDays(mk) {
+  const days = new Map();
+  const get = (d) => { if (!days.has(d)) days.set(d, { spent: 0, income: 0, invested: 0, home: 0, count: 0, list: [] }); return days.get(d); };
+  for (const t of db.transactions) {
+    if (!t.date?.startsWith(mk) || t.type === 'adjustment' || t.relatedType === 'market') continue;
+    const e = get(t.date);
+    e.list.push(t);
+    if (t.type === 'expense') { e.spent += num(t.amount); e.count++; }
+    else if (t.type === 'income') { e.income += num(t.amount); e.count++; }
+    else if (t.forHome) { e.home += num(t.amount); e.count++; }
+    else if (isInvestmentOutflow(t)) { e.invested += num(t.amount); e.count++; }
+    else e.count++;
+  }
+  return days;
+}
+/** Everything scheduled in a month from today on (recurring items repeat inside the month). */
+function calendarSchedule(mk) {
+  const from = `${mk}-01`, to = addDays(addMonths(from, 1), -1), today = todayStr();
+  const out = [];
+  const push = (date, kind, title, amount, icon) => { if (date >= today && date >= from && date <= to) out.push({ date, kind, title, amount, icon }); };
+  for (const s of db.subscriptions) {
+    if (!s.active || !s.nextRenewal) continue;
+    let d = s.nextRenewal, guard = 0;
+    while (d <= to && guard++ < 40) { push(d, recurKind(s) === 'income' ? 'income' : 'bill', s.name, num(s.amount), recurKind(s) === 'income' ? 'fa-briefcase' : 'fa-rotate'); d = advanceDate(d, s.frequency); }
+  }
+  for (const x of db.sips) {
+    if (!x.active || !x.nextDate) continue;
+    let d = x.nextDate, guard = 0;
+    while (d <= to && !sipEnded(x, d) && guard++ < 40) { push(d, 'sip', `${x.name} SIP`, sipAmountOn(x, d), 'fa-seedling'); d = advanceSip(x, d); }
+  }
+  for (const { e, c } of M.emis) {
+    if (c.status !== 'active' || !c.nextDue) continue;
+    let d = c.nextDue, k = 0;
+    while (d <= to && k < c.n - c.paid) { push(d, 'emi', `${e.name} EMI`, c.emi, 'fa-calendar-check'); d = addMonths(c.nextDue, ++k); }
+  }
+  for (const a of db.accounts) {
+    if (a.type !== 'credit_card' || a.archived) continue;
+    const m = cardMetrics(a);
+    if (m.dates.nextDue && m.outstanding > 0) push(m.dates.nextDue, 'card', `${a.name} bill due`, m.outstanding, 'fa-credit-card');
+  }
+  return out.sort((x, y) => x.date.localeCompare(y.date));
+}
+
+function renderCalendar() {
+  const mk = calMonth;
+  const y = +mk.slice(0, 4), m = +mk.slice(5) - 1, dim = daysInMonth(y, m);
+  const days = calendarDays(mk), sched = calendarSchedule(mk);
+  const today = todayStr();
+  const lead = (parseDate(`${mk}-01`).getDay() + 6) % 7; // blank cells before the 1st (weeks start Monday)
+  const maxSpent = Math.max(1, ...[...days.values()].map((d) => d.spent));
+  const tot = [...days.values()].reduce((a, d) => ({ spent: a.spent + d.spent, income: a.income + d.income, invested: a.invested + d.invested }), { spent: 0, income: 0, invested: 0 });
+  const lastDay = mk === thisMonth() ? parseDate(today).getDate() : mk < thisMonth() ? dim : 0;
+  let noSpend = 0, busiest = null;
+  for (let d = 1; d <= lastDay; d++) {
+    const ds = `${mk}-${pad2(d)}`, e = days.get(ds);
+    if (!e || !e.spent) noSpend++;
+    if (e && e.spent && (!busiest || e.spent > busiest.spent)) busiest = { date: ds, spent: e.spent };
+  }
+  const showSpent = calView !== 'income', showIncome = calView !== 'spent';
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push('<div class="cal-cell blank" aria-hidden="true"></div>');
+  for (let d = 1; d <= dim; d++) {
+    const ds = `${mk}-${pad2(d)}`, e = days.get(ds), s = sched.filter((x) => x.date === ds);
+    const heat = showSpent && e?.spent ? Math.min(0.32, 0.06 + (e.spent / maxSpent) * 0.26) : 0;
+    const bg = heat ? `background:${hexA('#E0306E', heat)}` : showIncome && e?.income && !e?.spent ? `background:${hexA('#12A150', 0.1)}` : '';
+    const label = [`${d} ${fmtMonth(mk)}`, e?.spent ? `spent ${money(e.spent)}` : '', e?.income ? `income ${money(e.income)}` : '', e?.invested ? `invested ${money(e.invested)}` : '', s.length ? `${s.length} scheduled` : ''].filter(Boolean).join(', ');
+    cells.push(`<button type="button" class="cal-cell ${ds === today ? 'today' : ''} ${ds > today ? 'future' : ''}" style="${bg}" data-action="cal-day" data-date="${ds}" aria-label="${esc(label)}">
+      <span class="cal-num">${d}</span>
+      ${showSpent && e?.spent ? `<span class="cal-amt out">−${money(e.spent, { compact: true })}</span>` : ''}
+      ${showIncome && e?.income ? `<span class="cal-amt in">+${money(e.income, { compact: true })}</span>` : ''}
+      ${showSpent && e?.invested ? `<span class="cal-amt inv">${money(e.invested, { compact: true })}</span>` : ''}
+      ${s.length && !e?.count ? (() => { const out = s.filter((x) => x.kind !== 'income').reduce((t, x) => t + x.amount, 0), inn = s.filter((x) => x.kind === 'income').reduce((t, x) => t + x.amount, 0);
+        return `${showSpent && out ? `<span class="cal-amt plan">${money(out, { compact: true })} due</span>` : ''}${showIncome && inn ? `<span class="cal-amt plan-in">+${money(inn, { compact: true })} due</span>` : ''}`; })() : ''}
+      ${s.length ? `<span class="cal-due">${s.slice(0, 3).map((x) => `<i class="fa-solid ${x.icon} k-${x.kind}" title="${esc(x.title)} ${esc(money(x.amount))}"></i>`).join('')}${s.length > 3 ? `<b>+${s.length - 3}</b>` : ''}</span>` : ''}
+    </button>`);
+  }
+  while (cells.length % 7) cells.push('<div class="cal-cell blank" aria-hidden="true"></div>');
+  // Weekly totals beside each row
+  const weeks = [];
+  for (let r = 0; r < cells.length / 7; r++) {
+    let spent = 0, income = 0;
+    for (let c = 0; c < 7; c++) { const d = r * 7 + c - lead + 1; if (d >= 1 && d <= dim) { const e = days.get(`${mk}-${pad2(d)}`); spent += e?.spent || 0; income += e?.income || 0; } }
+    weeks.push({ spent, income });
+  }
+  const rowsHtml = weeks.map((w, r) => `${cells.slice(r * 7, r * 7 + 7).join('')}<div class="cal-week" aria-label="Week total">${showSpent && w.spent ? `<span class="cal-amt out">−${money(w.spent, { compact: true })}</span>` : ''}${showIncome && w.income ? `<span class="cal-amt in">+${money(w.income, { compact: true })}</span>` : ''}</div>`).join('');
+  const upcoming = sched.slice(0, 8);
+  const prev = addMonths(`${mk}-01`, -1).slice(0, 7), next = addMonths(`${mk}-01`, 1).slice(0, 7);
+  return `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+      <div class="flex items-center gap-2">
+        <button class="icon-btn" data-action="cal-go" data-m="${prev}" aria-label="Previous month"><i class="fa-solid fa-chevron-left"></i></button>
+        <h2 class="display text-2xl font-semibold min-w-[11rem] text-center">${fmtMonth(mk)}</h2>
+        <button class="icon-btn" data-action="cal-go" data-m="${next}" aria-label="Next month"><i class="fa-solid fa-chevron-right"></i></button>
+        ${mk !== thisMonth() ? `<button class="btn btn-sm" data-action="cal-go" data-m="${thisMonth()}">Today</button>` : ''}
+      </div>
+      <div class="seg cal-seg" role="radiogroup" aria-label="Show">
+        ${[['both', 'Both'], ['spent', 'Spent'], ['income', 'Income']].map(([v, l]) => `<input type="radio" name="calView" id="cv_${v}" value="${v}" ${calView === v ? 'checked' : ''}><label for="cv_${v}">${l}</label>`).join('')}
+      </div>
+    </div>
+
+    ${lastDay ? `<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <div class="stat-tile out"><div class="stat-label">Spent</div><div class="stat-value num">${money(Math.round(tot.spent))}</div></div>
+      <div class="stat-tile in"><div class="stat-label">Income</div><div class="stat-value num">${money(Math.round(tot.income))}</div></div>
+      <div class="stat-tile"><div class="stat-label">Average spend per day</div><div class="stat-value num">${money(Math.round(tot.spent / lastDay))}</div></div>
+      <div class="stat-tile"><div class="stat-label">No-spend days</div><div class="stat-value num">${noSpend} of ${lastDay}</div></div>
+    </div>` : `<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <div class="stat-tile out"><div class="stat-label">Scheduled to pay</div><div class="stat-value num">${money(Math.round(sched.filter((x) => x.kind !== 'income').reduce((t, x) => t + x.amount, 0)))}</div></div>
+      <div class="stat-tile in"><div class="stat-label">Income expected</div><div class="stat-value num">${money(Math.round(sched.filter((x) => x.kind === 'income').reduce((t, x) => t + x.amount, 0)))}</div></div>
+      <div class="stat-tile invest"><div class="stat-label">SIPs</div><div class="stat-value num">${money(Math.round(sched.filter((x) => x.kind === 'sip').reduce((t, x) => t + x.amount, 0)))}</div></div>
+      <div class="stat-tile"><div class="stat-label">Bills, EMIs, cards</div><div class="stat-value num">${sched.filter((x) => !['income', 'sip'].includes(x.kind)).length}</div></div>
+    </div>`}
+
+    <section class="panel p-3 sm:p-5">
+      <div class="cal-grid">
+        ${WEEK_LABELS.map((d) => `<div class="cal-head">${d}</div>`).join('')}<div class="cal-head cal-week-head">Week</div>
+        ${rowsHtml}
+      </div>
+      <div class="cal-legend">
+        <span><i class="sw" style="background:${hexA('#E0306E', 0.28)}"></i>More spent</span>
+        <span class="text-loss">−₹ spent</span><span class="text-gain">+₹ income</span><span style="color:var(--marigold-ink)">₹ invested</span>
+        <span><i class="fa-solid fa-rotate k-bill"></i> bill</span><span><i class="fa-solid fa-briefcase k-income"></i> income due</span><span><i class="fa-solid fa-seedling k-sip"></i> SIP</span><span><i class="fa-solid fa-calendar-check k-emi"></i> EMI</span><span><i class="fa-solid fa-credit-card k-card"></i> card bill</span>
+      </div>
+      ${busiest ? `<p class="text-sm text-ink-2 mt-3">Biggest spending day: <button class="link" data-action="cal-day" data-date="${busiest.date}">${fmtDate(busiest.date)}</button>, ${money(busiest.spent)}.</p>` : ''}
+    </section>
+
+    ${upcoming.length ? `<section class="panel p-5 mt-6"><div class="panel-head"><h2 class="panel-title">Coming up this month</h2><span class="text-sm text-ink-3 num">${money(Math.round(upcoming.filter((x) => x.kind !== 'income').reduce((s, x) => s + x.amount, 0)))} to pay</span></div>
+      <div class="divider">${upcoming.map((x) => `<div class="row"><span class="date-chip kind-bg-${x.kind === 'bill' ? 'subscription' : x.kind}"><div class="display text-xl font-semibold leading-none num">${parseDate(x.date).getDate()}</div><div class="text-xs">${parseDate(x.date).toLocaleDateString('en-IN', { weekday: 'short' })}</div></span>
+        <div class="min-w-0 flex-1"><div class="font-medium truncate"><i class="fa-solid ${x.icon} k-${x.kind} mr-1"></i>${esc(x.title)}</div><div class="text-xs text-ink-3">${relDays(x.date)}</div></div>
+        <div class="num font-semibold ${x.kind === 'income' ? 'text-gain' : ''}">${money(x.amount)}</div></div>`).join('')}</div></section>` : ''}`;
+}
+
+/** One day's transactions and scheduled items. */
+function openCalendarDay(date) {
+  const mk = date.slice(0, 7);
+  const e = calendarDays(mk).get(date) || { spent: 0, income: 0, invested: 0, home: 0, list: [] };
+  const s = calendarSchedule(mk).filter((x) => x.date === date);
+  const list = sortTxns(e.list);
+  openModal({
+    title: parseDate(date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
+    body: `<div class="grid grid-cols-3 gap-2">
+        <div class="stat-tile out"><div class="stat-label">Spent</div><div class="stat-value num">${money(e.spent)}</div></div>
+        <div class="stat-tile in"><div class="stat-label">Income</div><div class="stat-value num">${money(e.income)}</div></div>
+        <div class="stat-tile invest"><div class="stat-label">Invested</div><div class="stat-value num">${money(e.invested)}</div></div>
+      </div>
+      ${list.length ? `<div class="divider">${list.map((t) => txnRow(t, false)).join('')}</div>` : `<p class="text-sm text-ink-3">${date > todayStr() ? 'Nothing logged yet (this day is ahead).' : 'Nothing logged on this day.'}</p>`}
+      ${s.length ? `<div><div class="lbl">Scheduled</div><div class="divider">${s.map((x) => `<div class="row text-sm"><i class="fa-solid ${x.icon} k-${x.kind}"></i><div class="flex-1">${esc(x.title)}</div><div class="num font-semibold">${money(x.amount)}</div></div>`).join('')}</div></div>` : ''}
+      ${e.home ? `<p class="text-sm" style="color:var(--violet)"><i class="fa-solid fa-house mr-1"></i>${money(e.home)} of home expenses to take back.</p>` : ''}
+      <div class="flex flex-wrap gap-2">
+        <button type="button" class="btn btn-sm btn-primary" data-action="cal-add" data-date="${date}" data-type="expense"><i class="fa-solid fa-arrow-up"></i> Add expense</button>
+        <button type="button" class="btn btn-sm" data-action="cal-add" data-date="${date}" data-type="income"><i class="fa-solid fa-arrow-down"></i> Add income</button>
+      </div>`,
+    submitLabel: 'Done', cancelLabel: 'Close', onSubmit: () => {},
+  });
+}
+
 /* ---------------------------------------------------------------------
    9. FORMS & ACTIONS
    --------------------------------------------------------------------- */
@@ -5780,7 +5946,7 @@ function openTxnForm(existing, preset = {}) {
   const last = localStorage.getItem(LAST_ACCOUNT_KEY);
   const lastOk = last && accountById(last) && !accountById(last).archived ? last : '';
   const t = existing ? { ...existing } : {
-    type: preset.type || 'expense', date: todayStr(), amount: preset.amount ?? '',
+    type: preset.type || 'expense', date: preset.date || todayStr(), amount: preset.amount ?? '',
     description: preset.description || '', category: preset.category || '', notes: '',
     fromAccountId: preset.fromAccountId || '', toAccountId: preset.toAccountId || '', forHome: !!preset.forHome,
   };
@@ -6720,6 +6886,9 @@ const ACTIONS = {
   'imp-range': (d) => importRange(d.r),
   'imp-all': (d) => { imp.rows.forEach((r) => { r.include = d.v === '1' && !r.match && r.kind !== 'skip'; }); render(); },
   'rules-open': () => openRules(),
+  'cal-go': (d) => { calMonth = d.m; render(); },
+  'cal-day': (d) => openCalendarDay(d.date),
+  'cal-add': (d) => { closeModal(); openTxnForm(null, { type: d.type, date: d.date }); },
   'ntf-add': () => openNotifyForm(null),
   'ntf-edit': (d) => openNotifyForm(db.notifications.find((x) => x.id === d.id)),
   'ntf-send': (d) => sendNotificationNow(db.notifications.find((x) => x.id === d.id)),
@@ -6798,6 +6967,9 @@ function init() {
     e.preventDefault();
     ACTIONS[el.dataset.action](el.dataset, el);
   });
+
+  // Calendar: Both / Spent / Income
+  document.addEventListener('change', (e) => { if (e.target.name === 'calView' && location.hash === '#calendar') { calView = e.target.value; render(); } });
 
   // Statement import page
   document.addEventListener('change', (e) => { if (location.hash === '#import') onImportChange(e); });
