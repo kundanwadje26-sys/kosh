@@ -267,18 +267,41 @@ By default SIPs also count as *money going out* in the "Where the money went" ch
 
 **Tax helper.** A planning estimate for any financial year (April to March) from the income you log: tax under the new regime (default) and the old regime, and which is lower. From 1 April 2026 the Income-tax Act, 2025 applies: the old Section 80C is now Section 123 and 80D is Section 126, with the same limits. Rules used: new regime slabs 0–4L nil, 4–8L 5%, 8–12L 10%, 12–16L 15%, 16–20L 20%, 20–24L 25%, above 30%, no tax up to ₹12 lakh taxable income, ₹75,000 standard deduction for salary; old regime 0–2.5L nil, 2.5–5L 5%, 5–10L 20%, above 30%, ₹50,000 standard deduction; 4% cess. The deductions tracker (old regime only) counts money into PPF/EPF, NPS and funds named ELSS or *tax saver* by itself; add others (LIC, health insurance...) by hand. It's an estimate: surcharge, capital gains, HRA and other exemptions are not included. Check with a CA before filing. If a future budget changes slabs, they're in `TAX_RULES` at the top of that section of `app.js`.
 
-### Reminders to log your expenses
+### Notifications on your phone
 
-A website can't wake your phone on a schedule by itself, so there are three options (all in **Settings → Reminders**):
+Open **Notifications** in the menu. You choose what your phone tells you and when (India time):
 
-1. **On the dashboard:** after 7 pm, if nothing is logged today, a reminder bar appears.
-2. **Calendar (simplest, works on iPhone):** choose a time and press **Add to my calendar**. Open the downloaded file and tap *Add All*; your calendar alerts you every day.
-3. **Phone notifications (smart):** a small scheduled job in your **private data repository** (GitHub Actions, free) checks your data every evening and sends a notification through **ntfy.sh** only when nothing is logged that day or a bill, subscription, salary or SIP is due tomorrow. On Sundays it also mentions home expenses still to take back. Messages never include amounts.
-   1. Install the free **ntfy** app (App Store / Play Store).
-   2. In Settings press **New** to create a private topic name, then in ntfy tap **+** and subscribe to exactly that name (use **Copy**).
-   3. Press **Send a test**; it should arrive in a few seconds.
-   4. Press **Turn on daily reminders**. This needs one extra permission on your token: GitHub → Settings → Developer settings → Fine-grained tokens → your token → **Repository permissions → Workflows: Read and write**. Without it, the app shows the file to add yourself (Add file → Create new file → `.github/workflows/kosh-reminder.yml`).
-   GitHub may run the job up to about 15 minutes late. Keep the topic name private: anyone who knows it could read the messages. **Turn off** removes the job.
+| Notification | What it says |
+|---|---|
+| Balances in all accounts | Each bank account and cash, the total, and card dues (investments optional) |
+| Yesterday's spending | Yesterday's total by category, against your daily average |
+| Log today's expenses | A nudge to log, only if nothing is logged yet (or always) |
+| Today's spending so far | An evening look at today |
+| Payments coming up | Subscriptions, rent, salary, EMIs, SIPs and card bills due today, tomorrow or in the next 3 or 7 days (silent when nothing is due) |
+| Credit card bill due | The amount, a few days before the due date |
+| Budget alerts | Categories past a share of their budget, e.g. 80% (silent otherwise) |
+| Low balance | Accounts below an amount you choose |
+| Large expenses | Yesterday's expenses above an amount |
+| This month so far | Spent, where the month is heading, budgets near their limit |
+| Weekly summary | Last 7 days vs the week before, top categories |
+| Monthly report | Last month's income, spending, investing, how much you kept |
+| Net worth, Portfolio value, Goals progress, Money with people, SIP units to confirm | As the names say |
+| Your own reminder | Any text, e.g. "Pay the maid" on the 1st |
+
+Each one has a time and a repeat (every day, Monday to Friday, weekends, once a week on a chosen day, or once a month on a chosen date), its own options, a live **preview** with today's data, an on/off switch, **Send now**, and **Hide amounts** (shows ••• instead of rupees). **Add a recommended set** adds a sensible starting group you can edit.
+
+**Setting it up once:**
+
+1. Install the free **ntfy** app (App Store / Play Store) and allow its notifications. On iPhone also keep *Background App Refresh* on for ntfy (Settings → ntfy) so messages arrive on time.
+2. On the Notifications page press **Create** to get your private topic, **Copy** it, and in ntfy tap **+** and subscribe to exactly that name (server ntfy.sh).
+3. Press **Send a test**.
+4. Press **Send schedule to GitHub**. This writes a small scheduled job (`.github/workflows/kosh-reminder.yml`) into your **private data repository**. Your token needs **Repository permissions → Workflows: Read and write** (GitHub → Settings → Developer settings → Fine-grained tokens → your token). After that, every change you make on the Notifications page updates the job by itself (the page shows *Schedule up to date*). Without the permission, the app shows the file so you can add it by hand.
+
+**How the timing works.** GitHub runs scheduled jobs on UTC time and often starts them some minutes late. So the job runs 20 minutes before each of your times, works out the India date and time itself, prepares the message from your latest data, and hands it to ntfy with the exact delivery time; ntfy then delivers it on the minute. Messages are prepared 20 minutes early, so something you log in those 20 minutes may not be reflected. Each run's log (your data repository → *Actions*) starts with the India time it ran, which helps if you ever need to check.
+
+**Privacy.** Messages pass through ntfy.sh. Anyone who knows your topic name could read them, so it's long and random; don't share it, press **Change** to get a new one if you think it leaked, and use *Hide amounts* for notifications you want to keep private.
+
+**Other reminders** (Settings → Reminders): a dashboard reminder after 7 pm if nothing is logged, and a daily **calendar** alert that works on iPhone without any app.
 
 ## Part 5 — Exporting to Power BI, Excel or Power Automate
 
@@ -320,6 +343,7 @@ All GitHub logic is in `app.js` and heavily commented. Search for these names:
 | `commit()` | Every change in the app goes through this. It applies the change locally, saves it to the pending queue and schedules a sync. |
 | `buildPortfolio()`, `fdInfo()` | Portfolio value, invested amount, gains, allocation and FD estimates. |
 | `refreshPrices()`, `mfSearch()`, `stockSearch()`, `mfLatest()`, `stockLatest()`, `holdingUnits()` | Fund / company search, live NAV and stock prices, units held, and the monthly market-value entry. API addresses are at the top of that section. |
+| `koshNotifyEngine()`, `NOTIFY_TYPES`, `notifyWorkflow()`, `syncNotifyWorkflow()` | Phone notifications: the messages (shared by the app's previews and the GitHub job), the kinds you can pick, and the scheduled job. |
 | `autoAllotUnits()`, `unitReviews()`, `openReview()`, `openUnitsHistory()` | Automatic SIP units, the Units to confirm list, the units editor and the per-holding units table. |
 | `CHART_TYPES`, `CHART_VALUES`, `PERIODS`, `openChartBuilder()`, `colorFor()`, `kLabelsPlugin` | The chart builder, its data sources, shared colours and data labels. To add a new kind of value, add an entry to `CHART_VALUES` with a `build` function. |
 | `sipTxn()`, `advanceSip()`, `processAutoPayments()` | SIP instalments and automatic recording of SIPs, EMIs and subscriptions. |
@@ -375,7 +399,8 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 | A row's account is red on import | The statement's number (e.g. xx77) doesn't match any account's *Last 4 digits*. Pick the account once; it's remembered. Or add the last 4 digits to that account. |
 | A PhonePe PDF shows no transactions | Make sure it's the *transaction statement* PDF from PhonePe. If it still fails, the layout may differ from the one the app expects; send a screenshot (hide personal details) so the reader can be adjusted. |
 | Bank PDF rows look wrong | Download the statement as Excel or CSV instead; you can then fix any column under *Columns*. |
-| No notification arrives | Check you subscribed to exactly the same topic in ntfy, press *Send a test*, and look under *Actions* in your data repository to see if the job ran. |
+| No notification arrives | Check you subscribed to exactly the same topic in ntfy, press *Send a test*, check the Notifications page says *Schedule up to date*, and look under *Actions* in your data repository to see if the job ran. |
+| Notifications arrive late on iPhone | Allow notifications and Background App Refresh for ntfy, and turn off Low Power Mode at those times; iOS can hold messages for sleeping apps. The job's log in *Actions* shows the India time each message was prepared. |
 | The installed iPhone app asks for GitHub details again | iPhone keeps home-screen apps separate from Safari; enter them once in the app's Settings. |
 | Page looks unstyled | A CDN failed to load (network, ad-blocker or firewall). Refresh, or try another network. |
 
@@ -383,7 +408,9 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 
 ## Part 10 — What changed in this version
 
-**Newest:** statement import reads account and card numbers (including short `xx50` card numbers), has a *Read it from the statement* option, turns payments to your own account numbers into self transfers, matches payments across PhonePe and bank statements by UTR (and can correct the account), and remembers your categories and account numbers permanently, including after you delete transactions or edit a category.
+**Newest:** custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
+
+**Before that:** statement import reads account and card numbers (including short `xx50` card numbers), has a *Read it from the statement* option, turns payments to your own account numbers into self transfers, matches payments across PhonePe and bank statements by UTR (and can correct the account), and remembers your categories and account numbers permanently, including after you delete transactions or edit a category.
 
 **Latest update:** Insights tab and dashboard insights; statement import (PhonePe PDF, bank CSV/Excel/PDF) with date range, duplicate check and learned categories; People (money lent and borrowed) and home expenses to take back; goals and wishlist; recurring bills and income (rent, salary); tax helper (new/old regime estimate, Section 123/80C tracker); installable iPhone/Android app that works offline; daily reminders (dashboard, calendar, phone notifications via ntfy).
 

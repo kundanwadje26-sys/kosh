@@ -37,7 +37,7 @@ const STORAGE_KEYS = {
 };
 const APP_NAME = "Kundan's Finance";
 const SCHEMA_VERSION = 3; // v2 added `sips`, v3 goals/wishlist/rules/taxItems; older files load unchanged
-const COLLECTIONS = ['accounts', 'transactions', 'emis', 'subscriptions', 'budgets', 'sips', 'charts', 'goals', 'wishlist', 'rules', 'taxItems'];
+const COLLECTIONS = ['accounts', 'transactions', 'emis', 'subscriptions', 'budgets', 'sips', 'charts', 'goals', 'wishlist', 'rules', 'taxItems', 'notifications'];
 
 const ACCOUNT_TYPES = {
   cash:        { label: 'Cash & wallets',        single: 'Cash or wallet', icon: 'fa-wallet' },
@@ -214,7 +214,7 @@ function emptyDB() {
     meta: { app: 'kosh-expense-tracker', updatedAt: null },
     settings: clone(DEFAULT_SETTINGS),
     accounts: [], transactions: [], emis: [], subscriptions: [], budgets: [], sips: [], charts: [],
-    goals: [], wishlist: [], rules: [], taxItems: [],
+    goals: [], wishlist: [], rules: [], taxItems: [], notifications: [],
   };
 }
 /** Makes sure any loaded JSON has every expected key (safe against old/partial files).
@@ -1081,6 +1081,7 @@ const PAGES = {
   portfolio:     { title: 'Portfolio',        icon: 'fa-chart-line' },
   goals:         { title: 'Goals & wishlist', icon: 'fa-flag-checkered' },
   people:        { title: 'People',           icon: 'fa-user-group' },
+  notifications: { title: 'Notifications',    icon: 'fa-bell' },
   subscriptions: { title: 'Recurring',        icon: 'fa-rotate' },
   emis:          { title: 'EMIs & loans',     icon: 'fa-calendar-check' },
   budgets:       { title: 'Budgets',          icon: 'fa-bullseye' },
@@ -1111,7 +1112,7 @@ function render() {
   $$('[data-brand]').forEach((el) => { el.textContent = brand; });
   const view = $('#view');
   const fn = {
-    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, transactions: renderTransactions,
+    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, notifications: renderNotifications, transactions: renderTransactions,
     emis: renderEmis, subscriptions: renderSubscriptions, budgets: renderBudgets, data: renderData,
   }[page];
   view.innerHTML = fn();
@@ -4424,11 +4425,13 @@ const INCOME_KEYWORDS = [[/salary|payroll|sal cr|stipend/i, 'Salary'], [/refund|
 const pickCat = (c, list) => (list.includes(c) ? c : list.includes('Other') ? 'Other' : list[0]);
 const payeeRules = () => db.rules.filter((x) => x.type !== 'acct' && x.match);
 /** The rule for a payee: exact name first, then one name containing the other (at least 4 letters). */
+const compact = (k) => String(k || '').replace(/ /g, ''); // "d mart" and "dmart" are the same payee
 function ruleFor(key, dir) {
   if (!key) return null;
+  const k = compact(key);
   const list = payeeRules().filter((x) => (x.dir || dir) === dir);
-  return list.find((x) => x.match === key)
-    || list.filter((x) => x.match.length >= 4 && (key.includes(x.match) || (key.length >= 4 && x.match.includes(key)))).sort((a, b) => b.match.length - a.match.length)[0] || null;
+  return list.find((x) => compact(x.match) === k)
+    || list.filter((x) => compact(x.match).length >= 4 && (k.includes(compact(x.match)) || (k.length >= 4 && compact(x.match).includes(k)))).sort((a, b) => b.match.length - a.match.length)[0] || null;
 }
 /** What you did last time with this payee, from transactions already in the app. */
 let historyIndex = null;
@@ -4445,7 +4448,7 @@ function buildHistoryIndex() {
     else continue;
     if (kind === 'transfer') continue; // transfers depend on the account, not the payee
     const dir = t.type === 'income' || (t.type === 'transfer' && accountById(t.fromAccountId)?.type === 'person') ? 'in' : 'out';
-    historyIndex.set(`${dir}|${key}`, { kind, category: t.category || '', target });
+    historyIndex.set(`${dir}|${compact(key)}`, { kind, category: t.category || '', target });
   }
 }
 function suggestFor(r) {
@@ -4465,7 +4468,7 @@ function suggestFor(r) {
   // 2. What you chose before for this payee (remembered choices, then your past entries).
   const rule = ruleFor(key, dir);
   if (rule && (rule.kind !== 'person' || accountById(rule.target)) && (rule.kind !== 'transfer' || (accountById(rule.target) && rule.target !== r.accountId))) return { kind: rule.kind, category: rule.category, target: rule.target || '', how: 'rule' };
-  const hist = historyIndex.get(`${dir}|${key}`);
+  const hist = historyIndex.get(`${dir}|${compact(key)}`);
   if (hist) return { ...hist, how: 'history' };
   // 3. A person you've added.
   const person = db.accounts.find((a) => a.type === 'person' && !a.archived && normPayee(a.name).length >= 3 && key.split(' ').includes(normPayee(a.name).split(' ')[0]));
@@ -4482,7 +4485,7 @@ function suggestFor(r) {
 function learnPayee(desc, dir, kind, category, target = '') {
   const key = normPayee(desc);
   if (key.length < 3 || !['expense', 'income', 'home', 'person', 'transfer'].includes(kind)) return null;
-  const existing = db.rules.find((x) => x.type !== 'acct' && x.match === key && (x.dir || dir) === dir);
+  const existing = db.rules.find((x) => x.type !== 'acct' && compact(x.match) === compact(key) && (x.dir || dir) === dir);
   if (existing && existing.kind === kind && existing.category === category && (existing.target || '') === target) return null;
   return opUpsert('rules', { ...(existing || {}), id: existing?.id || uid('rule'), type: 'payee', match: key, dir, kind, category: category || '', target: target || '' });
 }
@@ -4717,7 +4720,7 @@ function importGo() {
 function importUndo(batch) {
   const list = db.transactions.filter((t) => t.importBatch === batch);
   if (!list.length || !confirm(`Remove the ${list.length} transactions from the last import? Your remembered choices are kept.`)) return;
-  commit(list.map((t) => opDelete('transactions', t.id)), `Undo import (${list.length})`);
+  commit([...learnFromEntries(list), ...list.map((t) => opDelete('transactions', t.id))], `Undo import (${list.length})`);
   toast('Import undone. Remembered choices are kept for next time.');
 }
 function importRange(r) {
@@ -4753,7 +4756,7 @@ function onImportChange(e) {
     if (k !== 'skip' && !r.match) r.include = true;
     // Same payee further down: follow this choice too.
     const key = normPayee(r.raw || r.desc);
-    imp.rows.forEach((x) => { if (x !== r && !x.match && x.out === r.out && normPayee(x.raw || x.desc) === key && x.how !== 'self') { x.kind = r.kind; x.target = r.target; x.category = r.category; } });
+    imp.rows.forEach((x) => { if (x !== r && !x.match && x.out === r.out && compact(normPayee(x.raw || x.desc)) === compact(key) && x.how !== 'self') { x.kind = r.kind; x.target = r.target; x.category = r.category; } });
     render(); return true;
   }
   if (el.dataset.impCat !== undefined) {
@@ -4761,7 +4764,7 @@ function onImportChange(e) {
     r.category = el.value;
     const key = normPayee(r.raw || r.desc);
     let n = 0;
-    imp.rows.forEach((x) => { if (x !== r && !x.match && x.kind === r.kind && normPayee(x.raw || x.desc) === key) { x.category = r.category; n++; } });
+    imp.rows.forEach((x) => { if (x !== r && !x.match && x.kind === r.kind && compact(normPayee(x.raw || x.desc)) === compact(key)) { x.category = r.category; n++; } });
     if (n) { toast(`Also set ${n} other ${r.desc} row${n === 1 ? '' : 's'} to ${r.category}.`); render(); }
     return true;
   }
@@ -4778,7 +4781,8 @@ function openRules() {
   openModal({
     title: 'Remembered choices',
     wide: true,
-    body: `<p class="text-sm text-ink-2">Used when you import a statement. They're learned from your imports and from editing a transaction's category, and they stay even if you delete or undo transactions.</p>
+    body: `<p class="text-sm text-ink-2">Used when you import a statement. They're learned from your imports, from your existing entries, and from editing a transaction's category, and they stay even if you delete or undo transactions.</p>
+      <button type="button" class="btn btn-sm mt-3" data-action="rules-learn"><i class="fa-solid fa-wand-magic-sparkles"></i> Learn from all my entries now</button>
       ${ar.length ? `<h3 class="font-semibold mt-4 mb-2">Account and card numbers</h3><div class="divider">${ar.map((x) => `<div class="row text-sm"><span class="pill">${x.tail.length <= 2 ? 'xx' : '…'}${esc(x.tail)}</span><div class="flex-1">${esc(accountName(x.accountId))}</div>
         <button type="button" class="icon-btn sm" data-action="rule-del" data-id="${x.id}" aria-label="Forget"><i class="fa-regular fa-trash-can"></i></button></div>`).join('')}</div>` : ''}
       <h3 class="font-semibold mt-4 mb-2">Payees (${pr.length})</h3>
@@ -4788,6 +4792,44 @@ function openRules() {
         : '<p class="text-sm text-ink-3">Nothing yet. Import a statement and your choices appear here.</p>'}`,
     submitLabel: 'Done', cancelLabel: 'Close', onSubmit: () => {},
   });
+}
+
+/* ----- Keeping your choices when entries are deleted -----
+   Your existing entries are turned into remembered choices (once, and again
+   before any entry is deleted), so deleting transactions and re-importing a
+   statement brings the same categories back. Newest entry wins per payee;
+   choices you already made explicitly are never overwritten. */
+function choiceFromTxn(t) {
+  if (!t.description || ['sip', 'emi', 'subscription'].includes(t.relatedType) || t.type === 'adjustment') return null;
+  if (t.forHome) return { dir: 'out', kind: 'home', category: t.category || '', target: '' };
+  if (t.type === 'expense') return { dir: 'out', kind: 'expense', category: t.category || '', target: '' };
+  if (t.type === 'income') return { dir: 'in', kind: 'income', category: t.category || '', target: '' };
+  if (t.type === 'transfer') {
+    const to = accountById(t.toAccountId), from = accountById(t.fromAccountId);
+    if (to?.type === 'person') return { dir: 'out', kind: 'person', category: '', target: to.id };
+    if (from?.type === 'person') return { dir: 'in', kind: 'person', category: '', target: from.id };
+  }
+  return null;
+}
+function learnFromEntries(list = db.transactions) {
+  const best = new Map();
+  for (const t of sortTxns(list).reverse()) { // oldest first, newest wins
+    const c = choiceFromTxn(t);
+    const key = c && normPayee(t.description);
+    if (!c || !key || key.length < 3) continue;
+    best.set(`${c.dir}|${compact(key)}`, { ...c, match: key });
+  }
+  const ops = [];
+  for (const c of best.values()) {
+    if (db.rules.some((x) => x.type !== 'acct' && compact(x.match) === compact(c.match) && (x.dir || c.dir) === c.dir)) continue; // keep explicit choices
+    ops.push(opUpsert('rules', { id: uid('rule'), type: 'payee', match: c.match, dir: c.dir, kind: c.kind, category: c.category, target: c.target }));
+  }
+  return ops;
+}
+function learnFromEntriesOnce() {
+  if (db.settings.learnedFromEntries) return;
+  const ops = learnFromEntries();
+  commit([...ops, opSettings({ learnedFromEntries: true })], `Remember choices from ${ops.length} payees`);
 }
 
 /* ===== Tax helper (India, estimate only) =====
@@ -4918,8 +4960,7 @@ function downloadReminderIcs(time) {
 async function sendTestNotification(topic) {
   if (!topic) { toast('Create a topic first.', 'error'); return; }
   try {
-    const res = await fetch(`https://ntfy.sh/${encodeURIComponent(topic)}`, { method: 'POST', body: 'Test from Kundan\'s Finance. Reminders will look like this.', headers: { Title: 'KOSH test', Tags: 'moneybag', Click: APP_URL() } });
-    if (!res.ok) throw new Error(`ntfy answered ${res.status}`);
+    await ntfyPublish({ topic, title: "Kundan's Finance", message: 'Test notification. Your notifications will arrive like this.', tags: ['moneybag'], click: APP_URL() });
     toast('Sent. It should appear in the ntfy app within a few seconds.', 'success');
   } catch (e) { toast(`Couldn't send: ${e.message}`, 'error'); }
 }
@@ -5014,22 +5055,14 @@ async function removePhoneReminders() {
   } catch (e) { toast(`Couldn't remove it: ${e.message}. Delete ${WORKFLOW_PATH} in your data repository instead.`, 'error'); }
 }
 function remindersSection(s) {
-  const topic = s.ntfyTopic || '';
   return `<section class="space-y-4">
     <h3 class="font-semibold">Reminders</h3>
-    ${twoCol(field('Remind me at', input('reminderTime', s.reminderTime || '21:00', 'type="time"'), 'India time.'),
+    ${twoCol(field('Daily calendar reminder at', input('reminderTime', s.reminderTime || '21:00', 'type="time"'), 'India time.'),
       '<div class="pt-6">' + checkbox('remindInApp', s.remindInApp !== false, 'Show a reminder on the dashboard', 'After 7 pm, if nothing is logged today.') + '</div>')}
-    <div class="callout"><b>Calendar reminder</b> (easiest, works on iPhone): adds a daily event with an alert to your phone's calendar.
+    <div class="callout"><b>Calendar reminder</b> (works on iPhone without any app): a daily event with an alert in your phone's calendar.
       <div class="mt-2"><button type="button" class="btn btn-sm" data-action="rem-ics"><i class="fa-regular fa-calendar-plus"></i> Add to my calendar</button></div></div>
-    <div class="callout"><b>Phone notifications</b> (smart: only when nothing is logged or a bill or SIP is due tomorrow):
-      <ol class="list-decimal ml-5 mt-2 space-y-1 text-sm">
-        <li>Install the free <b>ntfy</b> app (App Store or Play Store).</li>
-        <li>In ntfy tap <b>+</b> and subscribe to this private topic: <span class="flex gap-2 mt-1"><input class="inp inp-sm font-mono" name="ntfyTopic" value="${esc(topic)}" placeholder="press New" readonly>
-          <button type="button" class="btn btn-sm" data-action="rem-topic">New</button><button type="button" class="btn btn-sm" data-action="rem-copy">Copy</button></span></li>
-        <li><button type="button" class="btn btn-sm" data-action="rem-test">Send a test</button></li>
-        <li><button type="button" class="btn btn-sm btn-primary" data-action="rem-on">${topic ? 'Update' : 'Turn on'} daily reminders</button> ${topic ? '<button type="button" class="link text-sm ml-2" data-action="rem-off">Turn off</button>' : ''}</li>
-      </ol>
-      <p class="hint">Anyone who knows the topic name could read these messages, so keep it private. They never contain amounts. Uses GitHub Actions in your private data repo (free).</p></div>
+    <div class="callout"><b>Phone notifications</b>: balances every morning, yesterday's spending, bills due, budget alerts and many more, each at the time you choose.
+      <div class="mt-2"><a class="btn btn-sm btn-primary" href="#notifications" data-close><i class="fa-solid fa-bell"></i> Set up notifications</a></div></div>
   </section>`;
 }
 
@@ -5049,6 +5082,538 @@ function installCard() {
   if (installPrompt) return `<div class="nudge install"><i class="fa-solid fa-mobile-screen"></i><div class="flex-1"><b>Install the app</b> for a home-screen icon and offline use.</div>
     <button class="btn btn-sm btn-primary" data-action="install-app">Install</button><button class="icon-btn sm" data-action="install-hide" aria-label="Hide"><i class="fa-solid fa-xmark"></i></button></div>`;
   return '';
+}
+
+/* ===== Phone notifications (custom) =====
+   You choose what to be told and when: balances every morning, yesterday's
+   spending, bills due, budget alerts, a weekly summary, your own reminders...
+   How it reaches your phone:
+   - The list lives in data.json (db.notifications), so it syncs like the rest.
+   - A scheduled job in your PRIVATE data repo (GitHub Actions, free) runs
+     20 minutes before each chosen time, reads data.json, writes the message
+     with koshNotifyEngine() below (the same code the app uses for previews)
+     and hands it to ntfy.sh with the exact delivery time. ntfy then delivers
+     it on the minute to the ntfy app on your phone. The 20-minute head start
+     absorbs GitHub's usual delays in starting scheduled jobs.
+   - GitHub's clock is UTC; all times here are India time (UTC+5:30). The job
+     works out the India date and time itself, so "yesterday" is always right.
+   Messages go through ntfy.sh: anyone who knows your topic name could read
+   them, so the topic is long and random. Tick "Hide amounts" on any
+   notification to replace rupee amounts with •••. */
+
+/**
+ * Builds one notification. Self-contained on purpose: its source code is
+ * copied into the GitHub job, so it may not use anything else from app.js.
+ * db: the data file; at: the delivery moment as a Date whose UTC fields hold
+ * India wall-clock time; n: the notification settings.
+ * Returns { title, message, tags, priority } or null when there is nothing to say.
+ */
+function koshNotifyEngine(db, at, n) {
+  const S = db.settings || {};
+  const num = (v) => Number(v) || 0;
+  const hide = !!n.hideAmounts;
+  const fmt = (v) => (hide ? '•••' : new Intl.NumberFormat('en-IN', { style: 'currency', currency: S.currency || 'INR', maximumFractionDigits: 0 }).format(Math.round(num(v))));
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const dayMs = 864e5;
+  const addDays = (s, k) => iso(new Date(Date.parse(s + 'T00:00:00Z') + k * dayMs));
+  const addMonths = (s, k) => { const d = new Date(s + 'T00:00:00Z'); const day = d.getUTCDate(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + k); const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate(); d.setUTCDate(Math.min(day, last)); return iso(d); };
+  const nice = (s) => new Date(s + 'T00:00:00Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const today = iso(at), yesterday = addDays(today, -1);
+  const acc = db.accounts || [], tx = db.transactions || [];
+  const byId = {}; for (const a of acc) byId[a.id] = a;
+  const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
+  function balances(upto) {
+    const b = {};
+    for (const a of acc) if ((a.openingDate || '') <= upto) b[a.id] = num(a.openingBalance);
+    for (const t of tx) {
+      if (!t.date || t.date > upto) continue;
+      const f = byId[t.fromAccountId], to = byId[t.toAccountId];
+      if (f && b[f.id] !== undefined && t.date >= (f.openingDate || '')) b[f.id] -= num(t.amount);
+      if (to && b[to.id] !== undefined && t.date >= (to.openingDate || '')) b[to.id] += num(t.amount);
+    }
+    return b;
+  }
+  const isInvOut = (t) => t.type === 'transfer' && byId[t.toAccountId] && byId[t.toAccountId].type === 'investment' && byId[t.fromAccountId] && byId[t.fromAccountId].type !== 'investment';
+  const spendKey = (t) => (t.type === 'expense' ? t.category || 'Other' : S.sipAsSpending && isInvOut(t) ? 'SIP & investments' : null);
+  function spend(from, to) {
+    const cats = {}; let total = 0, count = 0; const list = [];
+    for (const t of tx) { if (!t.date || t.date < from || t.date > to) continue; const k = spendKey(t); if (!k) continue; cats[k] = (cats[k] || 0) + num(t.amount); total += num(t.amount); count++; list.push(t); }
+    return { cats, total, count, list };
+  }
+  const income = (from, to) => tx.filter((t) => t.type === 'income' && t.date >= from && t.date <= to).reduce((s, t) => s + num(t.amount), 0);
+  const invested = (from, to) => tx.filter((t) => isInvOut(t) && t.date >= from && t.date <= to).reduce((s, t) => s + num(t.amount), 0);
+  const top = (cats, k = 3) => Object.entries(cats).sort((a, b) => b[1] - a[1]).slice(0, k).map(([c, v]) => `${c} ${fmt(v)}`).join(', ');
+  const emiInfo = (e) => {
+    const P = num(e.principal), N = Math.max(0, Math.floor(num(e.tenureMonths))), r = num(e.annualRate) / 1200;
+    const emi = num(e.emiAmount) > 0 ? num(e.emiAmount) : N > 0 ? (r > 0 ? (P * r * (1 + r) ** N) / ((1 + r) ** N - 1) : P / N) : 0;
+    const paid = Math.min(Math.max(0, Math.floor(num(e.paidInstallments))), N);
+    const left = paid >= N ? 0 : Math.max(0, r > 0 ? P * (1 + r) ** paid - (emi * ((1 + r) ** paid - 1)) / r : P - emi * paid);
+    return { emi, left, next: !e.closed && paid < N && e.startDate ? addMonths(e.startDate, paid) : null };
+  };
+  const cardDue = (a, bal) => {
+    if (!a.dueDay || (bal[a.id] || 0) >= 0) return null;
+    let d = `${today.slice(0, 8)}${String(Math.min(28, num(a.dueDay))).padStart(2, '0')}`;
+    if (d < today) d = addMonths(d, 1);
+    return { date: d, amount: -(bal[a.id] || 0) };
+  };
+  const when = (d) => (d === today ? 'today' : d === addDays(today, 1) ? 'tomorrow' : nice(d));
+  const out = (title, lines, tags, priority = 3) => ({ title, message: (Array.isArray(lines) ? lines.filter(Boolean).join('\n') : lines) || title, tags, priority });
+  const monthStart = `${today.slice(0, 8)}01`;
+  const daysIn = new Date(Date.UTC(+today.slice(0, 4), +today.slice(5, 7), 0)).getUTCDate();
+  const elapsed = +today.slice(8, 10);
+
+  switch (n.type) {
+    case 'log_reminder': {
+      const logged = tx.filter((t) => t.date === today && !t.relatedType);
+      if (n.onlyIfNothing !== false && logged.length) return null;
+      return out("Log today's expenses", logged.length ? `${logged.length} entr${logged.length === 1 ? 'y' : 'ies'} so far today (${fmt(logged.filter((t) => spendKey(t)).reduce((s, t) => s + num(t.amount), 0))}). Anything else?` : 'Nothing logged today yet. It takes a minute while you remember.', ['memo']);
+    }
+    case 'balances': {
+      const b = balances(today);
+      const live = acc.filter((a) => !a.archived && (a.type === 'cash' || a.type === 'bank'));
+      const lines = live.map((a) => `${a.name}: ${fmt(b[a.id] || 0)}`);
+      const total = live.reduce((s, a) => s + (b[a.id] || 0), 0);
+      if (n.includeCards !== false) { const dues = acc.filter((a) => a.type === 'credit_card' && !a.archived && (b[a.id] || 0) < 0); dues.forEach((a) => lines.push(`${a.name} due: ${fmt(-(b[a.id]))}`)); }
+      if (n.includeInvestments) lines.push(`Investments: ${fmt(acc.filter((a) => a.type === 'investment' && !a.archived).reduce((s, a) => s + (b[a.id] || 0), 0))}`);
+      return out(`Money with you: ${fmt(total)}`, lines, ['bank']);
+    }
+    case 'yesterday': {
+      const s = spend(yesterday, yesterday);
+      const past = spend(addDays(yesterday, -30), addDays(yesterday, -1));
+      const avg = past.total / 30;
+      if (!s.count) return out("Yesterday's spending: nothing", `No expenses logged for ${nice(yesterday)}. If you did spend, add it now.`, ['receipt']);
+      const cmp = avg > 0 ? (s.total > avg * 1.2 ? ` (above your daily average of ${fmt(avg)})` : s.total < avg * 0.8 ? ` (below your daily average of ${fmt(avg)})` : ' (about your usual)') : '';
+      return out(`Yesterday you spent ${fmt(s.total)}`, [`${s.count} expense${s.count === 1 ? '' : 's'}${cmp}.`, top(s.cats)], ['receipt']);
+    }
+    case 'today': {
+      const s = spend(today, today);
+      return out(`Today so far: ${fmt(s.total)}`, s.count ? [`${s.count} expense${s.count === 1 ? '' : 's'}.`, top(s.cats)] : 'Nothing spent (or logged) today yet.', ['sunny']);
+    }
+    case 'month_pace': {
+      const s = spend(monthStart, today), proj = elapsed ? (s.total / elapsed) * daysIn : 0;
+      const inc = income(monthStart, today);
+      const bl = (db.budgets || []).map((b) => ({ c: b.category, used: pct(s.cats[b.category] || 0, num(b.monthlyLimit)) })).filter((x) => x.used >= 80);
+      return out(`This month so far: ${fmt(s.total)} spent`, [`Day ${elapsed} of ${daysIn}. At this pace about ${fmt(proj)} by month end.`, inc ? `Income ${fmt(inc)}, so ${pct(inc - s.total, inc)}% kept so far.` : '', bl.length ? `Budgets: ${bl.map((x) => `${x.c} ${x.used}%`).join(', ')}.` : '', top(s.cats)], ['hourglass']);
+    }
+    case 'week': {
+      const end = yesterday, start = addDays(end, -6);
+      const s = spend(start, end), p = spend(addDays(start, -7), addDays(start, -1));
+      const ch = p.total ? Math.round(((s.total - p.total) / p.total) * 100) : null;
+      return out(`Last 7 days: ${fmt(s.total)} spent`, [ch === null ? '' : `${ch >= 0 ? 'Up' : 'Down'} ${Math.abs(ch)}% on the week before (${fmt(p.total)}).`, top(s.cats), income(start, end) ? `Income ${fmt(income(start, end))}.` : ''], ['calendar']);
+    }
+    case 'month_report': {
+      const lmEnd = addDays(monthStart, -1), lmStart = `${lmEnd.slice(0, 8)}01`;
+      const s = spend(lmStart, lmEnd), inc = income(lmStart, lmEnd), inv = invested(lmStart, lmEnd);
+      const pEnd = addDays(lmStart, -1), p = spend(`${pEnd.slice(0, 8)}01`, pEnd);
+      const name = new Date(lmStart + 'T00:00:00Z').toLocaleDateString('en-IN', { month: 'long', timeZone: 'UTC' });
+      const ch = p.total ? Math.round(((s.total - p.total) / p.total) * 100) : null;
+      const chTxt = ch === null ? '' : Math.abs(ch) < 3 ? ' (about the same as the month before)' : ` (${ch > 0 ? 'up' : 'down'} ${Math.abs(ch)}% on the month before)`;
+      return out(`${name}: kept ${pct(inc - s.total, inc)}% of income`, [`In ${fmt(inc)}, spent ${fmt(s.total)}${chTxt}, invested ${fmt(inv)}.`, `Top: ${top(s.cats)}.`], ['bar_chart']);
+    }
+    case 'upcoming': {
+      const days = Math.max(0, num(n.days ?? 1)), end = addDays(today, days), items = [], b = balances(today);
+      for (const s of db.subscriptions || []) if (s.active && s.nextRenewal >= today && s.nextRenewal <= end) items.push([s.nextRenewal, `${s.name} ${fmt(s.amount)}${s.kind === 'income' ? ' (coming in)' : ''}`]);
+      for (const x of db.sips || []) if (x.active && x.nextDate >= today && x.nextDate <= end) items.push([x.nextDate, `${x.name} SIP ${fmt(x.amount)}`]);
+      for (const e of db.emis || []) { const i = emiInfo(e); if (i.next && i.next >= today && i.next <= end) items.push([i.next, `${e.name} EMI ${fmt(i.emi)}`]); }
+      for (const a of acc) if (a.type === 'credit_card' && !a.archived) { const d = cardDue(a, b); if (d && d.date <= end) items.push([d.date, `${a.name} bill ${fmt(d.amount)}`]); }
+      if (!items.length) return null;
+      items.sort((x, y) => x[0].localeCompare(y[0]));
+      return out(`${items.length} payment${items.length === 1 ? '' : 's'} coming up`, items.map(([d, t]) => `${when(d)}: ${t}`), ['calendar']);
+    }
+    case 'card_due': {
+      const b = balances(today), days = Math.max(0, num(n.days ?? 3)), end = addDays(today, days);
+      const due = acc.filter((a) => a.type === 'credit_card' && !a.archived).map((a) => ({ a, d: cardDue(a, b) })).filter((x) => x.d && x.d.date <= end);
+      if (!due.length) return null;
+      return out('Credit card bill due', due.map((x) => `${x.a.name}: ${fmt(x.d.amount)} due ${when(x.d.date)}`), ['credit_card'], 4);
+    }
+    case 'budgets': {
+      const s = spend(monthStart, today), th = num(n.threshold ?? 80);
+      const hit = (db.budgets || []).map((b) => ({ c: b.category, spent: s.cats[b.category] || 0, lim: num(b.monthlyLimit) })).filter((x) => x.lim && pct(x.spent, x.lim) >= th).sort((a, b) => b.spent / b.lim - a.spent / a.lim);
+      if (!hit.length) return null;
+      return out(hit.some((x) => x.spent > x.lim) ? 'Over budget' : 'Budget alert', hit.map((x) => `${x.c}: ${fmt(x.spent)} of ${fmt(x.lim)} (${pct(x.spent, x.lim)}%)`), ['dart'], hit.some((x) => x.spent > x.lim) ? 4 : 3);
+    }
+    case 'low_balance': {
+      const b = balances(today), below = num(n.below ?? 5000);
+      const low = acc.filter((a) => !a.archived && (a.type === 'bank' || a.type === 'cash') && (b[a.id] || 0) < below);
+      if (!low.length) return null;
+      return out('Low balance', low.map((a) => `${a.name}: ${fmt(b[a.id] || 0)}`), ['warning'], 4);
+    }
+    case 'big_spend': {
+      const above = num(n.above ?? 2000);
+      const big = tx.filter((t) => t.date === yesterday && t.type === 'expense' && num(t.amount) >= above).sort((a, b) => num(b.amount) - num(a.amount));
+      if (!big.length) return null;
+      return out(`${big.length} large expense${big.length === 1 ? '' : 's'} yesterday`, big.slice(0, 5).map((t) => `${t.description || t.category}: ${fmt(t.amount)}`), ['money_with_wings']);
+    }
+    case 'net_worth': {
+      const b = balances(today);
+      let assets = 0, liab = 0;
+      for (const a of acc) { const v = b[a.id] || 0; if (a.type === 'credit_card' || a.type === 'person') { if (v < 0) liab -= v; else assets += v; } else assets += v; }
+      for (const e of db.emis || []) liab += emiInfo(e).left;
+      return out(`Net worth: ${fmt(assets - liab)}`, [`You own ${fmt(assets)}, you owe ${fmt(liab)}.`], ['moneybag']);
+    }
+    case 'portfolio': {
+      const b = balances(today), inv = acc.filter((a) => a.type === 'investment' && !a.archived);
+      if (!inv.length) return null;
+      const cost = {}; for (const a of inv) cost[a.id] = num(a.investedAmount ?? a.openingBalance);
+      for (const t of tx) { if (t.type === 'adjustment') continue; const to = byId[t.toAccountId], f = byId[t.fromAccountId];
+        if (to && cost[to.id] !== undefined && t.date >= (to.openingDate || '')) cost[to.id] += num(t.amount);
+        if (f && cost[f.id] !== undefined && t.date >= (f.openingDate || '')) cost[f.id] = Math.max(0, cost[f.id] - num(t.amount)); }
+      const value = inv.reduce((s, a) => s + (b[a.id] || 0), 0), put = inv.reduce((s, a) => s + cost[a.id], 0), gain = value - put;
+      const best = inv.map((a) => ({ a, g: cost[a.id] ? ((b[a.id] || 0) - cost[a.id]) / cost[a.id] : 0 })).sort((x, y) => y.g - x.g)[0];
+      return out(`Portfolio: ${fmt(value)}`, [`${gain >= 0 ? 'Profit' : 'Loss'} ${fmt(Math.abs(gain))} (${put ? (gain >= 0 ? '+' : '−') + Math.abs(Math.round((gain / put) * 1000) / 10) : 0}%) on ${fmt(put)} invested.`, best && best.g ? `Best: ${best.a.name} ${best.g >= 0 ? '+' : ''}${Math.round(best.g * 1000) / 10}%.` : '', 'Values use the latest prices the app saved.'], ['chart_with_upwards_trend']);
+    }
+    case 'goals': {
+      const b = balances(today);
+      const list = (db.goals || []).filter((g) => !g.done);
+      if (!list.length) return null;
+      return out('Your goals', list.slice(0, 5).map((g) => {
+        const saved = (g.contributions || []).reduce((s, c) => s + num(c.amount), 0) + (g.linkedAccountIds || []).reduce((s, id) => s + Math.max(0, b[id] || 0), 0);
+        const left = Math.max(0, num(g.target) - saved);
+        const months = g.targetDate ? Math.max(1, (+g.targetDate.slice(0, 4) - +today.slice(0, 4)) * 12 + (+g.targetDate.slice(5, 7) - +today.slice(5, 7))) : 0;
+        return `${g.name}: ${pct(saved, num(g.target))}%${months && left ? `, save ${fmt(left / months)}/month` : ''}`;
+      }), ['dart']);
+    }
+    case 'people': {
+      const b = balances(today);
+      const ppl = acc.filter((a) => a.type === 'person' && !a.archived && Math.abs(b[a.id] || 0) >= 1);
+      const home = tx.filter((t) => t.forHome && !t.homeSettled);
+      if (!ppl.length && !home.length) return null;
+      return out('Money with people', [...ppl.map((a) => ((b[a.id] || 0) > 0 ? `${a.name} owes you ${fmt(b[a.id])}` : `You owe ${a.name} ${fmt(-(b[a.id]))}`)),
+        home.length ? `${home.length} home expense${home.length === 1 ? '' : 's'} to take back: ${fmt(home.reduce((s, t) => s + num(t.amount), 0))}` : ''], ['busts_in_silhouette']);
+    }
+    case 'units': {
+      const linked = acc.filter((a) => a.type === 'investment' && (a.schemeCode || a.ticker));
+      const pending = tx.filter((t) => t.type !== 'adjustment' && t.date <= addDays(today, -3) && (t.units === undefined || t.units === null || t.units === '')
+        && linked.some((a) => (t.toAccountId === a.id || t.fromAccountId === a.id) && (a.unitsDate ? t.date > a.unitsDate : t.date >= (a.openingDate || ''))));
+      if (!pending.length) return null;
+      return out('SIP units to confirm', `${pending.length} purchase${pending.length === 1 ? '' : 's'} still need units. Open the Portfolio page to check them.`, ['clipboard']);
+    }
+    case 'custom':
+      return out(n.title || 'Reminder', n.text || '', ['bell']);
+    default:
+      return null;
+  }
+}
+/** Does a notification repeat on this India date? (Also copied into the GitHub job.) */
+function koshNotifyDay(n, date) {
+  const wd = new Date(date + 'T00:00:00Z').getUTCDay();
+  const dom = +date.slice(8, 10);
+  const last = new Date(Date.UTC(+date.slice(0, 4), +date.slice(5, 7), 0)).getUTCDate();
+  switch (n.repeat || 'daily') {
+    case 'weekdays': return wd >= 1 && wd <= 5;
+    case 'weekends': return wd === 0 || wd === 6;
+    case 'weekly': return wd === Number(n.weekday ?? 0);
+    case 'monthly': return n.monthDay === 'last' ? dom === last : dom === Math.min(Number(n.monthDay) || 1, last);
+    default: return true;
+  }
+}
+
+/* ----- The kinds of notification you can add ----- */
+const NOTIFY_TYPES = {
+  balances:     { label: 'Balances in all accounts', icon: 'fa-building-columns', desc: 'Every bank account and cash, the total, and card dues.', time: '08:00', opts: [['includeCards', 'check', 'Include credit card dues', true], ['includeInvestments', 'check', 'Include investments', false]] },
+  yesterday:    { label: "Yesterday's spending", icon: 'fa-receipt', desc: 'What you spent yesterday, by category, against your daily average.', time: '08:00' },
+  log_reminder: { label: "Log today's expenses", icon: 'fa-pen-to-square', desc: 'A nudge to add what you spent today.', time: '21:00', opts: [['onlyIfNothing', 'check', 'Only if nothing is logged yet today', true]] },
+  today:        { label: "Today's spending so far", icon: 'fa-sun', desc: 'An evening look at what today cost.', time: '20:00' },
+  upcoming:     { label: 'Payments coming up', icon: 'fa-calendar-check', desc: 'Subscriptions, rent, salary, EMIs, SIPs and card bills due soon. Sent only when something is due.', time: '09:00', opts: [['days', 'select', 'Look ahead', [['0', 'Today only'], ['1', 'Today and tomorrow'], ['3', 'Next 3 days'], ['7', 'Next 7 days']], '1']] },
+  card_due:     { label: 'Credit card bill due', icon: 'fa-credit-card', desc: 'Reminds you before a card payment is due, with the amount.', time: '10:00', opts: [['days', 'number', 'Days before the due date', 3]] },
+  budgets:      { label: 'Budget alerts', icon: 'fa-bullseye', desc: 'When a category passes a share of its monthly budget. Silent otherwise.', time: '20:30', opts: [['threshold', 'number', 'Alert at % of budget', 80]] },
+  low_balance:  { label: 'Low balance', icon: 'fa-triangle-exclamation', desc: 'When a bank account or cash drops below an amount.', time: '09:00', opts: [['below', 'number', 'Alert below (amount)', 5000]] },
+  big_spend:    { label: 'Large expenses', icon: 'fa-money-bill-trend-up', desc: "Yesterday's expenses above an amount.", time: '08:30', opts: [['above', 'number', 'Above (amount)', 2000]] },
+  month_pace:   { label: 'This month so far', icon: 'fa-gauge-high', desc: 'Spent this month, where it is heading, budgets near their limit.', time: '09:00', repeat: 'weekly', weekday: 1 },
+  week:         { label: 'Weekly summary', icon: 'fa-calendar-week', desc: 'Last 7 days vs the week before, and where the money went.', time: '19:00', repeat: 'weekly', weekday: 0 },
+  month_report: { label: 'Monthly report', icon: 'fa-chart-column', desc: 'Last month: money in, spent, invested, how much you kept, top categories.', time: '09:00', repeat: 'monthly', monthDay: 1 },
+  net_worth:    { label: 'Net worth', icon: 'fa-scale-balanced', desc: 'What you own, what you owe, and the difference.', time: '09:00', repeat: 'weekly', weekday: 0 },
+  portfolio:    { label: 'Portfolio value', icon: 'fa-chart-line', desc: 'Value, invested and profit, from the latest prices the app saved.', time: '18:00', repeat: 'weekdays' },
+  goals:        { label: 'Goals progress', icon: 'fa-flag-checkered', desc: 'How far along each goal is and what to save each month.', time: '10:00', repeat: 'weekly', weekday: 0 },
+  people:       { label: 'Money with people', icon: 'fa-user-group', desc: 'Who owes you, what you owe, home expenses to take back.', time: '11:00', repeat: 'weekly', weekday: 0 },
+  units:        { label: 'SIP units to confirm', icon: 'fa-clipboard-check', desc: 'Purchases whose units still need checking.', time: '19:00', repeat: 'weekly', weekday: 6 },
+  custom:       { label: 'Your own reminder', icon: 'fa-bell', desc: 'Any text, e.g. "Pay the maid" on the 1st of every month.', time: '10:00', opts: [['title', 'text', 'Title', 'Reminder'], ['text', 'text', 'Message', '']] },
+};
+const RECOMMENDED = [
+  { type: 'balances', time: '08:00' }, { type: 'yesterday', time: '08:05' }, { type: 'upcoming', time: '09:00', days: 1 },
+  { type: 'log_reminder', time: '21:00' }, { type: 'budgets', time: '20:30' }, { type: 'week', time: '19:00', repeat: 'weekly', weekday: 0 },
+  { type: 'month_report', time: '09:30', repeat: 'monthly', monthDay: 1 },
+];
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const NOTIFY_LEAD_MIN = 20;
+function repeatText(n) {
+  const at = `at ${fmtTime12(n.time)}`;
+  switch (n.repeat || 'daily') {
+    case 'weekdays': return `Mon to Fri ${at}`;
+    case 'weekends': return `Sat and Sun ${at}`;
+    case 'weekly': return `Every ${WEEKDAY_NAMES[Number(n.weekday ?? 0)]} ${at}`;
+    case 'monthly': return `${n.monthDay === 'last' ? 'Last day' : `${ordinal(Number(n.monthDay) || 1)}`} of every month ${at}`;
+    default: return `Every day ${at}`;
+  }
+}
+function fmtTime12(t) { const [h, m] = String(t || '00:00').split(':').map(Number); return `${((h + 11) % 12) + 1}:${pad2(m)} ${h < 12 ? 'am' : 'pm'}`; }
+const istNow = () => new Date(Date.now() + 330 * 60000);
+function previewNotification(n) { try { return koshNotifyEngine(db, istNow(), n); } catch (e) { return { title: 'Preview failed', message: e.message }; } }
+
+/* ----- Sending (the app's "Send now" and the test button) ----- */
+async function ntfyPublish(payload) {
+  const res = await fetch('https://ntfy.sh/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  if (!res.ok) throw new Error(`ntfy answered ${res.status}`);
+}
+async function sendNotificationNow(n) {
+  const topic = db.settings.ntfyTopic;
+  if (!topic) { toast('Set up your phone first (step 2 above).', 'error'); return; }
+  const msg = previewNotification(n);
+  if (!msg) { toast('Nothing to say right now, so this one would stay silent today.'); return; }
+  try { await ntfyPublish({ topic, title: msg.title, message: msg.message, tags: msg.tags, priority: msg.priority, click: APP_URL() }); toast('Sent. Check your phone.', 'success'); }
+  catch (e) { toast(`Couldn't send: ${e.message}`, 'error'); }
+}
+
+/* ----- The GitHub job ----- */
+/** Cron lines (UTC, 20 minutes early) mapped to the India times they serve. */
+function notifySchedule() {
+  const map = {};
+  for (const n of db.notifications.filter((x) => x.enabled !== false)) {
+    const [h, m] = n.time.split(':').map(Number);
+    let mins = h * 60 + m - 330 - NOTIFY_LEAD_MIN;
+    mins = ((mins % 1440) + 1440) % 1440;
+    const cron = `${mins % 60} ${Math.floor(mins / 60)} * * *`;
+    (map[cron] = map[cron] || []).includes(n.time) || map[cron].push(n.time);
+  }
+  return map;
+}
+const scheduleSignature = () => JSON.stringify({ v: 2, map: notifySchedule(), topic: db.settings.ntfyTopic, path: config.path, url: APP_URL() });
+function notifyWorkflow() {
+  const map = notifySchedule();
+  const crons = Object.keys(map);
+  const script = `
+const fs = require('fs');
+const db = JSON.parse(fs.readFileSync(process.env.DATA_PATH, 'utf8'));
+const MAP = ${JSON.stringify(map)};
+const LEAD_MS = ${NOTIFY_LEAD_MIN} * 60000, IST_MS = 330 * 60000;
+const topic = (db.settings && db.settings.ntfyTopic) || process.env.TOPIC;
+const schedule = process.env.SCHEDULE || '';
+const manual = !schedule;
+const engine = ${koshNotifyEngine.toString()};
+const onDay = ${koshNotifyDay.toString()};
+const nowIst = new Date(Date.now() + IST_MS);
+// The India moment a notification is for: today at its time, or tomorrow if the job
+// started just before midnight India time.
+function target(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  let t = Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate(), h, m);
+  if (t - nowIst.getTime() < -12 * 3600e3) t += 864e5;
+  if (t - nowIst.getTime() > 12 * 3600e3) t -= 864e5;
+  return new Date(t);
+}
+(async () => {
+  const times = manual ? null : MAP[schedule] || [];
+  const list = (db.notifications || []).filter((n) => n.enabled !== false && (manual || times.includes(n.time)));
+  console.log('India time now', nowIst.toISOString().slice(0, 16).replace('T', ' '), '| schedule', schedule || 'manual', '| notifications', list.length);
+  for (const n of list) {
+    const at = manual ? nowIst : target(n.time);
+    if (!manual && !onDay(n, at.toISOString().slice(0, 10))) { console.log('skip (not today)', n.type); continue; }
+    const msg = engine(db, at, n);
+    if (!msg) { console.log('nothing to say', n.type); continue; }
+    const deliverUtc = Math.round((at.getTime() - IST_MS) / 1000);
+    const early = !manual && deliverUtc - Date.now() / 1000 > 15;
+    const body = { topic, title: msg.title, message: msg.message, tags: msg.tags, priority: msg.priority, click: process.env.APP_URL };
+    if (early) body.delay = String(deliverUtc); // ntfy delivers it at the exact time
+    const r = await fetch('https://ntfy.sh/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    console.log(n.type, n.time, early ? 'scheduled for ' + n.time + ' IST' : 'sent now', r.status);
+  }
+})().catch((e) => { console.error(e); process.exit(1); });`;
+  return `# Phone notifications for Kundan's Finance (KOSH). Created by the app; it rewrites
+# this file when you change your notifications. Times below are UTC (India minus 5:30),
+# ${NOTIFY_LEAD_MIN} minutes early; ntfy delivers each message at the exact India time.
+name: KOSH notifications
+on:
+  schedule:
+${crons.length ? crons.map((c) => `    - cron: '${c}'   # for ${map[c].join(', ')} India time`).join('\n') : "    - cron: '0 0 1 1 *'"}
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Send notifications
+        env:
+          SCHEDULE: \${{ github.event.schedule }}
+          TOPIC: ${db.settings.ntfyTopic}
+          APP_URL: ${APP_URL()}
+          DATA_PATH: ${config.path || 'data.json'}
+        run: |
+          node - <<'JS'
+${script.split('\n').map((l) => '          ' + l).join('\n')}
+          JS
+`;
+}
+const notifyState = { syncing: false, error: '' };
+/** Write (or rewrite) the job in the data repository when the schedule changed. */
+async function syncNotifyWorkflow({ quiet = false } = {}) {
+  if (!db.settings.ntfyTopic || !isConfigured() || notifyState.syncing) return false;
+  if (!navigator.onLine) return false;
+  notifyState.syncing = true;
+  const sig = scheduleSignature();
+  try {
+    const yml = notifyWorkflow();
+    const cur = await ghPath(WORKFLOW_PATH);
+    const sha = cur.ok ? (await cur.json()).sha : undefined;
+    const res = await ghPath(WORKFLOW_PATH, 'PUT', { message: 'KOSH: update notifications', content: toBase64(yml), branch: config.branch || 'main', ...(sha ? { sha } : {}) });
+    if (res.status === 403 || res.status === 404) { notifyState.error = 'perm'; if (!quiet) showWorkflowManual(yml); return false; }
+    if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+    notifyState.error = '';
+    commit([opSettings({ notifySchedule: sig })], 'Phone notification schedule updated');
+    if (!quiet) toast('Phone schedule updated.', 'success');
+    return true;
+  } catch (e) {
+    notifyState.error = e.message;
+    if (!quiet) toast(`Couldn't update the phone schedule: ${e.message}`, 'error');
+    return false;
+  } finally { notifyState.syncing = false; if (location.hash === '#notifications') render(); }
+}
+const scheduleUpToDate = () => db.settings.notifySchedule === scheduleSignature();
+let notifySyncTimer = null;
+function scheduleNotifySync() { clearTimeout(notifySyncTimer); notifySyncTimer = setTimeout(() => syncNotifyWorkflow({ quiet: true }), 1500); }
+/** First run of this version: turn the old single daily reminder into a notification, and refresh the job. */
+function migrateNotifications() {
+  if (db.settings.notificationsMigrated) return;
+  const ops = [opSettings({ notificationsMigrated: true })];
+  if (db.settings.ntfyTopic && !db.notifications.length) ops.push(opUpsert('notifications', { id: uid('ntf'), type: 'log_reminder', time: db.settings.reminderTime || '21:00', repeat: 'daily', enabled: true, onlyIfNothing: true }));
+  commit(ops, 'Set up custom notifications');
+}
+function notifyOnStart() {
+  migrateNotifications();
+  if (db.settings.ntfyTopic && !scheduleUpToDate()) setTimeout(() => syncNotifyWorkflow({ quiet: true }), 2000);
+}
+
+/* ----- Notifications page ----- */
+function renderNotifications() {
+  const topic = db.settings.ntfyTopic || '';
+  const list = db.notifications.slice().sort((a, b) => a.time.localeCompare(b.time));
+  const upToDate = topic && scheduleUpToDate();
+  return `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+      <p class="text-sm text-ink-2 max-w-2xl">Choose what your phone tells you and when: balances every morning, yesterday's spending, bills due, budget alerts, weekly and monthly summaries, or your own reminders. Times are India time.</p>
+      <div class="flex gap-2 flex-wrap">${list.length ? '' : '<button class="btn" data-action="ntf-recommended"><i class="fa-solid fa-wand-magic-sparkles"></i> Add a recommended set</button>'}
+        <button class="btn btn-primary" data-action="ntf-add"><i class="fa-solid fa-plus"></i> Add notification</button></div>
+    </div>
+
+    <section class="panel p-5 mb-6">
+      <div class="panel-head"><h2 class="panel-title">Your phone</h2>
+        ${topic ? `<span class="pill ${upToDate ? 'in' : 'due'}">${upToDate ? 'Schedule up to date' : notifyState.syncing ? 'Updating…' : 'Schedule needs updating'}</span>` : ''}</div>
+      <ol class="list-decimal ml-5 space-y-3 text-sm">
+        <li>Install the free <b>ntfy</b> app (App Store or Play Store) and allow notifications.</li>
+        <li>Your private topic: <span class="inline-flex flex-wrap gap-2 align-middle mt-1"><code class="topic-code">${esc(topic || 'not created yet')}</code>
+          <button type="button" class="btn btn-sm" data-action="ntf-topic">${topic ? 'Change' : 'Create'}</button>${topic ? '<button type="button" class="btn btn-sm" data-action="ntf-copy">Copy</button>' : ''}</span>
+          <div class="hint">In ntfy tap <b>+</b>, paste exactly this name, and subscribe (server: ntfy.sh).</div></li>
+        <li><button type="button" class="btn btn-sm" data-action="ntf-test" ${topic ? '' : 'disabled'}>Send a test</button> <span class="hint inline">It should arrive within seconds.</span></li>
+        <li><button type="button" class="btn btn-sm btn-primary" data-action="ntf-sync" ${topic ? '' : 'disabled'}>${upToDate ? 'Re-send schedule to GitHub' : 'Send schedule to GitHub'}</button>
+          <div class="hint">Creates a small scheduled job in your private data repository. Your token needs <b>Workflows: Read and write</b> (GitHub → Developer settings → your token). After that, changes here update it by themselves.</div>
+          ${notifyState.error === 'perm' ? '<p class="callout warn mt-2">GitHub refused: the token is missing the Workflows permission. Add it, or press the button again to see the file to paste by hand.</p>' : notifyState.error ? `<p class="callout warn mt-2">${esc(notifyState.error)}</p>` : ''}</li>
+      </ol>
+      <p class="hint mt-3">Each message is prepared ${NOTIFY_LEAD_MIN} minutes early and ntfy delivers it at the exact time. Messages pass through ntfy.sh; anyone who knows the topic could read them, so keep it private, or tick <b>Hide amounts</b> on a notification.</p>
+    </section>
+
+    ${list.length ? `<section class="panel p-5"><div class="divider">${list.map(notifyRow).join('')}</div></section>`
+      : `<section class="panel">${emptyState('fa-bell', 'No notifications yet. Add the ones you want, or start with the recommended set.', '<button class="btn btn-primary" data-action="ntf-recommended">Add the recommended set</button>')}</section>`}`;
+}
+function notifyRow(n) {
+  const T = NOTIFY_TYPES[n.type] || NOTIFY_TYPES.custom;
+  const p = previewNotification(n);
+  return `<div class="row items-start ${n.enabled === false ? 'opacity-60' : ''}">
+    <span class="insight-icon"><i class="fa-solid ${T.icon}"></i></span>
+    <div class="min-w-0 flex-1">
+      <div class="font-semibold">${esc(n.type === 'custom' ? n.title || T.label : T.label)} ${n.hideAmounts ? '<span class="pill">amounts hidden</span>' : ''}</div>
+      <div class="text-xs text-ink-3 mt-0.5">${esc(repeatText(n))}</div>
+      <div class="ntf-preview">${p ? `<b>${esc(p.title)}</b><br>${esc(p.message).replace(/\n/g, '<br>')}` : '<span class="text-ink-3">Nothing to say right now, so it would stay silent today.</span>'}</div>
+    </div>
+    <div class="flex flex-col items-end gap-2">
+      <label class="switch" title="${n.enabled === false ? 'Off' : 'On'}"><input type="checkbox" data-ntf-toggle="${n.id}" ${n.enabled === false ? '' : 'checked'}><span></span></label>
+      <div class="flex gap-1"><button class="icon-btn sm" data-action="ntf-send" data-id="${n.id}" title="Send now" aria-label="Send now"><i class="fa-solid fa-paper-plane"></i></button>
+        <button class="icon-btn sm" data-action="ntf-edit" data-id="${n.id}" title="Edit" aria-label="Edit"><i class="fa-regular fa-pen-to-square"></i></button></div>
+    </div>
+  </div>`;
+}
+function openNotifyForm(existing) {
+  const isNew = !existing;
+  const n = existing ? { ...existing } : { type: 'balances', time: NOTIFY_TYPES.balances.time, repeat: 'daily', enabled: true };
+  const tiles = Object.entries(NOTIFY_TYPES).map(([k, t]) => `<input type="radio" name="type" id="nt_${k}" value="${k}" ${n.type === k ? 'checked' : ''}><label for="nt_${k}"><i class="fa-solid ${t.icon}"></i><span>${t.label}</span></label>`).join('');
+  const optsHtml = (type, vals) => (NOTIFY_TYPES[type].opts || []).map(([key, kind, label, a, b]) => {
+    const v = vals[key] ?? (kind === 'select' ? b : a);
+    if (kind === 'check') return checkbox(`o_${key}`, v !== false, label);
+    if (kind === 'select') return field(label, select(`o_${key}`, a, String(v)));
+    if (kind === 'number') return field(label, input(`o_${key}`, v, 'type="number" min="0" step="1"'));
+    return field(label, input(`o_${key}`, v ?? '', 'maxlength="120"'));
+  }).join('');
+  openModal({
+    title: isNew ? 'Add notification' : 'Edit notification',
+    wide: true,
+    body: `<div><span class="lbl">What should it tell you?</span><div class="type-grid ntf-grid">${tiles}</div><p class="hint mt-2" data-desc></p></div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        ${field('Time (India)', input('time', n.time, 'type="time" required'))}
+        ${field('Repeat', select('repeat', [['daily', 'Every day'], ['weekdays', 'Monday to Friday'], ['weekends', 'Saturday and Sunday'], ['weekly', 'Once a week'], ['monthly', 'Once a month']], n.repeat || 'daily'))}
+        <div data-wk>${field('Day', select('weekday', WEEKDAY_NAMES.map((d, i) => [String(i), d]), String(n.weekday ?? 0)))}</div>
+        <div data-md>${field('Day of the month', select('monthDay', [...Array.from({ length: 28 }, (_, i) => [String(i + 1), ordinal(i + 1)]), ['last', 'Last day']], String(n.monthDay ?? 1)))}</div>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-opts>${optsHtml(n.type, n)}</div>
+      ${checkbox('hideAmounts', !!n.hideAmounts, 'Hide amounts (show ••• instead)', 'For privacy: the message still tells you what happened, without rupee figures.')}
+      <div><span class="lbl">Preview (with today's data)</span><div class="ntf-phone" data-preview></div></div>`,
+    submitLabel: isNew ? 'Add' : 'Save',
+    onOpen: (form) => {
+      const sig = { signal: modalSignal() };
+      const read = () => {
+        const d = readForm(form);
+        const rec = { type: d.type, time: d.time || '09:00', repeat: d.repeat, weekday: int(d.weekday), monthDay: d.monthDay === 'last' ? 'last' : int(d.monthDay), hideAmounts: !!d.hideAmounts };
+        for (const [key, kind] of NOTIFY_TYPES[d.type].opts || []) { const v = d[`o_${key}`]; rec[key] = kind === 'check' ? !!v : kind === 'number' ? num(v) : kind === 'select' ? v : v || ''; }
+        return rec;
+      };
+      const refresh = () => {
+        const r = read();
+        $('[data-desc]', form).textContent = NOTIFY_TYPES[r.type].desc;
+        $('[data-wk]', form).hidden = r.repeat !== 'weekly';
+        $('[data-md]', form).hidden = r.repeat !== 'monthly';
+        const p = previewNotification(r);
+        $('[data-preview]', form).innerHTML = p ? `<div class="ntf-app">ntfy · ${esc(fmtTime12(r.time))}</div><b>${esc(p.title)}</b><div>${esc(p.message).replace(/\n/g, '<br>')}</div>` : '<span class="text-ink-3">Nothing to say with today\'s data, so it would stay silent. It will speak up when there is something.</span>';
+      };
+      form.addEventListener('change', (e) => {
+        if (e.target.name === 'type') {
+          const T = NOTIFY_TYPES[e.target.value];
+          $('[data-opts]', form).innerHTML = optsHtml(e.target.value, {});
+          form.elements.time.value = T.time;
+          form.elements.repeat.value = T.repeat || 'daily';
+          if (T.weekday !== undefined) form.elements.weekday.value = String(T.weekday);
+          if (T.monthDay !== undefined) form.elements.monthDay.value = String(T.monthDay);
+        }
+        refresh();
+      }, sig);
+      form.addEventListener('input', refresh, sig);
+      refresh();
+      form._read = read;
+    },
+    onSubmit: (d, form) => {
+      const rec = { ...(existing || {}), ...form._read(), id: existing?.id || uid('ntf'), enabled: existing ? existing.enabled !== false : true };
+      commit([opUpsert('notifications', rec)], `${isNew ? 'Add' : 'Edit'} notification ${rec.type}`);
+      toast(isNew ? 'Notification added' : 'Saved', 'success');
+      scheduleNotifySync();
+    },
+    onDelete: existing ? () => {
+      commit([opDelete('notifications', existing.id)], 'Delete notification');
+      scheduleNotifySync();
+    } : null,
+  });
+}
+function addRecommendedNotifications() {
+  const ops = RECOMMENDED.filter((r) => !db.notifications.some((n) => n.type === r.type)).map((r) => {
+    const T = NOTIFY_TYPES[r.type];
+    const extra = Object.fromEntries((T.opts || []).map(([k, kind, , a, b]) => [k, kind === 'select' ? b : a]));
+    return opUpsert('notifications', { id: uid('ntf'), repeat: T.repeat || 'daily', weekday: T.weekday, monthDay: T.monthDay, ...extra, ...r, enabled: true });
+  });
+  commit(ops, 'Add recommended notifications');
+  toast(`Added ${ops.length} notifications. Edit or switch off any of them.`, 'success');
+  scheduleNotifySync();
+}
+function changeTopic() {
+  if (db.settings.ntfyTopic && !confirm('Make a new topic? You will need to subscribe to the new name in the ntfy app.')) return;
+  commit([opSettings({ ntfyTopic: randomTopic() })], 'New notification topic');
+  scheduleNotifySync();
 }
 
 /* ---------------------------------------------------------------------
@@ -5175,7 +5740,7 @@ function deleteTxn(id) {
   const t = db.transactions.find((x) => x.id === id);
   if (!t) return;
   if (!confirm(`Delete this ${t.type} of ${money(t.amount)}${t.description ? ` (${t.description})` : ''}? Balances will be recalculated.`)) return false;
-  commit([opDelete('transactions', id)], `Delete ${t.type} ${money(t.amount)}`);
+  commit([...learnFromEntries([t]), opDelete('transactions', id)], `Delete ${t.type} ${money(t.amount)}`); // its category stays remembered
   toast('Transaction deleted');
 }
 
@@ -6016,6 +6581,15 @@ const ACTIONS = {
   'imp-range': (d) => importRange(d.r),
   'imp-all': (d) => { imp.rows.forEach((r) => { r.include = d.v === '1' && !r.match && r.kind !== 'skip'; }); render(); },
   'rules-open': () => openRules(),
+  'ntf-add': () => openNotifyForm(null),
+  'ntf-edit': (d) => openNotifyForm(db.notifications.find((x) => x.id === d.id)),
+  'ntf-send': (d) => sendNotificationNow(db.notifications.find((x) => x.id === d.id)),
+  'ntf-recommended': () => addRecommendedNotifications(),
+  'ntf-topic': () => changeTopic(),
+  'ntf-copy': () => { navigator.clipboard?.writeText(db.settings.ntfyTopic || '').then(() => toast('Topic copied')); },
+  'ntf-test': () => sendTestNotification(db.settings.ntfyTopic),
+  'ntf-sync': () => syncNotifyWorkflow(),
+  'rules-learn': () => { const ops = learnFromEntries(); if (ops.length) commit(ops, `Remember choices from ${ops.length} payees`); toast(ops.length ? `Remembered ${ops.length} more payee${ops.length === 1 ? '' : 's'} from your entries.` : 'Everything is already remembered.', 'success'); openRules(); },
   'rule-del': (d, el) => { commit([opDelete('rules', d.id)], 'Forget a remembered choice'); el.closest('.row')?.remove(); },
   'imp-go': () => importGo(),
   'import-undo': (d) => importUndo(d.batch),
@@ -6089,6 +6663,14 @@ function init() {
   // Statement import page
   document.addEventListener('change', (e) => { if (location.hash === '#import') onImportChange(e); });
 
+  // Notification on/off switches
+  document.addEventListener('change', (e) => {
+    const id = e.target.dataset?.ntfToggle;
+    if (!id) return;
+    const n = db.notifications.find((x) => x.id === id);
+    if (n) { commit([opUpsert('notifications', { ...n, enabled: e.target.checked })], `${e.target.checked ? 'Turn on' : 'Turn off'} notification`); scheduleNotifySync(); }
+  });
+
   // Filters shown on a chart (top right)
   document.addEventListener('change', (e) => { if (e.target.dataset?.chartFilter) onChartFilter(e.target); });
 
@@ -6140,6 +6722,8 @@ function init() {
   // (SIPs, EMIs, subscriptions), then refresh fund and stock prices.
   const afterStart = () => {
     processAutoPayments();
+    learnFromEntriesOnce(); // turn your existing entries into remembered import choices (first run only)
+    notifyOnStart(); // custom notifications: first-run setup and keeping the phone schedule up to date
     // Units for SIP instalments whose NAV is out, then (if due) fresh prices.
     setTimeout(async () => { await autoAllotUnits(); refreshPrices({ auto: true }); }, 300);
   };
