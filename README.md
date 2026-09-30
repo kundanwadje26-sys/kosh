@@ -238,6 +238,37 @@ By default SIPs also count as *money going out* in the "Where the money went" ch
 
 ---
 
+### Money health (menu → Money health)
+
+Everything here is worked out from your own data. Features marked **PRO** will be part of Premium in the Play Store app; in this version they are all unlocked.
+
+- **Health score (0–100):** five bars of up to 20 points each: emergency runway (aim 6 months), savings rate (aim 30% of income kept), card usage (aim under 30% of limits), EMIs vs income (aim under 30%), investing (aim 20% of income). Improve the weakest bar first.
+- **Emergency runway:** how long your cash and bank money would cover essential costs (rent and bills, EMIs, and your average groceries, transport, health, fuel, insurance, education) if income stopped. **Settings** lets you also count FDs and liquid funds.
+- **Fun money:** a guilt-free monthly allowance for the categories you choose. The jar counts down as you spend and shows how much you can spend per day; it refills on the 1st.
+- **Cash-flow forecast (PRO):** each bank and cash account's balance from today to month end (or 30 days), using scheduled salary, bills, EMIs and SIPs plus your everyday spending pace, with a warning if an account may go below zero (or a buffer you set).
+- **Credit health:** card usage per card and overall against the 30% line, plus **Log my score** to record your CIBIL/Experian score each month and see the trend. The app can't fetch your score itself; you can get a free report each year from each credit bureau.
+- **Idle cash (PRO):** flags money that has stayed in a bank account for a month above a set number of months of your spending (3 by default).
+- **Lifestyle creep (PRO):** after 6 months of data, compares how your spending on dining, shopping, entertainment, travel and similar grows with how your income grows.
+- **Suggestions:** the features talk to each other. For example, if your runway falls under 3 months the app suggests lowering fun money (one tap, never silently); it also flags accounts heading below zero, card usage over 30%, idle cash, goals behind plan, cool-offs that have ended and an unapplied salary-day plan. They appear on Money health and the dashboard; the × hides one for a week.
+
+### Planners (menu → Planners)
+
+Calculators that update as you type or slide. They show assumptions and are estimates, not financial or tax advice.
+
+- **Financial freedom (PRO):** from your age, spending, investments, monthly investing and yearly step-up, expected return, inflation, safe withdrawal rate and future lifestyle, it estimates the age you could be financially independent, with a range for returns 2% better or worse, a chart, and how much sooner investing 20% more would get you there. Add your year of birth in Settings to fill in your age.
+- **Loan prepayment (PRO):** pick a loan (or type one) and an extra payment now and/or every month; see interest saved and how much sooner it ends, or the lower EMI if you keep the end date. Also lists your debts highest-interest first.
+- **Capital gains (PRO):** for equity funds, stocks and ETFs whose units the app knows, shows gains booked this financial year, how much of the ₹1.25 lakh tax-free long-term limit is left, unbooked long-term gains you could book tax-free ("gain harvesting"), holdings at a loss that could offset gains, and an estimated tax (long-term 12.5% above ₹1.25 lakh, short-term 20%, plus 4% cess). Update `CG_RULES` in app.js if a budget changes these.
+- **Regular vs Direct (PRO):** for funds whose name says Regular, the extra yearly cost, the cost over 10 years, the tax and exit load of switching now, and how many months the switch takes to pay for itself.
+- **Salary-day plan:** decide once where salary goes (towards goals, moved to savings or investment accounts, reminders). When salary arrives the dashboard offers **Apply plan**. Includes the 50/30/20 rule of thumb.
+- **Year in review:** your year in money (money in, spent, invested, kept, net worth change, no-spend days, top category, favourite place, biggest spend, saving wins, goals reached), with **Share**.
+
+### Split a bill, and the cool-off list
+
+- **Split a bill** (People page or dashboard): total, who paid, who shared it (add new people inline), split equally, by amounts or by percentages. If you paid, your share is your expense and everyone else's share is added to what they owe you; if someone else paid, your share is added to what you owe them. Splits are listed on the People page and can be deleted as one.
+- **I want to buy this** (dashboard or Goals page): log a tempting purchase instead of buying it. It shows what the money could become if invested (at an assumed 12% a year). After the cool-off (48 hours by default) decide: **Skip it** (a saving win, totalled on the Goals page and in Year in review) or keep it on the wishlist.
+
+New phone notifications: **Fun money left**, **Emergency runway**, **Card usage alert** and **Cool-off ready**.
+
 ### Using KOSH on a phone
 
 On a phone the app is laid out for one hand:
@@ -435,7 +466,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 
 ## Part 10 — What changed in this version
 
-**Newest:** a phone-friendly layout (bottom bar, quick add, day-grouped transactions, labelled buttons, cards instead of wide tables). Before that: a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
+**Newest:** Money health (score, runway, cash-flow forecast, fun money, credit health, idle cash, lifestyle creep, suggestions), Planners (financial freedom, loan prepayment, capital gains, Regular vs Direct, salary-day plan, year in review), bill splitting and the cool-off list. Before that: a phone-friendly layout (bottom bar, quick add, day-grouped transactions, labelled buttons, cards instead of wide tables). Before that: a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
 
 **Before that:** statement import reads account and card numbers (including short `xx50` card numbers), has a *Read it from the statement* option, turns payments to your own account numbers into self transfers, matches payments across PhonePe and bank statements by UTR (and can correct the account), and remembers your categories and account numbers permanently, including after you delete transactions or edit a category.
 

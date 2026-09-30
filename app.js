@@ -37,7 +37,7 @@ const STORAGE_KEYS = {
 };
 const APP_NAME = "Kundan's Finance";
 const SCHEMA_VERSION = 3; // v2 added `sips`, v3 goals/wishlist/rules/taxItems; older files load unchanged
-const COLLECTIONS = ['accounts', 'transactions', 'emis', 'subscriptions', 'budgets', 'sips', 'charts', 'goals', 'wishlist', 'rules', 'taxItems', 'notifications'];
+const COLLECTIONS = ['accounts', 'transactions', 'emis', 'subscriptions', 'budgets', 'sips', 'charts', 'goals', 'wishlist', 'rules', 'taxItems', 'notifications', 'creditScores'];
 
 const ACCOUNT_TYPES = {
   cash:        { label: 'Cash & wallets',        single: 'Cash or wallet', icon: 'fa-wallet' },
@@ -214,7 +214,7 @@ function emptyDB() {
     meta: { app: 'kosh-expense-tracker', updatedAt: null },
     settings: clone(DEFAULT_SETTINGS),
     accounts: [], transactions: [], emis: [], subscriptions: [], budgets: [], sips: [], charts: [],
-    goals: [], wishlist: [], rules: [], taxItems: [], notifications: [],
+    goals: [], wishlist: [], rules: [], taxItems: [], notifications: [], creditScores: [],
   };
 }
 /** Makes sure any loaded JSON has every expected key (safe against old/partial files).
@@ -1077,12 +1077,14 @@ function bindModal() {
 const PAGES = {
   dashboard:     { title: 'Dashboard',        icon: 'fa-chart-pie' },
   insights:      { title: 'Insights',         icon: 'fa-lightbulb' },
+  health:        { title: 'Money health',     short: 'Health', icon: 'fa-heart-pulse' },
   transactions:  { title: 'Transactions',     icon: 'fa-list' },
   calendar:      { title: 'Calendar',         icon: 'fa-calendar-days' },
   import:        { title: 'Import statement', short: 'Import', icon: 'fa-file-import' },
   accounts:      { title: 'Accounts',         icon: 'fa-building-columns' },
   portfolio:     { title: 'Portfolio',        icon: 'fa-chart-line' },
   goals:         { title: 'Goals & wishlist', short: 'Goals', icon: 'fa-flag-checkered' },
+  planner:       { title: 'Planners',         icon: 'fa-compass' },
   people:        { title: 'People',           icon: 'fa-user-group' },
   notifications: { title: 'Notifications',    icon: 'fa-bell' },
   subscriptions: { title: 'Recurring',        icon: 'fa-rotate' },
@@ -1119,7 +1121,7 @@ function render() {
   $$('[data-brand]').forEach((el) => { el.textContent = brand; });
   const view = $('#view');
   const fn = {
-    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, notifications: renderNotifications, transactions: renderTransactions,
+    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, health: renderHealth, planner: renderPlanner, notifications: renderNotifications, transactions: renderTransactions,
     emis: renderEmis, subscriptions: renderSubscriptions, budgets: renderBudgets, data: renderData,
   }[page];
   view.innerHTML = fn();
@@ -1207,7 +1209,14 @@ function renderDashboard() {
     ${installCard()}
     ${gettingStarted()}
     ${logNudge()}
+    ${nudgeStrip(2, true)}
     ${netWorthPanel(T)}
+    <div class="quick-actions" aria-label="Quick actions">
+      <button class="qa" data-action="split-new"><i class="fa-solid fa-people-arrows"></i><span>Split a bill</span></button>
+      <button class="qa" data-action="cool-new"><i class="fa-solid fa-hourglass-half"></i><span>I want to buy this</span></button>
+      <a class="qa" href="#health"><i class="fa-solid fa-heart-pulse"></i><span>Money health</span></a>
+      <a class="qa" href="#planner"><i class="fa-solid fa-compass"></i><span>Planners</span></a>
+    </div>
     ${dashboardInsights()}
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
@@ -1251,6 +1260,7 @@ function renderDashboard() {
           ${budgetMini()}
         </section>
         ${subscriptionPanel()}
+        ${healthMini()}
         ${goalsMini()}
       </div>
     </div>
@@ -3621,6 +3631,7 @@ function renderPeople() {
       <p class="text-sm text-ink-2 max-w-2xl">Money you lend or borrow, with family and friends, and home expenses you'll take back. Balances count in your net worth.</p>
       <div class="flex gap-2 flex-wrap">
         <button class="btn" data-action="person-add"><i class="fa-solid fa-user-plus"></i> Add person</button>
+        <button class="btn" data-action="split-new"><i class="fa-solid fa-people-arrows"></i> Split a bill</button>
         <button class="btn btn-primary" data-action="add-txn" data-type="expense" data-home="1"><i class="fa-solid fa-house"></i> Add home expense</button>
       </div>
     </div>
@@ -3664,7 +3675,8 @@ function renderPeople() {
           <div class="min-w-0 flex-1">${esc(t.description || t.category)} <span class="text-ink-3">${fmtDate(t.date)}</span></div>
           <div class="num">${money(t.amount)}</div><span class="pill in">Taken back ${t.settledOn ? fmtDate(t.settledOn) : ''}</span>
           <button class="link text-xs" data-action="home-unsettle" data-id="${t.id}">Undo</button></div>`).join('')}</div></details>` : ''}
-    </section>`;
+    </section>
+    ${splitsSection()}`;
 }
 
 function openPersonForm(existing) {
@@ -3840,6 +3852,7 @@ function goalCard(g) {
     </div>
     <div class="flex items-baseline justify-between mt-4 gap-2"><span class="display text-2xl font-semibold num">${money(s.saved)}</span><span class="text-sm text-ink-3 num">of ${money(s.target)}</span></div>
     <div class="bar mt-2" style="height:10px"><span style="width:${s.pct * 100}%;background:${goalColor(g)}"></span></div>
+    ${(() => { const lag = !g.done && goalLag(g); return lag && lag.behind > 500 ? `<div class="text-xs mt-2 text-loss font-semibold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${money(lag.behind)} behind plan.${lag.reason ? ` ${esc(lag.reason)}` : ''}</div>` : ''; })()}
     <div class="text-xs text-ink-2 mt-2">${s.status === 'done' ? 'Goal reached. Well done!' : `${Math.round(s.pct * 100)}% saved, ${money(s.left)} to go${s.perMonth ? `. Save <b class="num">${money(s.perMonth)}</b> a month to make it` : ''}.`}</div>
     ${g.done ? '' : `<div class="flex gap-2 mt-4"><button class="btn btn-sm btn-primary" data-action="goal-add" data-id="${g.id}"><i class="fa-solid fa-plus"></i> Add money</button>
       <button class="btn btn-sm" data-action="goal-add" data-id="${g.id}" data-take="1">Take out</button></div>`}
@@ -3848,18 +3861,28 @@ function goalCard(g) {
 
 function renderGoals() {
   const goals = db.goals.slice().sort((a, b) => (a.done - b.done) || (a.targetDate || '9999').localeCompare(b.targetDate || '9999'));
-  const wants = db.wishlist.slice().sort((a, b) => ((a.status === 'bought') - (b.status === 'bought')) || ({ high: 0, medium: 1, low: 2 }[a.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.priority] ?? 1));
+  const cooling = db.wishlist.filter((w) => w.status === 'cooling');
+  const wins = savingWins(), winCount = db.wishlist.filter((w) => w.status === 'skipped').length;
+  const wants = db.wishlist.filter((w) => !['cooling', 'skipped'].includes(w.status)).sort((a, b) => ((a.status === 'bought') - (b.status === 'bought')) || ({ high: 0, medium: 1, low: 2 }[a.priority] ?? 1) - ({ high: 0, medium: 1, low: 2 }[b.priority] ?? 1));
   const avg = avgLeftOver();
   const wantedTotal = wants.filter((w) => w.status !== 'bought').reduce((s, w) => s + num(w.price), 0);
   return `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
       <p class="text-sm text-ink-2 max-w-2xl">Save towards things that matter, and keep a list of what you want to buy. The app tells you how much to put aside each month.</p>
-      <div class="flex gap-2 flex-wrap"><button class="btn" data-action="wish-add"><i class="fa-solid fa-plus"></i> Add to wishlist</button>
+      <div class="flex gap-2 flex-wrap"><button class="btn" data-action="cool-new"><i class="fa-solid fa-hourglass-half"></i> I want to buy this</button><button class="btn" data-action="wish-add"><i class="fa-solid fa-plus"></i> Add to wishlist</button>
         <button class="btn btn-primary" data-action="goal-new"><i class="fa-solid fa-bullseye"></i> New goal</button></div>
     </div>
     <h2 class="display text-xl font-semibold mb-3">Goals</h2>
     ${goals.length ? `<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">${goals.map(goalCard).join('')}</div>`
       : `<section class="panel">${emptyState('fa-bullseye', 'No goals yet. Emergency fund, a trip, a bike: set a target and a date.', '<button class="btn btn-primary" data-action="goal-new">Set your first goal</button>')}</section>`}
+
+    <div class="flex items-baseline justify-between gap-3 mt-8 mb-3"><h2 class="display text-xl font-semibold">Cool-off list</h2>${wins ? `<span class="text-sm text-gain font-semibold"><i class="fa-solid fa-trophy mr-1"></i>${winCount} saving win${winCount === 1 ? '' : 's'}: ${money(wins)} kept</span>` : ''}</div>
+    ${cooling.length ? `<section class="panel p-5"><div class="divider">${cooling.map((w) => { const left = coolLeft(w); return `<div class="row">
+      <span class="goal-icon sm" style="background:${left ? '#94A3B8' : '#12A150'}"><i class="fa-solid ${left ? 'fa-hourglass-half' : 'fa-hourglass-end'}"></i></span>
+      <div class="min-w-0 flex-1"><div class="font-medium">${esc(w.name)}</div><div class="text-xs text-ink-3">${left ? `Cooling off: decide in ${left}` : 'Cool-off over: time to decide'} · invested, about ${money(investIllustration(w.price).value)} in ${investIllustration(w.price).years} years</div></div>
+      <div class="num font-semibold">${money(w.price)}</div>
+      <div class="row-actions">${left ? `<button class="icon-btn sm" data-action="cool-skip" data-id="${w.id}" title="Skip it now" aria-label="Skip it now"><i class="fa-solid fa-trophy"></i></button>` : `<button class="icon-btn sm" data-action="cool-decide" data-id="${w.id}" title="Decide" aria-label="Decide"><i class="fa-solid fa-scale-balanced"></i></button>`}</div></div>`; }).join('')}</div></section>`
+      : `<section class="panel p-5"><p class="text-sm text-ink-2">Tempted to buy something? Tap <b>I want to buy this</b> instead of checking out. After a 48-hour cool-off you decide; skipping it counts as a saving win.</p></section>`}
 
     <div class="flex items-baseline justify-between gap-3 mt-8 mb-3"><h2 class="display text-xl font-semibold">Wishlist</h2>
       ${wantedTotal ? `<span class="text-sm text-ink-3">${money(wantedTotal)} in total${avg > 0 ? `, about ${Math.ceil(wantedTotal / avg)} month${Math.ceil(wantedTotal / avg) > 1 ? 's' : ''} of your usual savings` : ''}</span>` : ''}</div>
@@ -5309,6 +5332,42 @@ function koshNotifyEngine(db, at, n) {
       if (!pending.length) return null;
       return out('SIP units to confirm', `${pending.length} purchase${pending.length === 1 ? '' : 's'} still need units. Open the Portfolio page to check them.`, ['clipboard']);
     }
+    case 'fun_money': {
+      const cfg = S.funMoney || {};
+      if (!num(cfg.monthly)) return null;
+      const cats = cfg.categories || [];
+      const spentFun = tx.filter((t) => t.type === 'expense' && t.date >= monthStart && t.date <= today && cats.includes(t.category)).reduce((s, t) => s + num(t.amount), 0);
+      const left = num(cfg.monthly) - spentFun, daysLeft = daysIn - elapsed + 1;
+      return out(left >= 0 ? `Fun money left: ${fmt(left)}` : 'Fun money used up', left >= 0 ? `About ${fmt(left / daysLeft)} a day for ${daysLeft} days. Enjoy it guilt-free.` : `Over by ${fmt(-left)} this month. It refills on the 1st.`, ['tada']);
+    }
+    case 'runway': {
+      const b = balances(today);
+      const liquid = acc.filter((a) => !a.archived && (a.type === 'cash' || a.type === 'bank')).reduce((s, a) => s + Math.max(0, b[a.id] || 0), 0);
+      const perMonth = { weekly: 4.33, monthly: 1, quarterly: 1 / 3, half_yearly: 1 / 6, yearly: 1 / 12 };
+      const fixed = (db.subscriptions || []).filter((s) => s.active && s.kind === 'bill').reduce((s, x) => s + num(x.amount) * (perMonth[x.frequency] || 1), 0)
+        + (db.emis || []).reduce((s, e) => s + (emiInfo(e).next ? emiInfo(e).emi : 0), 0);
+      const ess = ['Groceries', 'Utilities', 'Health', 'Transport', 'Fuel', 'Insurance', 'Education'];
+      const from3 = addMonths(monthStart, -3);
+      const variable = tx.filter((t) => t.type === 'expense' && t.date >= from3 && t.date < monthStart && ess.includes(t.category)).reduce((s, t) => s + num(t.amount), 0) / 3;
+      const need = fixed + variable;
+      if (!need) return null;
+      const months = liquid / need;
+      return out(`Emergency runway: ${Math.floor(months)} months ${Math.round((months % 1) * 30)} days`, [`${fmt(liquid)} of cash and bank money covers ${fmt(need)} of essential costs a month.`, months < 3 ? 'Below 3 months: building this up is the priority.' : months >= 6 ? 'Six months or more: a strong safety net.' : 'Aim for 6 months.'], ['shield'], months < 3 ? 4 : 3);
+    }
+    case 'credit_use': {
+      const b = balances(today), th = num(n.threshold ?? 30);
+      const cards = acc.filter((a) => a.type === 'credit_card' && !a.archived && num(a.creditLimit) > 0);
+      const blocked = (a) => (db.emis || []).filter((e) => e.accountId === a.id && e.kind === 'credit_card').reduce((s, e) => s + emiInfo(e).left, 0);
+      const usedOf = (a) => Math.max(0, -(b[a.id] || 0)) + blocked(a);
+      const limit = cards.reduce((s, a) => s + num(a.creditLimit), 0), used = cards.reduce((s, a) => s + usedOf(a), 0);
+      if (!limit || pct(used, limit) < th) return null;
+      return out(`Card usage at ${pct(used, limit)}%`, ['High card usage can dip your credit score for a while. Paying part of the bill before the statement date helps.', ...cards.map((a) => `${a.name}: ${pct(usedOf(a), num(a.creditLimit))}%`)], ['credit_card'], 4);
+    }
+    case 'cooloff': {
+      const ready = (db.wishlist || []).filter((w) => w.status === 'cooling' && w.coolUntil && w.coolUntil.slice(0, 10) <= today);
+      if (!ready.length) return null;
+      return out('Cool-off over: still want it?', ready.map((w) => `${w.name} (${fmt(w.price)}): skip it for a saving win, or keep it on your wishlist.`), ['hourglass']);
+    }
     case 'custom':
       return out(n.title || 'Reminder', n.text || '', ['bell']);
     default:
@@ -5348,6 +5407,10 @@ const NOTIFY_TYPES = {
   goals:        { label: 'Goals progress', icon: 'fa-flag-checkered', desc: 'How far along each goal is and what to save each month.', time: '10:00', repeat: 'weekly', weekday: 0 },
   people:       { label: 'Money with people', icon: 'fa-user-group', desc: 'Who owes you, what you owe, home expenses to take back.', time: '11:00', repeat: 'weekly', weekday: 0 },
   units:        { label: 'SIP units to confirm', icon: 'fa-clipboard-check', desc: 'Purchases whose units still need checking.', time: '19:00', repeat: 'weekly', weekday: 6 },
+  fun_money:    { label: 'Fun money left', icon: 'fa-champagne-glasses', desc: 'How much guilt-free money is left this month, per day.', time: '19:00', repeat: 'weekly', weekday: 5 },
+  runway:       { label: 'Emergency runway', icon: 'fa-life-ring', desc: 'How many months your cash and bank money would last on essential costs.', time: '10:00', repeat: 'monthly', monthDay: 1 },
+  credit_use:   { label: 'Card usage alert', icon: 'fa-gauge', desc: 'When card spending passes a share of your limits (30% by default), which can dip your credit score.', time: '19:30', opts: [['threshold', 'number', 'Alert at % of limits', 30]] },
+  cooloff:      { label: 'Cool-off ready', icon: 'fa-hourglass-end', desc: 'When a cool-off on something you wanted to buy is over.', time: '12:00' },
   custom:       { label: 'Your own reminder', icon: 'fa-bell', desc: 'Any text, e.g. "Pay the maid" on the 1st of every month.', time: '10:00', opts: [['title', 'text', 'Title', 'Reminder'], ['text', 'text', 'Message', '']] },
 };
 const RECOMMENDED = [
@@ -5947,6 +6010,865 @@ function openCalendarDay(date) {
     submitLabel: 'Done', cancelLabel: 'Close', onSubmit: () => {},
   });
 }
+
+/* ===== Money health =====
+   Everything here is calculated from your own data, in the app:
+   - Emergency runway: how long liquid money lasts on essential costs
+   - Cash-flow forecast: each bank account's balance until month end
+   - Fun money: a guilt-free monthly allowance that counts down
+   - Credit health: card usage (the 30% rule) plus a score you log
+   - Idle cash: money sitting in savings well above what you need
+   - Lifestyle creep: spending growing faster than income
+   - Health score: 0 to 100 from five of the above
+   Features marked PRO will be part of Premium in the Play Store app; here
+   they are all unlocked so you can test them. */
+const PRO = '<span class="pro-chip" title="Part of Premium in the Play Store app">PRO</span>';
+const ESSENTIAL_CATS = ['Rent', 'Groceries', 'Utilities', 'Health', 'Transport', 'Fuel', 'Insurance', 'Education', 'EMI'];
+const DISCRETIONARY_CATS = ['Food & dining', 'Shopping', 'Entertainment', 'Travel', 'Personal care', 'Subscriptions'];
+const FUN_DEFAULT = { monthly: 0, categories: ['Shopping', 'Entertainment', 'Food & dining'] };
+const fullMonths = (n) => lastMonths(addMonths(`${thisMonth()}-01`, -1).slice(0, 7), n);
+const avgOf = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0);
+
+/** Balance of one account at the end of a day. */
+function accountBalanceAt(accId, date) {
+  const a = accountById(accId);
+  if (!a || (a.openingDate || '') > date) return 0;
+  let b = num(a.openingBalance);
+  for (const t of db.transactions) {
+    if (!t.date || t.date > date || t.date < (a.openingDate || '')) continue;
+    if (t.fromAccountId === accId) b -= num(t.amount);
+    if (t.toAccountId === accId) b += num(t.amount);
+  }
+  return round2(b);
+}
+/** Average of the last n full months (only months that have any data). */
+function monthlyAverages(n = 3) {
+  const first = [...db.transactions.map((t) => t.date)].filter(Boolean).sort()[0]?.slice(0, 7) || thisMonth();
+  const months = fullMonths(n).filter((m) => m >= first);
+  const S = months.map(monthSummary);
+  const cat = {};
+  for (const m of months) for (const t of db.transactions) if (t.type === 'expense' && t.date?.startsWith(m)) cat[t.category || 'Other'] = (cat[t.category || 'Other'] || 0) + num(t.amount) / (months.length || 1);
+  return { months, income: avgOf(S.map((s) => s.income)), spent: avgOf(S.map((s) => s.spent)), invested: avgOf(S.map((s) => s.invested)), cat };
+}
+
+/* ----- Emergency runway ----- */
+function runwayData() {
+  const avg = monthlyAverages(3);
+  const liquidAcc = db.accounts.filter((a) => !a.archived && (a.type === 'cash' || a.type === 'bank'));
+  const deposits = db.settings.runwayIncludeDeposits ? db.accounts.filter((a) => !a.archived && a.type === 'investment' && (isDeposit(a) || /liquid|overnight/i.test(a.name))) : [];
+  const liquid = [...liquidAcc, ...deposits].reduce((s, a) => s + Math.max(0, M.balances.get(a.id) || 0), 0);
+  const fixed = db.subscriptions.filter((s) => s.active && recurKind(s) === 'bill').reduce((s, x) => s + num(x.amount) * perMonthOf(x.frequency), 0)
+    + M.emis.filter(({ c }) => c.status === 'active').reduce((s, { c }) => s + c.emi, 0);
+  const variableEssentials = ESSENTIAL_CATS.filter((c) => c !== 'Rent' || !db.subscriptions.some((s) => s.active && recurKind(s) === 'bill' && s.category === 'Rent')).reduce((s, c) => s + (avg.cat[c] || 0), 0);
+  const essential = round2(fixed + variableEssentials);
+  const months = essential > 0 ? liquid / essential : null;
+  return { liquid: round2(liquid), essential, fixed: round2(fixed), variableEssentials: round2(variableEssentials), months, days: months === null ? null : Math.round((months % 1) * 30), whole: months === null ? null : Math.floor(months), deposits: deposits.length };
+}
+
+/* ----- Fun money jar ----- */
+function funMoney() {
+  const cfg = { ...FUN_DEFAULT, ...(db.settings.funMoney || {}) };
+  const mk = thisMonth();
+  const spent = db.transactions.filter((t) => t.type === 'expense' && t.date?.startsWith(mk) && cfg.categories.includes(t.category)).reduce((s, t) => s + num(t.amount), 0);
+  const d = parseDate(todayStr()), dim = daysInMonth(d.getFullYear(), d.getMonth()), daysLeft = dim - d.getDate() + 1;
+  const left = round2(num(cfg.monthly) - spent);
+  return { ...cfg, spent: round2(spent), left, daysLeft, perDay: left > 0 ? left / daysLeft : 0, pct: num(cfg.monthly) > 0 ? spent / num(cfg.monthly) : 0 };
+}
+
+/* ----- Credit health ----- */
+function creditHealth() {
+  const cards = db.accounts.filter((a) => a.type === 'credit_card' && !a.archived && num(a.creditLimit) > 0).map((a) => ({ a, m: cardMetrics(a) }));
+  const limit = cards.reduce((s, c) => s + c.m.limit, 0);
+  const used = cards.reduce((s, c) => s + Math.max(0, c.m.outstanding) + c.m.blocked, 0);
+  const scores = (db.creditScores || []).slice().sort((x, y) => x.date.localeCompare(y.date));
+  return { cards, limit, used, util: limit ? used / limit : 0, scores, latest: scores[scores.length - 1] || null };
+}
+
+/* ----- Idle cash ----- */
+function idleCash() {
+  const avg = monthlyAverages(3);
+  const monthlyOut = Math.max(avg.spent + avg.invested, 1);
+  const keep = monthlyOut * num(db.settings.idleMonths ?? 3);
+  const today = todayStr();
+  return db.accounts.filter((a) => a.type === 'bank' && !a.archived).map((a) => {
+    const lowest = Math.min(...[0, 10, 20, 30].map((d) => accountBalanceAt(a.id, addDays(today, -d))));
+    return { a, lowest, extra: round2(lowest - keep), keep: round2(keep) };
+  }).filter((x) => avg.months.length && x.extra > 5000);
+}
+
+/* ----- Lifestyle creep ----- */
+function lifestyleCreep() {
+  const allMonths = [...new Set(db.transactions.map((t) => t.date?.slice(0, 7)).filter(Boolean))].sort().filter((m) => m < thisMonth());
+  if (allMonths.length < 6) return { ready: false, have: allMonths.length };
+  const recent = allMonths.slice(-3);
+  const yearAgo = recent.map((m) => addMonths(`${m}-01`, -12).slice(0, 7));
+  const base = yearAgo.every((m) => allMonths.includes(m)) ? yearAgo : allMonths.slice(0, 3);
+  const sum = (months, fn) => months.reduce((s, m) => s + db.transactions.filter((t) => t.date?.startsWith(m) && fn(t)).reduce((x, t) => x + num(t.amount), 0), 0) / months.length;
+  const g = (a, b) => (b > 0 ? (a - b) / b : null);
+  const incNow = sum(recent, (t) => t.type === 'income'), incThen = sum(base, (t) => t.type === 'income');
+  const incGrowth = g(incNow, incThen);
+  const cats = DISCRETIONARY_CATS.map((c) => { const now = sum(recent, (t) => t.type === 'expense' && t.category === c), then = sum(base, (t) => t.type === 'expense' && t.category === c); return { c, now, then, growth: g(now, then) }; })
+    .filter((x) => x.then > 0 || x.now > 0);
+  const flagged = cats.filter((x) => x.growth !== null && x.now - x.then > 500 && x.growth > (incGrowth ?? 0) + 0.15);
+  return { ready: true, recent, base, incNow, incThen, incGrowth, cats, flagged, yearly: base === yearAgo };
+}
+
+/* ----- Cash-flow forecast (each bank / cash account to month end) ----- */
+function cashFlowForecast() {
+  const today = todayStr(), end = addDays(addMonths(`${thisMonth()}-01`, 1), -1);
+  const horizon = end > addDays(today, 10) ? end : addDays(today, 30);
+  const accounts = db.accounts.filter((a) => !a.archived && (a.type === 'bank' || a.type === 'cash'));
+  const events = new Map(accounts.map((a) => [a.id, []]));
+  const add = (acc, date, amount, label) => { if (events.has(acc) && date > today && date <= horizon) events.get(acc).push({ date, amount, label }); };
+  for (const s of db.subscriptions) { if (!s.active) continue; let d = s.nextRenewal, g = 0; while (d && d <= horizon && g++ < 40) { add(s.accountId, d, recurKind(s) === 'income' ? num(s.amount) : -num(s.amount), s.name); d = advanceDate(d, s.frequency); } }
+  for (const x of db.sips) { if (!x.active) continue; let d = x.nextDate, g = 0; while (d && d <= horizon && !sipEnded(x, d) && g++ < 40) { add(x.fromAccountId, d, -sipAmountOn(x, d), `${x.name} SIP`); d = advanceSip(x, d); } }
+  for (const { e, c } of M.emis) if (c.status === 'active' && c.nextDue) { let d = c.nextDue, k = 0; while (d <= horizon && k < c.remainingMonths) { add(e.accountId, d, -c.emi, `${e.name} EMI`); d = addMonths(c.nextDue, ++k); } }
+  // Everyday spending: this month's pace, shared between accounts the way they were used in the last 60 days.
+  const since = addDays(today, -60), use = new Map();
+  for (const t of db.transactions) if (t.type === 'expense' && !t.relatedType && t.date >= since && events.has(t.fromAccountId)) use.set(t.fromAccountId, (use.get(t.fromAccountId) || 0) + num(t.amount));
+  const useTotal = [...use.values()].reduce((s, v) => s + v, 0) || 1;
+  const monthSpent = db.transactions.filter((t) => t.type === 'expense' && !t.relatedType && t.date?.startsWith(thisMonth())).reduce((s, t) => s + num(t.amount), 0);
+  const pace = monthSpent / Math.max(1, parseDate(today).getDate()) || monthlyAverages(3).spent / 30;
+  const buffer = num(db.settings.cashBuffer ?? 0);
+  const out = accounts.map((a) => {
+    const share = (use.get(a.id) || 0) / useTotal, daily = pace * share;
+    let bal = M.balances.get(a.id) || 0;
+    const series = [{ date: today, bal: round2(bal) }];
+    let low = null;
+    for (let d = addDays(today, 1); d <= horizon; d = addDays(d, 1)) {
+      bal -= daily;
+      for (const ev of events.get(a.id).filter((x) => x.date === d)) bal += ev.amount;
+      series.push({ date: d, bal: round2(bal) });
+      if (!low && bal < buffer) low = { date: d, bal: round2(bal) };
+    }
+    return { a, series, end: series[series.length - 1].bal, low, events: events.get(a.id).sort((x, y) => x.date.localeCompare(y.date)), daily: round2(daily) };
+  });
+  const cardDue = db.accounts.filter((a) => a.type === 'credit_card' && !a.archived).map((a) => ({ a, m: cardMetrics(a) })).filter(({ m }) => m.outstanding > 0 && m.dates.nextDue && m.dates.nextDue <= horizon);
+  return { horizon, accounts: out, cardDue, pace: round2(pace) };
+}
+
+/* ----- Health score (0 to 100) ----- */
+function healthScore() {
+  const avg = monthlyAverages(3), rw = runwayData(), ch = creditHealth();
+  const clamp = (v) => Math.max(0, Math.min(20, v));
+  const parts = [];
+  parts.push({ key: 'runway', label: 'Emergency runway', v: rw.months === null ? null : clamp((rw.months / 6) * 20), note: rw.months === null ? 'Add expenses to measure' : `${rw.whole} months ${rw.days} days (aim: 6 months)` });
+  const kept = avg.income > 0 ? (avg.income - avg.spent) / avg.income : null;
+  parts.push({ key: 'savings', label: 'Savings rate', v: kept === null ? null : clamp((kept / 0.3) * 20), note: kept === null ? 'Log income to measure' : `${Math.round(kept * 100)}% of income kept (aim: 30%)` });
+  parts.push({ key: 'credit', label: 'Card usage', v: !ch.limit ? 20 : clamp(ch.util <= 0.1 ? 20 : ch.util <= 0.3 ? 20 - ((ch.util - 0.1) / 0.2) * 8 : 12 - ((ch.util - 0.3) / 0.45) * 12), note: ch.limit ? `${Math.round(ch.util * 100)}% of limits used (aim: under 30%)` : 'No credit cards' });
+  const emi = M.emis.filter(({ c }) => c.status === 'active').reduce((s, { c }) => s + c.emi, 0);
+  const debt = avg.income > 0 ? emi / avg.income : null;
+  parts.push({ key: 'debt', label: 'EMIs vs income', v: debt === null ? (emi ? null : 20) : clamp(20 - (debt / 0.5) * 20), note: debt === null ? (emi ? 'Log income to measure' : 'No EMIs') : `${Math.round(debt * 100)}% of income goes to EMIs (aim: under 30%)` });
+  const inv = avg.income > 0 ? avg.invested / avg.income : null;
+  parts.push({ key: 'invest', label: 'Investing', v: inv === null ? null : clamp((inv / 0.2) * 20), note: inv === null ? 'Log income to measure' : `${Math.round(inv * 100)}% of income invested (aim: 20%)` });
+  const known = parts.filter((p) => p.v !== null);
+  const score = known.length ? Math.round((known.reduce((s, p) => s + p.v, 0) / (known.length * 20)) * 100) : null;
+  const label = score === null ? 'Not enough data yet' : score >= 80 ? 'Excellent' : score >= 60 ? 'Good' : score >= 40 ? 'Fair' : 'Needs care';
+  return { score, label, parts };
+}
+
+/* ----- Nudges: features talking to each other (suggestions, never silent changes) ----- */
+const NUDGE_KEY = 'kosh.nudgesHidden.v1';
+function computeNudges() {
+  const hidden = readLS(NUDGE_KEY, {}), now = Date.now();
+  const out = [];
+  const add = (id, tone, icon, text, action = '') => { if (!hidden[id] || hidden[id] < now) out.push({ id, tone, icon, text, action }); };
+  const rw = runwayData(), fm = funMoney(), ch = creditHealth();
+  if (rw.months !== null && rw.months < 3 && num(fm.monthly) > 0) {
+    const lower = Math.round((num(fm.monthly) * 0.6) / 100) * 100;
+    add(`runway-fun-${thisMonth()}`, 'bad', 'fa-life-ring', `Your emergency money covers ${rw.whole} month${rw.whole === 1 ? '' : 's'} ${rw.days} days. Lower fun money to ${money(lower)} this month to rebuild it?`, `<button class="btn btn-sm" data-action="fun-set" data-v="${lower}">Lower to ${money(lower)}</button>`);
+  }
+  for (const f of cashFlowForecast().accounts) if (f.low) add(`cash-${f.a.id}-${thisMonth()}`, 'bad', 'fa-arrow-trend-down', `${f.a.name} may drop to ${money(f.low.bal)} around ${fmtDate(f.low.date)} at your current pace.`, '<a class="btn btn-sm" href="#health">See forecast</a>');
+  if (num(fm.monthly) > 0 && fm.pct >= 0.9 && fm.daysLeft > 7) add(`fun-${thisMonth()}`, 'neutral', 'fa-champagne-glasses', `Fun money is ${Math.round(fm.pct * 100)}% used with ${fm.daysLeft} days to go. Maybe a quiet week?`);
+  if (ch.limit && ch.util >= 0.3) add(`credit-${thisMonth()}`, 'bad', 'fa-credit-card', `Card usage is ${Math.round(ch.util * 100)}% of your limits. Paying part of the bill before the statement date keeps your credit score healthier.`);
+  for (const x of idleCash().slice(0, 1)) add(`idle-${x.a.id}-${thisMonth()}`, 'neutral', 'fa-sack-dollar', `${money(x.extra)} has sat in ${x.a.name} for a month, beyond ${db.settings.idleMonths ?? 3} months of your spending. It could work harder in a goal, an FD or a liquid fund.`, '<a class="btn btn-sm" href="#goals">Put it in a goal</a>');
+  for (const g of db.goals.filter((x) => !x.done)) { const lag = goalLag(g); if (lag && lag.behind > 500) add(`goal-${g.id}-${thisMonth()}`, 'neutral', 'fa-flag', `${g.name} is ${money(lag.behind)} behind plan.${lag.reason ? ` ${lag.reason}` : ''}`, `<button class="btn btn-sm" data-action="goal-add" data-id="${g.id}">Add money</button>`); }
+  for (const w of db.wishlist.filter((x) => x.status === 'cooling' && x.coolUntil && x.coolUntil <= new Date().toISOString())) add(`cool-${w.id}`, 'good', 'fa-hourglass-end', `Your cool-off for "${w.name}" is over. Still want it?`, `<button class="btn btn-sm" data-action="cool-decide" data-id="${w.id}">Decide</button>`);
+  const salary = salaryToday();
+  if (salary && (db.settings.salaryPlan || []).length && db.settings.salaryPlanApplied !== thisMonth()) add(`salary-${thisMonth()}`, 'good', 'fa-briefcase', `Salary of ${money(salary.amount)} arrived. Apply your salary-day plan?`, '<button class="btn btn-sm btn-primary" data-action="salary-apply">Apply plan</button>');
+  return out;
+}
+function hideNudge(id) { const h = readLS(NUDGE_KEY, {}); h[id] = Date.now() + 7 * 864e5; writeLS(NUDGE_KEY, h); }
+function nudgeStrip(max = 3, moreLink = false) {
+  const all = computeNudges();
+  if (window.innerWidth < 640 && moreLink) max = 1;
+  const list = all.slice(0, max);
+  if (!list.length) return '';
+  return `<section class="mb-6 space-y-2" aria-label="Suggestions for you">${list.map((n) => `<div class="nudge-card ${n.tone}"><i class="fa-solid ${n.icon}"></i>
+    <div class="flex-1 min-w-0"><div class="text-sm">${esc(n.text)}</div>${n.action ? `<div class="mt-2 flex gap-2 flex-wrap">${n.action}</div>` : ''}</div>
+    <button class="icon-btn sm" data-action="nudge-hide" data-id="${n.id}" aria-label="Hide this suggestion for a week" title="Hide"><i class="fa-solid fa-xmark"></i></button></div>`).join('')}
+    ${moreLink && all.length > list.length ? `<a href="#health" class="text-sm link block">${all.length - list.length} more suggestion${all.length - list.length === 1 ? '' : 's'} on Money health</a>` : ''}</section>`;
+}
+/** How far a dated goal is behind a straight-line plan, and a likely reason. */
+function goalLag(g) {
+  if (!g.targetDate || !g.createdAt) return null;
+  const s = goalStats(g), start = g.createdAt.slice(0, 10), total = parseDate(g.targetDate) - parseDate(start);
+  if (total <= 0) return null;
+  const expected = num(g.target) * Math.min(1, (parseDate(todayStr()) - parseDate(start)) / total);
+  const behind = round2(expected - s.saved);
+  if (behind <= 0) return null;
+  const I = computeInsights(thisMonth());
+  const up = I.cats.filter((c) => c.diff > 1000 && DISCRETIONARY_CATS.includes(c.c)).sort((a, b) => b.diff - a.diff)[0];
+  return { behind, reason: up ? `${up.c} is ${money(Math.round(up.diff))} above usual this month.` : '' };
+}
+function salaryToday() {
+  const mk = thisMonth();
+  return db.transactions.filter((t) => t.type === 'income' && t.category === 'Salary' && t.date?.startsWith(mk)).sort((a, b) => b.date.localeCompare(a.date))[0] || null;
+}
+
+/* ----- The page ----- */
+function ring(score, size = 132, onDark = true) {
+  const r = size / 2 - 10, c = 2 * Math.PI * r, v = score ?? 0;
+  const col = score === null ? '#CBD5E1' : v >= 80 ? '#12A150' : v >= 60 ? '#0A6FB0' : v >= 40 ? '#F59E0B' : '#E0306E';
+  return `<svg class="score-ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="Health score ${score ?? 'not available'} out of 100">
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${onDark ? 'rgba(255,255,255,.18)' : '#EAEFF6'}" stroke-width="12"/>
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${col}" stroke-width="12" stroke-linecap="round" stroke-dasharray="${(c * v) / 100} ${c}" transform="rotate(-90 ${size / 2} ${size / 2})"/>
+    <text x="50%" y="50%" text-anchor="middle" dominant-baseline="central" font-size="${size / 3.4}" font-weight="700" font-family="Bricolage Grotesque, sans-serif" fill="${onDark ? '#fff' : '#14213D'}">${score ?? '–'}</text></svg>`;
+}
+function renderHealth() {
+  const hs = healthScore(), rw = runwayData(), fm = funMoney(), ch = creditHealth(), idle = idleCash(), lc = lifestyleCreep(), cf = cashFlowForecast();
+  const part = (p) => `<div class="hs-part"><div class="flex justify-between text-sm gap-2"><span class="font-semibold">${p.label}</span><span class="num">${p.v === null ? '–' : `${Math.round(p.v)}/20`}</span></div>
+    <div class="bar mt-1.5"><span style="width:${((p.v ?? 0) / 20) * 100}%;background:${p.v === null ? '#CBD5E1' : p.v >= 15 ? '#12A150' : p.v >= 10 ? '#0A6FB0' : p.v >= 6 ? '#F59E0B' : '#E0306E'}"></span></div>
+    <div class="text-xs text-ink-3 mt-1">${esc(p.note)}</div></div>`;
+  return `
+    ${nudgeStrip(5)}
+    <section class="hero p-5 sm:p-7">
+      <div class="flex flex-col sm:flex-row sm:items-center gap-5">
+        ${ring(hs.score)}
+        <div class="flex-1"><div class="hero-dim text-sm">Money health score</div>
+          <div class="display text-3xl font-semibold">${hs.label}</div>
+          <p class="hero-dim text-sm mt-1 max-w-xl">Out of 100, from five things that matter most: how long your savings last, how much you keep, card usage, EMIs and investing. Improve the weakest bar first.</p></div>
+      </div>
+    </section>
+    <section class="panel p-5 mt-6"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">${hs.parts.map(part).join('')}</div></section>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+      <section class="panel p-5">
+        <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-life-ring mr-1.5 text-royal"></i>Emergency runway</h2>
+          <button class="btn btn-sm" data-action="health-settings">Settings</button></div>
+        ${rw.months === null ? emptyState('fa-life-ring', 'Log a month of expenses to see how long your money would last.') : `
+        <div class="display text-4xl font-semibold num">${rw.whole} <span class="text-xl">month${rw.whole === 1 ? '' : 's'}</span> ${rw.days} <span class="text-xl">day${rw.days === 1 ? '' : 's'}</span></div>
+        <p class="text-sm text-ink-2 mt-1">If your income stopped today, your cash and bank money${db.settings.runwayIncludeDeposits ? ', FDs and liquid funds' : ''} would cover essential costs for this long.</p>
+        <div class="bar mt-3" style="height:10px"><span style="width:${Math.min(100, (rw.months / 6) * 100)}%;background:${rw.months >= 6 ? '#12A150' : rw.months >= 3 ? '#F59E0B' : '#E0306E'}"></span></div>
+        <div class="flex justify-between text-xs text-ink-3 mt-1"><span>0</span><span>3 months</span><span>6 months (safe)</span></div>
+        <dl class="kv mt-4"><div><dt>Liquid money</dt><dd>${money(rw.liquid)}</dd></div><div><dt>Essential costs a month</dt><dd>${money(Math.round(rw.essential))}</dd></div>
+          <div><dt>Rent, bills, EMIs</dt><dd>${money(Math.round(rw.fixed))}</dd></div><div><dt>Groceries, transport, health…</dt><dd>${money(Math.round(rw.variableEssentials))}</dd></div></dl>`}
+      </section>
+
+      <section class="panel p-5">
+        <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-champagne-glasses mr-1.5" style="color:var(--marigold)"></i>Fun money</h2>
+          <button class="btn btn-sm" data-action="fun-edit">${num(fm.monthly) ? 'Change' : 'Set up'}</button></div>
+        ${num(fm.monthly) ? `
+          <div class="flex items-baseline justify-between gap-2"><span class="display text-4xl font-semibold num ${fm.left < 0 ? 'text-loss' : ''}">${money(fm.left)}</span><span class="text-sm text-ink-3 num">left of ${money(fm.monthly)}</span></div>
+          <div class="jar mt-3" aria-hidden="true"><span style="--w:${Math.max(0, Math.min(100, (1 - fm.pct) * 100))}%"></span></div>
+          <p class="text-sm text-ink-2 mt-3">${fm.left > 0 ? `Spend it without guilt: about <b class="num">${money(Math.floor(fm.perDay))}</b> a day for the ${fm.daysLeft} day${fm.daysLeft === 1 ? '' : 's'} left.` : 'This month\'s fun money is used up. It refills on the 1st.'}</p>
+          <p class="text-xs text-ink-3 mt-1">Counts: ${fm.categories.map(esc).join(', ')}.</p>`
+          : `<p class="text-sm text-ink-2">Set aside an amount each month for things you enjoy (shopping, eating out, hobbies) and spend it without guilt. The jar counts down as you spend and refills every month.</p>`}
+      </section>
+    </div>
+
+    <section class="panel p-5 mt-6">
+      <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-chart-line mr-1.5 text-royal"></i>Cash-flow forecast ${PRO}</h2><span class="text-xs text-ink-3">To ${fmtDate(cf.horizon)} · everyday spending ${money(Math.round(cf.pace))}/day</span></div>
+      <p class="text-sm text-ink-2 mb-4">Where each account's balance is heading, from today's balance, scheduled salary, bills, EMIs and SIPs, and your everyday spending pace.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${cf.accounts.map((f) => {
+        const min = Math.min(...f.series.map((x) => x.bal)), max = Math.max(...f.series.map((x) => x.bal), 1), w = 300, h = 70;
+        const lo = min < 0 ? min * 1.1 : min * 0.97, hi = max * 1.01 + 1;
+        const X = (i) => (i / Math.max(1, f.series.length - 1)) * w, Y = (v) => 2 + h - ((v - lo) / (hi - lo || 1)) * h;
+        const path = f.series.map((x, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(x.bal).toFixed(1)}`).join(' ');
+        return `<div class="cf-card ${f.low ? 'warn' : ''}"><div class="flex justify-between gap-2"><b class="truncate">${esc(f.a.name)}</b><span class="num text-sm">${money(Math.round(f.series[0].bal))} → <b class="${f.end < 0 ? 'text-loss' : ''}">${money(Math.round(f.end))}</b></span></div>
+          <svg viewBox="0 0 ${w} ${h + 4}" class="cf-spark" preserveAspectRatio="none" aria-hidden="true">${min < 0 ? `<line x1="0" x2="${w}" y1="${Y(0)}" y2="${Y(0)}" stroke="#E0306E" stroke-dasharray="4 4"/>` : ''}<path d="${path}" fill="none" stroke="${f.low ? '#E0306E' : '#0A6FB0'}" stroke-width="2.2"/></svg>
+          <div class="text-xs ${f.low ? 'text-loss font-semibold' : 'text-ink-3'}">${f.low ? `May go below ${money(num(db.settings.cashBuffer ?? 0))} around ${fmtDate(f.low.date)}` : 'Stays positive'}${f.events.length ? ` · ${f.events.length} scheduled` : ''}</div>
+          ${f.events.length ? `<details class="mt-2"><summary class="text-xs link cursor-pointer">Scheduled items</summary><div class="text-xs mt-1 space-y-0.5">${f.events.map((e) => `<div class="flex justify-between gap-2"><span>${fmtDate(e.date)} ${esc(e.label)}</span><span class="num ${e.amount > 0 ? 'text-gain' : ''}">${e.amount > 0 ? '+' : '−'}${money(Math.abs(e.amount))}</span></div>`).join('')}</div></details>` : ''}</div>`;
+      }).join('') || emptyState('fa-building-columns', 'Add a bank account to see its forecast.')}</div>
+      ${cf.cardDue.length ? `<p class="text-sm mt-4"><i class="fa-solid fa-credit-card text-loss mr-1"></i>Also due: ${cf.cardDue.map(({ a, m }) => `${esc(a.name)} ${money(m.outstanding)} on ${fmtDate(m.dates.nextDue)}`).join(', ')}. Pay these from the account with room.</p>` : ''}
+    </section>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+      <section class="panel p-5">
+        <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-gauge mr-1.5 text-royal"></i>Credit health</h2><button class="btn btn-sm" data-action="credit-add">Log my score</button></div>
+        <div class="grid grid-cols-2 gap-4">
+          <div><div class="stat-label">Latest credit score</div><div class="display text-3xl font-semibold num">${ch.latest ? ch.latest.score : '–'}</div><div class="text-xs text-ink-3">${ch.latest ? `${esc(ch.latest.bureau || 'CIBIL')}, ${fmtDate(ch.latest.date)}` : 'Log it from your bank or bureau app'}</div></div>
+          <div><div class="stat-label">Card usage</div><div class="display text-3xl font-semibold num ${ch.util >= 0.3 ? 'text-loss' : 'text-gain'}">${ch.limit ? `${Math.round(ch.util * 100)}%` : '–'}</div><div class="text-xs text-ink-3">${ch.limit ? `${money(Math.round(ch.used))} of ${money(ch.limit)}` : 'No cards with a limit'}</div></div>
+        </div>
+        ${ch.scores.length > 1 ? `<div class="score-trend mt-4" aria-label="Score history">${ch.scores.slice(-8).map((s) => `<div title="${esc(fmtDate(s.date))}: ${s.score}"><span style="height:${Math.max(8, ((s.score - 300) / 600) * 100)}%"></span><em>${s.score}</em></div>`).join('')}</div>` : ''}
+        ${ch.cards.length ? `<div class="space-y-3 mt-4">${ch.cards.map(({ a, m }) => `<div><div class="flex justify-between text-sm gap-2"><span>${esc(a.name)}</span><span class="num ${m.utilization >= 0.3 ? 'text-loss' : ''}">${Math.round(m.utilization * 100)}%</span></div>
+          <div class="bar mt-1 util-bar"><span style="width:${Math.min(100, m.utilization * 100)}%;background:${m.utilization >= 0.3 ? '#E0306E' : '#12A150'}"></span><i style="left:30%"></i></div></div>`).join('')}</div>` : ''}
+        <p class="text-xs text-ink-3 mt-4">Keeping card usage under 30% of your limits helps your score. You can get one free credit report a year from each credit bureau; log the score here to see its trend. The app can't read your score by itself.</p>
+      </section>
+
+      <section class="panel p-5">
+        <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-sack-dollar mr-1.5" style="color:var(--marigold)"></i>Idle cash ${PRO}</h2></div>
+        ${idle.length ? idle.map((x) => `<div class="callout mb-3"><b class="num">${money(x.extra)}</b> has stayed in <b>${esc(x.a.name)}</b> for at least a month, more than ${db.settings.idleMonths ?? 3} months of your spending (${money(x.keep)}). Money above that could earn more in a goal, a fixed or recurring deposit, or a liquid fund. Keep your runway first.</div>`).join('')
+          : `<p class="text-sm text-ink-2">Nothing idle. Your bank accounts don't hold much more than ${db.settings.idleMonths ?? 3} months of spending.</p>`}
+        <h3 class="font-semibold mt-5 mb-2">Lifestyle creep ${PRO}</h3>
+        ${!lc.ready ? `<p class="text-sm text-ink-2">Needs 6 months of data (you have ${lc.have}). It compares how your spending grows with how your income grows.</p>`
+          : `<p class="text-sm text-ink-2 mb-3">Income ${lc.incGrowth === null ? 'not logged earlier' : `${lc.incGrowth >= 0 ? 'up' : 'down'} ${Math.abs(Math.round(lc.incGrowth * 100))}%`} (last 3 months vs ${lc.yearly ? 'a year before' : 'your first 3 months'}).</p>
+            ${lc.flagged.length ? lc.flagged.map((x) => `<div class="callout warn mb-2"><b>${esc(x.c)}</b> grew ${x.growth === null ? 'from nothing' : `${Math.round(x.growth * 100)}%`}: ${money(Math.round(x.then))} → ${money(Math.round(x.now))} a month. That's faster than your income.</div>`).join('') : '<p class="text-sm text-gain">No creep: your lifestyle spending is growing slower than your income. Well done.</p>'}`}
+      </section>
+    </div>`;
+}
+
+/* ----- Forms ----- */
+function openFunForm() {
+  const f = funMoney();
+  const cats = db.settings.expenseCategories;
+  const avgCat = monthlyAverages(3).cat;
+  const suggest = Math.round((DISCRETIONARY_CATS.reduce((s, c) => s + (avgCat[c] || 0), 0) * 0.9) / 100) * 100;
+  openModal({
+    title: 'Fun money',
+    body: `<p class="text-sm text-ink-2">A guilt-free amount for the things you enjoy. Spend it freely; when it's gone, it refills next month.</p>
+      ${field('Each month', moneyInput('monthly', f.monthly || '', 'min="0" required'), suggest ? `You usually spend about ${money(Math.round(suggest / 0.9))} on these; ${money(suggest)} would be a gentle start.` : '')}
+      <div><span class="lbl">Counts spending in</span><div class="filter-picks">${cats.map((c) => `<label class="check-chip"><input type="checkbox" name="c_${esc(c)}" ${f.categories.includes(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('')}</div></div>`,
+    submitLabel: 'Save',
+    onSubmit: (d) => { commit([opSettings({ funMoney: { monthly: round2(num(d.monthly)), categories: cats.filter((c) => d[`c_${c}`]) } })], 'Set fun money'); toast('Fun money saved', 'success'); },
+  });
+}
+function openCreditForm() {
+  openModal({
+    title: 'Log my credit score',
+    body: `${twoCol(field('Score', input('score', '', 'type="number" min="300" max="900" required placeholder="e.g. 768"')), field('Date', input('date', todayStr(), 'type="date" required')))}
+      ${field('From', select('bureau', ['CIBIL', 'Experian', 'Equifax', 'CRIF High Mark', 'Other'], 'CIBIL'))}`,
+    submitLabel: 'Save',
+    onSubmit: (d) => { commit([opUpsert('creditScores', { id: uid('cs'), score: int(d.score), date: d.date, bureau: d.bureau })], 'Log credit score'); },
+  });
+}
+function openHealthSettings() {
+  const s = db.settings;
+  openModal({
+    title: 'Money health settings',
+    body: `${checkbox('runwayIncludeDeposits', !!s.runwayIncludeDeposits, 'Count FDs and liquid funds in the runway', 'They can usually be withdrawn within days.')}
+      ${twoCol(field('Idle cash: keep this many months in the bank', input('idleMonths', s.idleMonths ?? 3, 'type="number" min="1" max="24"')), field('Forecast warning below', moneyInput('cashBuffer', s.cashBuffer ?? 0, 'min="0"'), 'Warn when a balance may fall under this.'))}`,
+    submitLabel: 'Save',
+    onSubmit: (d) => { commit([opSettings({ runwayIncludeDeposits: !!d.runwayIncludeDeposits, idleMonths: int(d.idleMonths) || 3, cashBuffer: round2(num(d.cashBuffer)) })], 'Money health settings'); },
+  });
+}
+/** Small dashboard card: score, runway and fun money. */
+function healthMini() {
+  const hs = healthScore(), rw = runwayData(), fm = funMoney();
+  return `<section class="panel p-5 health-mini">
+    <div class="panel-head"><h2 class="panel-title">Money health</h2><a href="#health" class="text-sm link">Open</a></div>
+    <div class="flex items-center gap-4"><div class="mini-ring">${ring(hs.score, 84, false)}</div>
+      <div class="min-w-0"><div class="font-semibold">${hs.label}</div>
+        <div class="text-sm text-ink-2">${rw.months === null ? 'Runway: add expenses' : `Runway ${rw.whole} mo ${rw.days} d`}</div>
+        ${num(fm.monthly) ? `<div class="text-sm text-ink-2">Fun money left <b class="num ${fm.left < 0 ? 'text-loss' : ''}">${money(fm.left)}</b></div>` : '<button class="link text-sm" data-action="fun-edit">Set fun money</button>'}</div></div>
+  </section>`;
+}
+
+/* ===== Planners =====
+   Calculators that look ahead. They show numbers and the assumptions behind
+   them; they never tell you to buy or sell a particular fund or stock.
+   Tax figures use the rules for FY 2026-27: equity long-term gains above
+   ₹1.25 lakh a year taxed at 12.5%, short-term equity gains at 20%, plus 4% cess.
+   Update CG_RULES if a budget changes them. */
+const CG_RULES = { ltcgExempt: 125000, ltcgRate: 0.125, stcgRate: 0.20, cess: 0.04, longAfterDays: 365 };
+const PLANNER_TABS = [['fire', 'Financial freedom', 'fa-mountain-sun'], ['loan', 'Loan prepayment', 'fa-house-circle-check'], ['gains', 'Capital gains', 'fa-scale-unbalanced'],
+  ['direct', 'Regular vs Direct', 'fa-code-compare'], ['salary', 'Salary-day plan', 'fa-briefcase'], ['review', 'Year in review', 'fa-star']];
+let plannerTab = 'fire';
+const PLAN_KEY = 'kosh.planners.v1';
+let planIn = readLS(PLAN_KEY, {});
+const pval = (tool, key, def) => (planIn[tool] && planIn[tool][key] !== undefined ? planIn[tool][key] : def);
+const pinput = (tool, key, label, def, attrs = '', hint = '') => field(label, `<input class="inp" data-p="${tool}.${key}" value="${esc(pval(tool, key, def))}" ${attrs}>`, hint);
+const pslider = (tool, key, label, def, min, max, step, unit) => `<div class="slider-field"><div class="flex justify-between text-sm"><span class="lbl !mb-0">${label}</span><b class="num" data-pv="${tool}.${key}">${pval(tool, key, def)}${unit}</b></div>
+  <input type="range" data-p="${tool}.${key}" min="${min}" max="${max}" step="${step}" value="${pval(tool, key, def)}" aria-label="${esc(label)}"></div>`;
+function readPlanInputs(tool) {
+  const o = {};
+  for (const el of $$(`[data-p^="${tool}."]`)) { const k = el.dataset.p.split('.')[1]; o[k] = el.type === 'checkbox' ? el.checked : el.tagName === 'SELECT' ? el.value : num(el.value); }
+  planIn[tool] = { ...(planIn[tool] || {}), ...o };
+  writeLS(PLAN_KEY, planIn);
+  return planIn[tool];
+}
+
+function renderPlanner() {
+  return `<p class="text-sm text-ink-2 mb-4 max-w-3xl">Calculators for the big decisions. Change any number and the result updates. They are estimates based on the assumptions you see, not financial or tax advice.</p>
+    <div class="tabs" role="tablist">${PLANNER_TABS.map(([k, l, ic]) => `<button role="tab" class="tab ${plannerTab === k ? 'on' : ''}" aria-selected="${plannerTab === k}" data-action="planner-tab" data-t="${k}"><i class="fa-solid ${ic}"></i><span>${l}</span></button>`).join('')}</div>
+    <div class="mt-5">${({ fire: fireTool, loan: loanTool, gains: gainsTool, direct: directTool, salary: salaryTool, review: reviewTool }[plannerTab])()}</div>`;
+}
+/** Recalculate the open tool without re-rendering its inputs (keeps focus and keyboard). */
+function onPlannerInput(e) {
+  const k = e.target.dataset?.p;
+  if (!k) return;
+  const out = $(`[data-pv="${k}"]`); if (out) out.textContent = `${e.target.value}${out.textContent.replace(/^[\d.,-]+/, '')}`;
+  const tool = k.split('.')[0];
+  const box = $(`#res-${tool}`); if (!box) return;
+  readPlanInputs(tool);
+  box.innerHTML = ({ fire: fireResult, loan: loanResult, direct: directResult }[tool] || (() => ''))();
+}
+
+/* ----- Financial freedom (FIRE) ----- */
+function fireDefaults() {
+  const avg = monthlyAverages(3);
+  return { age: db.settings.birthYear ? new Date().getFullYear() - int(db.settings.birthYear) : 25, expense: Math.round((avg.spent || 30000) / 1000) * 1000,
+    corpus: Math.round(M.P.totals.value || 0), invest: Math.round((avg.invested || M.P.totals.sipMonthly || 5000) / 500) * 500 };
+}
+function fireTool() {
+  const d = fireDefaults();
+  return `<div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+    <section class="panel p-5 lg:col-span-2 space-y-4"><h2 class="panel-title">Your numbers ${PRO}</h2>
+      ${twoCol(pinput('fire', 'age', 'Your age', d.age, 'type="number" min="15" max="80"'), pinput('fire', 'expense', 'Monthly spending today', d.expense, 'type="number" min="0" step="1000" inputmode="decimal"'))}
+      ${twoCol(pinput('fire', 'corpus', 'Invested so far', d.corpus, 'type="number" min="0" step="1000" inputmode="decimal"', 'From your portfolio'), pinput('fire', 'invest', 'Investing each month', d.invest, 'type="number" min="0" step="500" inputmode="decimal"'))}
+      ${pslider('fire', 'step', 'Raise investing each year by', 5, 0, 20, 1, '%')}
+      ${pslider('fire', 'ret', 'Expected return (per year)', 10, 4, 16, 0.5, '%')}
+      ${pslider('fire', 'inf', 'Inflation (per year)', 6, 3, 10, 0.5, '%')}
+      ${pslider('fire', 'swr', 'Safe yearly withdrawal', 3.5, 2.5, 5, 0.25, '%')}
+      ${pslider('fire', 'life', 'Spending in freedom vs today', 100, 60, 150, 5, '%')}
+    </section>
+    <section class="panel p-5 lg:col-span-3 result-first" id="res-fire">${fireResult()}</section></div>`;
+}
+function fireRun(p, retAdj = 0) {
+  const r = (num(p.ret) + retAdj) / 100, inf = num(p.inf) / 100, swr = num(p.swr) / 100, step = num(p.step) / 100, life = num(p.life) / 100;
+  let corpus = num(p.corpus);
+  const pts = [];
+  for (let y = 0; y <= 60; y++) {
+    const target = (num(p.expense) * 12 * life * (1 + inf) ** y) / swr;
+    pts.push({ y, corpus, target });
+    if (corpus >= target && num(p.expense) > 0) return { years: y, pts, target };
+    corpus = corpus * (1 + r) + num(p.invest) * 12 * (1 + step) ** y * (1 + r / 2);
+  }
+  return { years: null, pts, target: null };
+}
+function fireResult() {
+  const p = { ...fireDefaults(), step: 5, ret: 10, inf: 6, swr: 3.5, life: 100, ...(planIn.fire || {}) };
+  const mid = fireRun(p), low = fireRun(p, -2), high = fireRun(p, 2), more = fireRun({ ...p, invest: num(p.invest) * 1.2 });
+  const age = int(p.age);
+  const today = (num(p.expense) * 12 * (num(p.life) / 100)) / (num(p.swr) / 100);
+  if (mid.years === null) return `<h2 class="panel-title mb-2">Your result</h2><p class="text-sm text-ink-2">At these numbers you don't reach financial freedom within 60 years. Try investing more each month or raising it each year.</p>`;
+  const W = 520, H = 180, pts = mid.pts, maxV = Math.max(...pts.map((x) => Math.max(x.corpus, x.target)));
+  const X = (y) => 30 + (y / Math.max(1, pts.length - 1)) * (W - 40), Y = (v) => H - 20 - (v / maxV) * (H - 30);
+  const line = (key) => pts.map((x, i) => `${i ? 'L' : 'M'}${X(x.y).toFixed(1)},${Y(x[key]).toFixed(1)}`).join(' ');
+  return `<h2 class="panel-title mb-3">Your result</h2>
+    <div class="display text-4xl font-semibold">Age ${age + mid.years}</div>
+    <p class="text-sm text-ink-2 mt-1">You could be financially independent in about <b>${mid.years} years</b>: between age <b>${age + (high.years ?? mid.years)}</b> and <b>${low.years === null ? '75+' : age + low.years}</b> if returns are 2% better or worse.</p>
+    <svg viewBox="0 0 ${W} ${H}" class="w-full mt-4" role="img" aria-label="Projected investments against the amount needed">
+      <path d="${line('target')}" fill="none" stroke="#94A3B8" stroke-width="2" stroke-dasharray="5 4"/>
+      <path d="${line('corpus')}" fill="none" stroke="#12A150" stroke-width="3"/>
+      <circle cx="${X(mid.years)}" cy="${Y(pts[mid.years].corpus)}" r="5" fill="#12A150"/>
+      <text x="${X(mid.years)}" y="${Y(pts[mid.years].corpus) - 10}" text-anchor="middle" font-size="12" font-weight="700" fill="#0E8F47">Age ${age + mid.years}</text>
+      <text x="30" y="${H - 4}" font-size="11" fill="#7B8599">Now (${age})</text><text x="${W - 10}" y="${H - 4}" font-size="11" text-anchor="end" fill="#7B8599">Age ${age + pts.length - 1}</text></svg>
+    <div class="flex gap-4 text-xs text-ink-2 mt-1"><span><i class="legend-dot" style="background:#12A150"></i>Your investments</span><span><i class="legend-dot" style="background:#94A3B8"></i>Amount you'd need</span></div>
+    <dl class="kv mt-4"><div><dt>Needed in today's money</dt><dd>${money(Math.round(today))}</dd></div><div><dt>Needed at that age</dt><dd>${money(Math.round(mid.target))}</dd></div></dl>
+    ${more.years !== null && more.years < mid.years ? `<p class="callout mt-4">Investing <b>${money(Math.round(num(p.invest) * 0.2))}</b> more a month would bring it forward by about <b>${mid.years - more.years} year${mid.years - more.years === 1 ? '' : 's'}</b>.</p>` : ''}
+    <p class="text-xs text-ink-3 mt-3">"Financially independent" means your investments could pay for your lifestyle by withdrawing ${p.swr}% a year. Returns are not guaranteed; revisit this once a year.</p>`;
+}
+
+/* ----- Loan prepayment ----- */
+function loanTool() {
+  const loans = M.emis.filter(({ c }) => c.status === 'active');
+  const opts = [...loans.map(({ e }) => [e.id, e.name]), ['custom', 'Another loan (type details)']];
+  const sel = pval('loan', 'id', loans[0]?.e.id || 'custom');
+  const debts = [...loans.map(({ e, c }) => ({ name: e.name, rate: num(e.annualRate), left: c.remaining })),
+    ...db.accounts.filter((a) => a.type === 'credit_card' && (M.balances.get(a.id) || 0) < 0).map((a) => ({ name: `${a.name} (unpaid bill)`, rate: 42, left: -(M.balances.get(a.id)) }))].sort((a, b) => b.rate - a.rate);
+  return `<div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+    <section class="panel p-5 lg:col-span-2 space-y-4"><h2 class="panel-title">Pay a loan off early ${PRO}</h2>
+      ${field('Loan', `<select class="inp" data-p="loan.id">${opts.map(([v, l]) => `<option value="${v}" ${v === sel ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`)}
+      <div data-custom ${sel === 'custom' ? '' : 'hidden'} class="space-y-4">${twoCol(pinput('loan', 'principal', 'Amount still owed', 1000000, 'type="number" min="0" inputmode="decimal"'), pinput('loan', 'rate', 'Interest rate % a year', 8.5, 'type="number" min="0" step="0.05"'))}${pinput('loan', 'months', 'Months left', 180, 'type="number" min="1"')}</div>
+      ${twoCol(pinput('loan', 'lump', 'Extra payment now', 50000, 'type="number" min="0" step="1000" inputmode="decimal"'), pinput('loan', 'extra', 'Extra every month', 0, 'type="number" min="0" step="500" inputmode="decimal"'))}
+      ${field('After prepaying, keep', `<select class="inp" data-p="loan.mode"><option value="tenure" ${pval('loan', 'mode', 'tenure') === 'tenure' ? 'selected' : ''}>The same EMI, finish sooner (saves more)</option><option value="emi" ${pval('loan', 'mode', 'tenure') === 'emi' ? 'selected' : ''}>The same end date, lower EMI</option></select>`)}
+    </section>
+    <section class="panel p-5 lg:col-span-3 result-first"><div id="res-loan">${loanResult()}</div>
+      ${debts.length > 1 ? `<h3 class="font-semibold mt-6 mb-2">Which debt to pay first?</h3><p class="text-sm text-ink-2 mb-2">Extra money saves the most interest on the highest rate first:</p>
+        <ol class="list-decimal ml-5 text-sm space-y-1">${debts.map((d) => `<li>${esc(d.name)}: ${d.rate}% a year, ${money(Math.round(d.left))} left</li>`).join('')}</ol><p class="text-xs text-ink-3 mt-2">Unpaid card bills are shown at about 42% a year, typical for Indian cards.</p>` : ''}
+    </section></div>`;
+}
+function amortize(B, r, emi, extra = 0) {
+  let months = 0, interest = 0;
+  while (B > 0.5 && months < 1200) { const i = B * r; interest += i; B = B + i - emi - extra; months++; if (emi + extra <= i) return { months: Infinity, interest: Infinity }; }
+  return { months, interest };
+}
+function loanResult() {
+  const p = { id: 'custom', principal: 1000000, rate: 8.5, months: 180, lump: 50000, extra: 0, mode: 'tenure', ...(planIn.loan || {}) };
+  const L = M.emis.find(({ e }) => e.id === p.id);
+  const B = L ? L.c.remaining : num(p.principal), rate = L ? num(L.e.annualRate) : num(p.rate), n = L ? L.c.remainingMonths : int(p.months);
+  const r = rate / 1200;
+  if (!(B > 0) || !(n > 0)) return '<p class="text-sm text-ink-2">Enter the loan details.</p>';
+  const emi = L ? L.c.emi : r > 0 ? (B * r * (1 + r) ** n) / ((1 + r) ** n - 1) : B / n;
+  const base = amortize(B, r, emi);
+  const B2 = Math.max(0, B - num(p.lump));
+  let res, newEmi = emi;
+  if (p.mode === 'emi') { newEmi = r > 0 ? (B2 * r * (1 + r) ** n) / ((1 + r) ** n - 1) : B2 / n; res = amortize(B2, r, newEmi, num(p.extra)); }
+  else res = amortize(B2, r, emi, num(p.extra));
+  const saved = base.interest - res.interest, monthsSaved = base.months - res.months;
+  const end = addMonths(`${thisMonth()}-01`, res.months).slice(0, 7);
+  return `<h2 class="panel-title mb-3">What you save</h2>
+    <div class="grid grid-cols-2 gap-3"><div class="stat-tile in"><div class="stat-label">Interest saved</div><div class="stat-value num">${money(Math.round(saved))}</div></div>
+      <div class="stat-tile"><div class="stat-label">${p.mode === 'emi' ? 'New EMI' : 'Finishes sooner by'}</div><div class="stat-value num">${p.mode === 'emi' ? money(Math.round(newEmi)) : `${Math.floor(monthsSaved / 12)} yr ${monthsSaved % 12} mo`}</div></div></div>
+    <p class="text-sm text-ink-2 mt-3">Owed now ${money(Math.round(B))} at ${rate}% · EMI ${money(Math.round(emi))} · ${n} months left. With your prepayment it ends around <b>${fmtMonth(end)}</b> and total interest drops from ${money(Math.round(base.interest))} to ${money(Math.round(res.interest))}.</p>
+    <p class="text-xs text-ink-3 mt-2">Check your lender's prepayment rules; home loans on a floating rate usually have no prepayment charge for individuals.</p>`;
+}
+
+/* ----- Capital gains planner ----- */
+const isEquityHolding = (a) => ['Stocks', 'ETF'].includes(a.subtype) || (a.subtype === 'Mutual fund' && !/debt|liquid|gilt|bond|overnight|money market|credit risk|banking and psu/i.test(`${a.name} ${a.schemeName || ''}`));
+function holdingLots(a) {
+  const lots = [];
+  if (num(a.units) > 0) lots.push({ date: a.unitsDate || a.openingDate, units: num(a.units), cost: num(a.investedAmount ?? a.openingBalance) });
+  const since = a.unitsDate || '';
+  const moves = db.transactions.filter((t) => t.type !== 'adjustment' && (t.toAccountId === a.id || t.fromAccountId === a.id) && t.units !== undefined && t.units !== null && t.units !== '' && (since ? t.date > since : t.date >= (a.openingDate || ''))).sort((x, y) => x.date.localeCompare(y.date));
+  const sales = [];
+  for (const t of moves) {
+    if (t.toAccountId === a.id) { lots.push({ date: t.date, units: num(t.units), cost: num(t.amount) }); continue; }
+    let left = num(t.units), costOut = 0, lt = 0, st = 0;
+    while (left > 1e-6 && lots.length) {
+      const l = lots[0], take = Math.min(left, l.units), c = (l.cost / l.units) * take;
+      const g = (num(t.amount) * take) / num(t.units) - c;
+      if ((parseDate(t.date) - parseDate(l.date)) / 864e5 > CG_RULES.longAfterDays) lt += g; else st += g;
+      l.cost -= c; l.units -= take; costOut += c; left -= take;
+      if (l.units <= 1e-6) lots.shift();
+    }
+    sales.push({ date: t.date, lt, st });
+  }
+  return { lots, sales };
+}
+function gainsData() {
+  const fy = fyRange(fyOf(todayStr())), today = todayStr();
+  let realizedLT = 0, realizedST = 0;
+  const rows = [];
+  for (const a of db.accounts.filter((x) => x.type === 'investment' && !x.archived && isEquityHolding(x))) {
+    const { lots, sales } = holdingLots(a);
+    for (const s of sales) if (s.date >= fy.from && s.date <= fy.to) { realizedLT += s.lt; realizedST += s.st; }
+    const units = lots.reduce((s, l) => s + l.units, 0);
+    const price = num(a.unitPrice) || (units ? (M.balances.get(a.id) || 0) / units : 0);
+    if (!units || !price) continue;
+    let lt = 0, st = 0, ltUnits = 0;
+    for (const l of lots) { const g = l.units * price - l.cost; if ((parseDate(today) - parseDate(l.date)) / 864e5 > CG_RULES.longAfterDays) { lt += g; ltUnits += l.units; } else st += g; }
+    rows.push({ a, lt: round2(lt), st: round2(st), ltUnits, price });
+  }
+  const exemptLeft = Math.max(0, CG_RULES.ltcgExempt - Math.max(0, realizedLT));
+  const taxST = Math.max(0, realizedST) * CG_RULES.stcgRate * (1 + CG_RULES.cess);
+  const taxLT = Math.max(0, realizedLT - CG_RULES.ltcgExempt) * CG_RULES.ltcgRate * (1 + CG_RULES.cess);
+  return { fy, rows, realizedLT: round2(realizedLT), realizedST: round2(realizedST), exemptLeft, tax: round2(taxST + taxLT),
+    ltGains: rows.filter((r) => r.lt > 0), losses: rows.filter((r) => r.lt < 0 || r.st < 0) };
+}
+function gainsTool() {
+  const g = gainsData();
+  const harvest = g.ltGains.reduce((s, r) => s + r.lt, 0);
+  const daysToMarch = Math.round((parseDate(`${g.fy.to.slice(0, 4)}-03-28`) - parseDate(todayStr())) / 864e5);
+  return `<section class="panel p-5">
+      <div class="panel-head"><h2 class="panel-title">Capital gains this financial year ${PRO}</h2><span class="text-sm text-ink-3">FY ${fyOf(todayStr())}${daysToMarch > 0 ? `, ${daysToMarch} days to the March deadline` : ''}</span></div>
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="stat-tile"><div class="stat-label">Long-term gains booked</div><div class="stat-value num">${money(g.realizedLT)}</div></div>
+        <div class="stat-tile"><div class="stat-label">Short-term gains booked</div><div class="stat-value num">${money(g.realizedST)}</div></div>
+        <div class="stat-tile in"><div class="stat-label">Tax-free limit left</div><div class="stat-value num">${money(g.exemptLeft)}</div></div>
+        <div class="stat-tile out"><div class="stat-label">Estimated tax so far</div><div class="stat-value num">${money(g.tax)}</div></div>
+      </div>
+    </section>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+      <section class="panel p-5"><h2 class="panel-title mb-2"><i class="fa-solid fa-seedling text-gain mr-1.5"></i>Tax-free gains available</h2>
+        <p class="text-sm text-ink-2 mb-3">Each year the first ${money(CG_RULES.ltcgExempt)} of long-term equity gains is tax-free. Booking gains within that limit and reinvesting resets your purchase price higher, which can lower tax later ("gain harvesting").</p>
+        ${g.ltGains.length ? `<div class="divider">${g.ltGains.map((r) => `<div class="row text-sm"><div class="flex-1 min-w-0"><b>${esc(r.a.name)}</b><div class="text-xs text-ink-3">${r.ltUnits.toLocaleString('en-IN', { maximumFractionDigits: 3 })} units held over a year</div></div><div class="num text-gain font-semibold">+${money(r.lt)}</div></div>`).join('')}</div>
+          <p class="callout mt-3">Unbooked long-term gains: <b class="num">${money(harvest)}</b>. Tax-free room left this year: <b class="num">${money(g.exemptLeft)}</b>.</p>` : '<p class="text-sm text-ink-3">No long-term gains yet (units held over a year with a profit). Units bought through SIPs count once they are a year old.</p>'}
+      </section>
+      <section class="panel p-5"><h2 class="panel-title mb-2"><i class="fa-solid fa-arrow-trend-down text-loss mr-1.5"></i>Losses that could offset gains</h2>
+        <p class="text-sm text-ink-2 mb-3">Booking a loss can reduce tax on gains in the same year. Short-term losses can offset short- and long-term gains; long-term losses only long-term gains.</p>
+        ${g.losses.length ? `<div class="divider">${g.losses.map((r) => `<div class="row text-sm"><div class="flex-1 min-w-0"><b>${esc(r.a.name)}</b></div><div class="text-right num"><div class="${r.st < 0 ? 'text-loss' : 'text-ink-3'}">Short-term ${money(r.st)}</div><div class="${r.lt < 0 ? 'text-loss' : 'text-ink-3'}">Long-term ${money(r.lt)}</div></div></div>`).join('')}</div>` : '<p class="text-sm text-ink-3">No holdings are at a loss right now.</p>'}
+      </section>
+    </div>
+    <p class="text-xs text-ink-3 mt-4">Covers equity funds, stocks and ETFs whose units the app knows (from SIP units and the units you entered); debt funds are taxed at your slab rate and are left out. Sell before about 28 March so trades settle inside the financial year. Figures are estimates: confirm with your CA before acting.</p>`;
+}
+
+/* ----- Regular vs Direct ----- */
+function directTool() {
+  const regs = M.P.holdings.filter((h) => h.a.subtype === 'Mutual fund' && /regular/i.test(`${h.a.name} ${h.a.schemeName || ''}`));
+  return `<div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+    <section class="panel p-5 lg:col-span-2 space-y-4"><h2 class="panel-title">Assumptions ${PRO}</h2>
+      <p class="text-sm text-ink-2">Regular plans pay a commission to a distributor out of your money every year; Direct plans of the same fund don't, so they cost less.</p>
+      ${pslider('direct', 'gap', 'Extra yearly cost of Regular', 0.8, 0.2, 1.5, 0.05, '%')}
+      ${pslider('direct', 'ret', 'Expected return', 12, 6, 16, 0.5, '%')}
+      ${pslider('direct', 'load', 'Exit load on units under 1 year', 1, 0, 2, 0.25, '%')}
+      <p class="text-xs text-ink-3">Enter the fund's real expense ratio on the holding for exact numbers; Direct plans typically cost 0.5% to 1.5% a year less.</p>
+    </section>
+    <section class="panel p-5 lg:col-span-3 result-first" id="res-direct">${directResult(regs)}</section></div>`;
+}
+function directResult(regs = M.P.holdings.filter((h) => h.a.subtype === 'Mutual fund' && /regular/i.test(`${h.a.name} ${h.a.schemeName || ''}`))) {
+  const p = { gap: 0.8, ret: 12, load: 1, ...(planIn.direct || {}) };
+  if (!regs.length) return `<h2 class="panel-title mb-2">Your funds</h2><p class="text-sm text-ink-2">None of your funds is a Regular plan (going by their names). Nothing to compare.</p>`;
+  const g = gainsData();
+  return `<h2 class="panel-title mb-3">Your Regular plans</h2>${regs.map((h) => {
+    const gap = num(p.gap) / 100, r = num(p.ret) / 100;
+    const yearly = h.value * gap, ten = h.value * ((1 + r) ** 10 - (1 + r - gap) ** 10);
+    const { lots } = holdingLots(h.a);
+    const price = num(h.a.unitPrice) || 0;
+    let st = 0, lt = 0, young = 0;
+    for (const l of lots) { const v = l.units * price, gain = v - l.cost; if ((parseDate(todayStr()) - parseDate(l.date)) / 864e5 > CG_RULES.longAfterDays) lt += gain; else { st += gain; young += v; } }
+    const tax = Math.max(0, st) * CG_RULES.stcgRate * (1 + CG_RULES.cess) + Math.max(0, Math.max(0, lt) - g.exemptLeft) * CG_RULES.ltcgRate * (1 + CG_RULES.cess);
+    const load = young * (num(p.load) / 100), cost = tax + load;
+    const breakeven = yearly > 0 ? Math.ceil(cost / (yearly / 12)) : null;
+    return `<div class="cf-card mb-3"><b>${esc(h.a.name)}</b><div class="text-xs text-ink-3 mb-2">Same fund, Direct plan: ${esc(h.a.name.replace(/regular/i, 'Direct'))}</div>
+      <dl class="kv"><div><dt>Extra cost each year</dt><dd class="text-loss">${money(Math.round(yearly))}</dd></div><div><dt>Over 10 years (with growth)</dt><dd class="text-loss">${money(Math.round(ten))}</dd></div>
+        <div><dt>Cost of switching now</dt><dd>${money(Math.round(cost))}</dd></div><div><dt>Pays for itself in</dt><dd>${breakeven === null ? '–' : breakeven <= 0 ? 'Right away' : `${breakeven} months`}</dd></div></dl>
+      <p class="text-xs text-ink-3 mt-2">A switch is a sale: tax ${money(Math.round(tax))} (short-term ${money(Math.round(Math.max(0, st)))}, long-term ${money(Math.round(Math.max(0, lt)))}) and exit load ${money(Math.round(load))}. Waiting until units are over a year old usually lowers the cost; new SIPs can go to the Direct plan straight away.</p></div>`;
+  }).join('')}<p class="text-xs text-ink-3">Estimates only; check the fund's actual expense ratio and exit load, and ask a tax adviser before switching.</p>`;
+}
+
+/* ----- Salary-day plan ----- */
+function salaryTool() {
+  const plan = db.settings.salaryPlan || [];
+  const sal = db.subscriptions.find((s) => s.active && recurKind(s) === 'income' && /salary/i.test(`${s.name} ${s.category}`));
+  const avgSal = sal ? num(sal.amount) : monthlyAverages(3).income;
+  const total = plan.reduce((s, x) => s + num(x.amount), 0);
+  const kindLabel = (x) => (x.kind === 'goal' ? `To goal: ${goalName(x.goalId)}` : x.kind === 'transfer' ? `Move to ${accountName(x.toAccountId)}` : 'Reminder');
+  return `<div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+    <section class="panel p-5 lg:col-span-3"><div class="panel-head"><h2 class="panel-title">Pay yourself first</h2><button class="btn btn-sm btn-primary" data-action="salary-item">Add a step</button></div>
+      <p class="text-sm text-ink-2 mb-4">Decide once where your salary goes. When salary arrives the dashboard offers to apply it with one tap: money is put towards goals and moved to savings or investment accounts.</p>
+      ${plan.length ? `<div class="divider">${plan.map((x, i) => `<div class="row"><span class="row-icon ${x.kind === 'goal' ? 'invest' : x.kind === 'transfer' ? 'move' : ''}"><i class="fa-solid ${x.kind === 'goal' ? 'fa-flag-checkered' : x.kind === 'transfer' ? 'fa-right-left' : 'fa-bell'}"></i></span>
+        <div class="flex-1 min-w-0"><div class="font-medium">${esc(x.label || kindLabel(x))}</div><div class="text-xs text-ink-3">${esc(kindLabel(x))}</div></div>
+        <div class="num font-semibold">${money(x.amount)}</div><div class="row-actions"><button class="icon-btn sm" data-action="salary-del" data-i="${i}" title="Remove" aria-label="Remove step"><i class="fa-regular fa-trash-can"></i></button></div></div>`).join('')}</div>
+        <div class="flex justify-between mt-4 font-semibold"><span>Planned</span><span class="num">${money(total)}${avgSal ? ` of ${money(Math.round(avgSal))} (${Math.round((total / avgSal) * 100)}%)` : ''}</span></div>
+        <div class="flex gap-2 mt-4 flex-wrap"><button class="btn btn-primary" data-action="salary-apply"><i class="fa-solid fa-check"></i> Apply now</button>${db.settings.salaryPlanApplied === thisMonth() ? '<span class="pill in self-center">Applied this month</span>' : ''}</div>`
+        : emptyState('fa-briefcase', 'No steps yet. Add where salary money should go: a goal, a savings account, an investment account.')}
+    </section>
+    <section class="panel p-5 lg:col-span-2"><h2 class="panel-title mb-2">A simple starting split</h2>
+      <p class="text-sm text-ink-2">A common rule of thumb is 50/30/20: about half for needs (rent, bills, groceries), 30% for wants, and 20% for saving and investing. Adjust it to your life.</p>
+      ${avgSal ? `<dl class="kv mt-3"><div><dt>Needs (50%)</dt><dd>${money(Math.round(avgSal * 0.5))}</dd></div><div><dt>Wants (30%)</dt><dd>${money(Math.round(avgSal * 0.3))}</dd></div><div><dt>Save and invest (20%)</dt><dd>${money(Math.round(avgSal * 0.2))}</dd></div></dl>` : ''}
+    </section></div>`;
+}
+const goalName = (id) => db.goals.find((g) => g.id === id)?.name || 'a goal';
+function openSalaryItem() {
+  const goals = db.goals.filter((g) => !g.done);
+  openModal({
+    title: 'Add a salary-day step',
+    body: `<div class="seg">${[['goal', 'Put towards a goal'], ['transfer', 'Move to an account'], ['note', 'Just a reminder']].map(([v, l], i) => `<input type="radio" name="kind" id="sk_${v}" value="${v}" ${i === 0 ? 'checked' : ''}><label for="sk_${v}">${l}</label>`).join('')}</div>
+      ${twoCol(field('Amount', moneyInput('amount', '', 'required min="1"')), field('Name (optional)', input('label', '', 'maxlength="60" placeholder="e.g. Emergency fund"')))}
+      ${showFor('goal', goals.length ? field('Goal', select('goalId', goals.map((g) => [g.id, g.name]))) : '<p class="hint">Create a goal first on the Goals page.</p>')}
+      ${showFor('transfer', twoCol(field('From', accountSelect('fromAccountId', firstAccountOf(['bank']), { types: ['bank'] })), field('To', accountSelect('toAccountId', '', { types: ['bank', 'investment'] }))))}`,
+    submitLabel: 'Add',
+    onOpen: (form) => bindShowHide(form, 'kind'),
+    onSubmit: (d) => {
+      if (d.kind === 'transfer' && (!d.toAccountId || d.toAccountId === d.fromAccountId)) { toast('Choose a different account to move money to.', 'error'); return false; }
+      const item = { kind: d.kind, amount: round2(num(d.amount)), label: d.label || '', goalId: d.goalId || '', fromAccountId: d.fromAccountId || '', toAccountId: d.toAccountId || '' };
+      commit([opSettings({ salaryPlan: [...(db.settings.salaryPlan || []), item] })], 'Add salary-day step');
+    },
+  });
+}
+function applySalaryPlan() {
+  const plan = db.settings.salaryPlan || [];
+  if (!plan.length) { toast('Add steps to the salary-day plan first.'); plannerTab = 'salary'; location.hash = '#planner'; return; }
+  const ops = [], today = todayStr();
+  for (const x of plan) {
+    if (x.kind === 'goal') { const g = db.goals.find((y) => y.id === x.goalId); if (g) ops.push(opUpsert('goals', { ...g, contributions: [...(g.contributions || []), { date: today, amount: num(x.amount), note: 'Salary-day plan' }] })); }
+    if (x.kind === 'transfer' && x.toAccountId) ops.push(opUpsert('transactions', { id: uid('txn'), date: today, type: 'transfer', amount: num(x.amount), category: transferCategory(x.fromAccountId, x.toAccountId), description: x.label || 'Salary-day plan', fromAccountId: x.fromAccountId, toAccountId: x.toAccountId, relatedType: '', relatedId: '', notes: 'Salary-day plan' }));
+  }
+  ops.push(opSettings({ salaryPlanApplied: thisMonth() }));
+  commit(ops, 'Apply salary-day plan');
+  const notes = plan.filter((x) => x.kind === 'note').map((x) => x.label).filter(Boolean);
+  toast(`Salary plan applied.${notes.length ? ` Reminders: ${notes.join(', ')}.` : ''}`, 'success');
+}
+
+/* ----- Year in review ----- */
+function reviewTool() {
+  const years = [...new Set(db.transactions.map((t) => t.date?.slice(0, 4)).filter(Boolean))].sort().reverse();
+  const y = pval('review', 'year', years[0] || String(new Date().getFullYear()));
+  const from = `${y}-01-01`, to = `${y}-12-31` < todayStr() ? `${y}-12-31` : todayStr();
+  const tx = db.transactions.filter((t) => t.date >= from && t.date <= to);
+  const spent = tx.filter((t) => t.type === 'expense'), income = tx.filter((t) => t.type === 'income').reduce((s, t) => s + num(t.amount), 0);
+  const total = spent.reduce((s, t) => s + num(t.amount), 0), inv = tx.filter(isInvestmentOutflow).reduce((s, t) => s + num(t.amount), 0);
+  const cats = {}; for (const t of spent) cats[t.category || 'Other'] = (cats[t.category || 'Other'] || 0) + num(t.amount);
+  const topCats = Object.entries(cats).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const mer = {}; for (const t of spent) { const k = (t.description || t.category || '').trim(); if (k) mer[k] = (mer[k] || 0) + 1; }
+  const topMer = Object.entries(mer).sort((a, b) => b[1] - a[1])[0];
+  const biggest = spent.slice().sort((a, b) => num(b.amount) - num(a.amount))[0];
+  const days = new Set(spent.map((t) => t.date)); const span = Math.max(1, Math.round((parseDate(to) - parseDate(from)) / 864e5) + 1);
+  // Net worth from when tracking began that year (accounts added later aren't counted as a jump)
+  const firstOpen = db.accounts.map((a) => a.openingDate).filter(Boolean).sort()[0] || from;
+  const startDay = firstOpen > from ? firstOpen : addDays(from, -1);
+  const nwStart = snapshotAt(startDay).net, nwEnd = snapshotAt(to).net;
+  const wins = db.wishlist.filter((w) => w.status === 'skipped' && (w.skippedOn || '').startsWith(y)).reduce((s, w) => s + num(w.price), 0);
+  const goalsDone = db.goals.filter((g) => g.done).length;
+  const kept = income > 0 ? Math.round(((income - total) / income) * 100) : null;
+  const tile = (label, value, sub = '') => `<div class="wrap-tile"><div class="wrap-label">${label}</div><div class="wrap-value num">${value}</div>${sub ? `<div class="wrap-sub">${sub}</div>` : ''}</div>`;
+  return `<div class="flex items-center gap-3 mb-4"><label class="lbl !mb-0" for="ry">Year</label><select id="ry" class="inp !w-auto" data-p="review.year" data-rerender>${(years.length ? years : [y]).map((v) => `<option ${v === y ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <button class="btn btn-sm" data-action="review-share"><i class="fa-solid fa-share-nodes"></i> Share</button></div>
+    <section class="wrapped" id="wrapped">
+      <div class="wrap-head"><div class="display text-3xl font-semibold">${esc(db.settings.ownerName || 'Your')}'s ${y}</div><div class="hero-dim text-sm">in money, with KOSH</div></div>
+      <div class="wrap-grid">
+        ${tile('Money in', money(Math.round(income)))}${tile('Spent', money(Math.round(total)))}${tile('Invested', money(Math.round(inv)))}
+        ${tile('Kept', kept === null ? '–' : `${kept}%`, 'of what came in')}
+        ${tile('Net worth', `${nwEnd - nwStart >= 0 ? '+' : '−'}${money(Math.abs(Math.round(nwEnd - nwStart)))}`, `${money(Math.round(nwStart))} → ${money(Math.round(nwEnd))}`)}
+        ${tile('No-spend days', `${span - days.size}`, `of ${span}`)}
+        ${tile('Top category', topCats[0] ? esc(topCats[0][0]) : '–', topCats.slice(0, 3).map(([c, v]) => `${esc(c)} ${money(Math.round(v))}`).join(' · '))}
+        ${tile('Favourite place', topMer ? esc(topMer[0]) : '–', topMer ? `${topMer[1]} visits` : '')}
+        ${tile('Biggest spend', biggest ? money(Math.round(num(biggest.amount))) : '–', biggest ? esc(biggest.description || biggest.category) : '')}
+        ${tile('Saving wins', money(Math.round(wins)), 'from skipped impulse buys')}${tile('Goals reached', `${goalsDone}`)}
+      </div></section>`;
+}
+function shareReview() {
+  const el = $('#wrapped'); if (!el) return;
+  const text = [...el.querySelectorAll('.wrap-tile')].map((t) => `${t.querySelector('.wrap-label').textContent}: ${t.querySelector('.wrap-value').textContent}`).join('\n');
+  const msg = `${el.querySelector('.wrap-head .display').textContent}\n${text}\n\nTracked with KOSH`;
+  if (navigator.share) navigator.share({ text: msg }).catch(() => {});
+  else navigator.clipboard?.writeText(msg).then(() => toast('Copied. Paste it anywhere to share.', 'success'));
+}
+
+/* ===== Split a bill (Splitwise style) =====
+   One bill, shared between you and people on the People page.
+   - You paid: your share is your expense; everyone else's share is money they
+     now owe you (a transfer to that person, like home expenses).
+   - Someone else paid: your share is an expense paid by them, so you owe them.
+   Everything is tagged with the same splitId so it shows and deletes as one. */
+function openSplitForm() {
+  const ppl = db.accounts.filter((a) => a.type === 'person' && !a.archived);
+  const cats = db.settings.expenseCategories;
+  openModal({
+    title: 'Split a bill',
+    wide: true,
+    body: `${twoCol(field('What was it?', input('description', '', 'required maxlength="100" placeholder="e.g. Dinner at Vaishali, Goa villa"')), field('Total bill', moneyInput('total', '', 'required min="1" data-big')))}
+      ${twoCol(field('Date', input('date', todayStr(), 'type="date" required')), field('Category', select('category', cats, cats.includes('Food & dining') ? 'Food & dining' : cats[0])))}
+      ${twoCol(field('Who paid?', select('payer', [['me', 'I paid'], ...ppl.map((p) => [p.id, `${p.name} paid`])], 'me')), `<div data-myacc>${field('Paid from', accountSelect('fromAccountId', firstAccountOf(['credit_card', 'bank']), { types: ['cash', 'bank', 'credit_card'] }))}</div>`)}
+      <div><span class="lbl">Split between</span><div class="filter-picks">
+        <label class="check-chip"><input type="checkbox" name="with_me" checked> Me</label>
+        ${ppl.map((p) => `<label class="check-chip"><input type="checkbox" name="with_${p.id}"> ${esc(p.name)}</label>`).join('')}</div>
+        ${field('Add someone new (optional)', input('newPeople', '', 'placeholder="Names, separated by commas"'), 'They are added to your People page.')}</div>
+      <div><span class="lbl">How to split</span><div class="seg">${[['equal', 'Equally'], ['amount', 'By amounts'], ['percent', 'By %']].map(([v, l], i) => `<input type="radio" name="method" id="sm_${v}" value="${v}" ${i === 0 ? 'checked' : ''}><label for="sm_${v}">${l}</label>`).join('')}</div></div>
+      <div data-shares class="space-y-2"></div>
+      <p class="callout" data-split-summary></p>`,
+    submitLabel: 'Save split',
+    onOpen: (form) => {
+      const sig = { signal: modalSignal() };
+      const people = () => {
+        const list = [];
+        if (form.elements.with_me.checked) list.push({ id: 'me', name: 'Me' });
+        for (const p of ppl) if (form.elements[`with_${p.id}`]?.checked) list.push({ id: p.id, name: p.name });
+        String(form.elements.newPeople.value || '').split(',').map((s) => s.trim()).filter(Boolean).forEach((n, i) => list.push({ id: `new${i}`, name: n, isNew: true }));
+        return list;
+      };
+      const draw = () => {
+        const list = people(), method = form.elements.method.value, total = num(form.elements.total.value);
+        $('[data-myacc]', form).hidden = form.elements.payer.value !== 'me';
+        const box = $('[data-shares]', form);
+        const prev = Object.fromEntries($$('[data-share]', box).map((el) => [el.dataset.share, el.value]));
+        box.innerHTML = method === 'equal' ? '' : list.map((p) => `<div class="flex items-center gap-3"><span class="flex-1">${esc(p.name)}</span><input class="inp !w-32" type="number" step="0.01" min="0" inputmode="decimal" data-share="${p.id}" value="${esc(prev[p.id] ?? '')}" placeholder="${method === 'percent' ? '%' : '₹'}"></div>`).join('');
+        summary();
+      };
+      const summary = () => {
+        const s = splitShares(form, people());
+        $('[data-split-summary]', form).innerHTML = s.error ? `<span class="text-loss">${esc(s.error)}</span>` : s.shares.map((x) => `${esc(x.name)}: <b class="num">${money(x.amount)}</b>`).join(' · ');
+      };
+      form.addEventListener('change', (e) => { if (['payer', 'method', 'newPeople'].includes(e.target.name) || e.target.name?.startsWith('with_')) draw(); else summary(); }, sig);
+      form.addEventListener('input', (e) => { if (e.target.name === 'newPeople') draw(); else summary(); }, sig);
+      form._people = people;
+      draw();
+    },
+    onSubmit: (d, form) => {
+      const list = form._people();
+      const s = splitShares(form, list);
+      if (s.error) { toast(s.error, 'error'); return false; }
+      const ops = [], idOf = {};
+      for (const p of list) if (p.isNew) { const rec = newPersonRecord(p.name); ops.push(opUpsert('accounts', rec)); idOf[p.id] = rec.id; }
+      const pid = (id) => idOf[id] || id;
+      const splitId = uid('split'), payer = d.payer;
+      const base = (amount, extra) => ({ id: uid('txn'), date: d.date, amount: round2(amount), category: d.category, description: `${d.description} (split)`, relatedType: 'split', relatedId: splitId, splitTotal: round2(num(d.total)), notes: `Split ${s.shares.map((x) => `${x.name} ${x.amount}`).join(', ')}`, ...extra });
+      if (payer === 'me') {
+        for (const x of s.shares) {
+          if (x.id === 'me') ops.push(opUpsert('transactions', base(x.amount, { type: 'expense', fromAccountId: d.fromAccountId, toAccountId: '' })));
+          else ops.push(opUpsert('transactions', base(x.amount, { type: 'transfer', fromAccountId: d.fromAccountId, toAccountId: pid(x.id) })));
+        }
+      } else {
+        const mine = s.shares.find((x) => x.id === 'me');
+        if (!mine) { toast('You are not in this split, so nothing changes for you.', 'error'); return false; }
+        ops.push(opUpsert('transactions', base(mine.amount, { type: 'expense', fromAccountId: payer, toAccountId: '' })));
+      }
+      commit(ops, `Split ${d.description}`);
+      toast(payer === 'me' ? `Split saved. Others owe you ${money(round2(num(d.total) - (s.shares.find((x) => x.id === 'me')?.amount || 0)))}.` : `Split saved. You owe ${accountName(payer)} ${money(s.shares.find((x) => x.id === 'me').amount)}.`, 'success');
+    },
+  });
+}
+/** Work out each person's share; the last person absorbs rounding so shares add up exactly. */
+function splitShares(form, list) {
+  const total = round2(num(form.elements.total.value)), method = form.elements.method.value;
+  if (!total) return { error: 'Enter the total bill.' };
+  if (list.length < 2) return { error: 'Pick at least two people, including whoever else shared it.' };
+  let shares;
+  if (method === 'equal') { const each = Math.floor((total / list.length) * 100) / 100; shares = list.map((p, i) => ({ ...p, amount: i === list.length - 1 ? round2(total - each * (list.length - 1)) : each })); }
+  else {
+    const vals = list.map((p) => num($(`[data-share="${p.id}"]`, form)?.value));
+    const sum = vals.reduce((s, v) => s + v, 0);
+    if (method === 'percent') {
+      if (Math.abs(sum - 100) > 0.01) return { error: `Percentages add up to ${round2(sum)}%, not 100%.` };
+      let used = 0; shares = list.map((p, i) => { const a = i === list.length - 1 ? round2(total - used) : round2((total * vals[i]) / 100); used += a; return { ...p, amount: a }; });
+    } else {
+      if (Math.abs(sum - total) > 0.01) return { error: `Shares add up to ${money(sum)}, not ${money(total)}.` };
+      shares = list.map((p, i) => ({ ...p, amount: round2(vals[i]) }));
+    }
+  }
+  return { shares };
+}
+/** Recent splits for the People page. */
+function splitsSection() {
+  const groups = new Map();
+  for (const t of db.transactions.filter((x) => x.relatedType === 'split')) { if (!groups.has(t.relatedId)) groups.set(t.relatedId, []); groups.get(t.relatedId).push(t); }
+  const list = [...groups.entries()].map(([id, items]) => ({ id, items, date: items[0].date, desc: items[0].description.replace(/ \(split\)$/, ''), total: items[0].splitTotal || items.reduce((s, t) => s + num(t.amount), 0) })).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 15);
+  return `<section class="panel p-5 mt-6"><div class="panel-head"><div><h2 class="panel-title"><i class="fa-solid fa-people-arrows mr-1.5 text-royal"></i>Split bills</h2><div class="text-xs text-ink-3 mt-0.5">Share a bill with friends or family; balances above update by themselves.</div></div>
+    <button class="btn btn-sm btn-primary" data-action="split-new"><i class="fa-solid fa-plus"></i> Split a bill</button></div>
+    ${list.length ? `<div class="divider">${list.map((g) => {
+      const mine = g.items.find((t) => t.type === 'expense'), paidByMe = g.items.some((t) => MONEY_TYPES.includes(accountById(t.fromAccountId)?.type));
+      const others = g.items.filter((t) => t.type === 'transfer');
+      return `<div class="row"><span class="row-icon move"><i class="fa-solid fa-people-arrows"></i></span>
+        <div class="flex-1 min-w-0"><div class="font-medium">${esc(g.desc)}</div><div class="text-xs text-ink-3">${fmtDate(g.date)} · total ${money(g.total)} · ${paidByMe ? 'you paid' : `${esc(accountName(mine?.fromAccountId))} paid`}</div>
+          <div class="text-xs mt-1">${mine ? `Your share <b class="num">${money(mine.amount)}</b>` : ''}${others.map((t) => ` · ${esc(accountName(t.toAccountId))} owes <b class="num text-gain">${money(t.amount)}</b>`).join('')}${!paidByMe && mine ? ` · you owe <b class="num text-loss">${money(mine.amount)}</b>` : ''}</div></div>
+        <div class="row-actions"><button class="icon-btn sm" data-action="split-del" data-id="${g.id}" title="Delete split" aria-label="Delete split"><i class="fa-regular fa-trash-can"></i></button></div></div>`;
+    }).join('')}</div>` : emptyState('fa-people-arrows', 'No splits yet. Had dinner with friends? Split it here and see who owes whom.')}
+  </section>`;
+}
+function deleteSplit(id) {
+  const items = db.transactions.filter((t) => t.relatedType === 'split' && t.relatedId === id);
+  if (!items.length || !confirm('Delete this split and all its entries?')) return;
+  commit(items.map((t) => opDelete('transactions', t.id)), 'Delete split');
+}
+
+/* ===== Cool-off list ("I want to buy this") =====
+   Log a tempting purchase instead of buying it. After the cool-off (48 hours
+   by default) you decide: still want it (it stays on the wishlist) or skip it
+   (a "saving win"). The illustration shows what the money could become if
+   invested, at a stated assumed return; it is not a promise. */
+const COOL_RETURN = 0.12;
+function investIllustration(price) {
+  const age = db.settings.birthYear ? new Date().getFullYear() - int(db.settings.birthYear) : null;
+  const years = age && age < 58 ? 60 - age : 20;
+  return { years, value: Math.round(num(price) * (1 + COOL_RETURN) ** years), toAge: age && age < 58 };
+}
+function openCoolOff() {
+  openModal({
+    title: 'I want to buy this',
+    body: `<p class="text-sm text-ink-2">Log it instead of checking out. Wait for the cool-off to end, then decide. Most urges fade.</p>
+      ${field('What is it?', input('name', '', 'required maxlength="80" placeholder="e.g. Smartwatch"'))}
+      ${twoCol(field('Price', moneyInput('price', '', 'required min="1" data-big')), field('Cool-off', select('hours', [['24', '24 hours'], ['48', '48 hours'], ['72', '3 days'], ['168', '1 week']], '48')))}
+      ${field('Link (optional)', input('link', '', 'type="url" placeholder="https://"'))}
+      <p class="callout" data-illus>Enter the price to see what it could become if invested.</p>`,
+    submitLabel: 'Start cool-off',
+    onOpen: (form) => form.addEventListener('input', () => { const p = num(form.elements.price.value); if (p > 0) { const i = investIllustration(p); $('[data-illus]', form).innerHTML = `If you invested <b class="num">${money(p)}</b> instead, it could grow to about <b class="num">${money(i.value)}</b> in ${i.years} years${i.toAge ? ' (by age 60)' : ''}, assuming ${COOL_RETURN * 100}% a year.`; } }, { signal: modalSignal() }),
+    onSubmit: (d) => {
+      const until = new Date(Date.now() + int(d.hours) * 3600e3).toISOString();
+      commit([opUpsert('wishlist', { id: uid('wish'), name: d.name.trim(), price: round2(num(d.price)), priority: 'medium', link: d.link || '', status: 'cooling', coolUntil: until, coolStarted: new Date().toISOString() })], `Cool-off: ${d.name}`);
+      toast(`Cool-off started. We'll ask you again in ${int(d.hours) >= 48 ? `${int(d.hours) / 24} days` : '24 hours'}.`, 'success');
+    },
+  });
+}
+function coolLeft(w) { const ms = new Date(w.coolUntil) - Date.now(); if (ms <= 0) return null; const h = Math.ceil(ms / 3600e3); return h >= 48 ? `${Math.ceil(h / 24)} days` : `${h} h`; }
+function openCoolDecide(id) {
+  const w = db.wishlist.find((x) => x.id === id);
+  if (!w) return;
+  const i = investIllustration(w.price);
+  openModal({
+    title: `Still want the ${w.name}?`,
+    body: `<p class="text-sm">Cool-off is over. Take a breath: ${money(w.price)} invested could be about <b class="num">${money(i.value)}</b> in ${i.years} years (assuming ${COOL_RETURN * 100}% a year).</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <button type="button" class="btn btn-primary" data-action="cool-skip" data-id="${w.id}"><i class="fa-solid fa-trophy"></i> Skip it: a saving win</button>
+        <button type="button" class="btn" data-action="cool-keep" data-id="${w.id}"><i class="fa-solid fa-cart-shopping"></i> I still want it</button></div>`,
+    submitLabel: 'Later', cancelLabel: 'Close', onSubmit: () => {},
+  });
+}
+function coolSkip(id) {
+  const w = db.wishlist.find((x) => x.id === id); if (!w) return;
+  commit([opUpsert('wishlist', { ...w, status: 'skipped', skippedOn: todayStr() })], `Saving win: ${w.name}`);
+  closeModal();
+  const total = db.wishlist.filter((x) => x.status === 'skipped').reduce((s, x) => s + num(x.price), 0);
+  toast(`Saving win! You kept ${money(w.price)}. Total saving wins: ${money(total)}.`, 'success');
+}
+function coolKeep(id) {
+  const w = db.wishlist.find((x) => x.id === id); if (!w) return;
+  commit([opUpsert('wishlist', { ...w, status: 'wanted' })], `Keep ${w.name} on wishlist`);
+  closeModal();
+  toast('Moved to your wishlist. Mark it bought when you buy it, or start saving for it.');
+}
+const savingWins = () => db.wishlist.filter((x) => x.status === 'skipped').reduce((s, x) => s + num(x.price), 0);
 
 /* ---------------------------------------------------------------------
    9. FORMS & ACTIONS
@@ -6777,6 +7699,7 @@ function openSettings() {
       ${Object.keys(s.colors || {}).length ? `<p class="text-sm">You have picked your own colours for ${Object.keys(s.colors).length} chart item(s). <button type="button" class="link" data-action="reset-colors">Reset chart colours</button></p>` : ''}
       ${twoCol(field('Units are allotted at the NAV of', select('navLagDays', [['0', 'The same day'], ['1', '1 working day later'], ['2', '2 working days later'], ['3', '3 working days later']], String(s.navLagDays ?? 1)), 'Default for lump sums and new SIPs. Each SIP can have its own.'),
         '<div class="pt-6">' + checkbox('stampDuty', s.stampDuty !== false, 'Deduct 0.005% stamp duty', 'Mutual fund purchases in India lose 0.005% to stamp duty, so a few fewer units are allotted.') + '</div>')}
+      ${field('Year of birth (optional)', input('birthYear', s.birthYear || '', 'type="number" min="1940" max="2015" placeholder="e.g. 2001"'), 'Used by the financial freedom planner and the cool-off list to show ages.')}
       ${checkbox('showNwToggles', s.showNwToggles !== false, 'Show the net worth switches on the dashboard', 'Small switches on the net worth card to leave out investments or credit card dues.')}
       ${checkbox('sipAsSpending', s.sipAsSpending, 'Count SIPs as money going out', 'Shows SIPs and other money you invest in the spending chart and monthly totals. Net worth is not affected, because the money is still yours in the fund.')}
       ${field('Expense categories', textarea('expenseCategories', s.expenseCategories.join('\n'), 'rows="6"'), 'One per line. Renaming a category here does not change past transactions.')}
@@ -6852,6 +7775,7 @@ function openSettings() {
         sipAsSpending: !!d.sipAsSpending,
         autoPrices: !!d.autoPrices,
         showNwToggles: !!d.showNwToggles,
+        birthYear: d.birthYear ? int(d.birthYear) : '',
         navLagDays: int(d.navLagDays),
         stampDuty: !!d.stampDuty,
         remindInApp: !!d.remindInApp,
@@ -6939,6 +7863,22 @@ const ACTIONS = {
   'imp-all': (d) => { imp.rows.forEach((r) => { r.include = d.v === '1' && !r.match && r.kind !== 'skip'; }); render(); },
   'rules-open': () => openRules(),
   'nav-more': () => toggleNav(true),
+  'fun-edit': () => openFunForm(),
+  'fun-set': (d) => { commit([opSettings({ funMoney: { ...FUN_DEFAULT, ...(db.settings.funMoney || {}), monthly: num(d.v) } })], 'Lower fun money'); toast(`Fun money set to ${money(num(d.v))} this month.`, 'success'); },
+  'credit-add': () => openCreditForm(),
+  'health-settings': () => openHealthSettings(),
+  'nudge-hide': (d, el) => { hideNudge(d.id); el.closest('.nudge-card')?.remove(); },
+  'planner-tab': (d) => { plannerTab = d.t; render(); },
+  'salary-item': () => openSalaryItem(),
+  'salary-del': (d) => { const p = (db.settings.salaryPlan || []).slice(); p.splice(int(d.i), 1); commit([opSettings({ salaryPlan: p })], 'Remove salary-day step'); },
+  'salary-apply': () => applySalaryPlan(),
+  'review-share': () => shareReview(),
+  'split-new': () => openSplitForm(),
+  'split-del': (d) => deleteSplit(d.id),
+  'cool-new': () => openCoolOff(),
+  'cool-decide': (d) => openCoolDecide(d.id),
+  'cool-skip': (d) => coolSkip(d.id),
+  'cool-keep': (d) => coolKeep(d.id),
   'setup-hide': (d, el) => { localStorage.setItem('kosh.setupHidden', '1'); el.closest('section')?.remove(); toast('Hidden. The steps are also in the README.'); },
   'cal-go': (d) => { calMonth = d.m; render(); },
   'cal-day': (d) => openCalendarDay(d.date),
@@ -7021,6 +7961,16 @@ function init() {
     e.preventDefault();
     ACTIONS[el.dataset.action](el.dataset, el);
   });
+
+  // Planners: recalculate as you type or slide
+  const plannerListen = (e) => {
+    if (location.hash !== '#planner' || !e.target.dataset?.p) return;
+    if (e.target.dataset.rerender !== undefined) { readPlanInputs(e.target.dataset.p.split('.')[0]); render(); return; }
+    if (e.target.dataset.p === 'loan.id') { const c = $('[data-custom]'); if (c) c.hidden = e.target.value !== 'custom'; }
+    onPlannerInput(e);
+  };
+  document.addEventListener('input', plannerListen);
+  document.addEventListener('change', plannerListen);
 
   // Calendar: Both / Spent / Income
   document.addEventListener('change', (e) => { if (e.target.name === 'calView' && location.hash === '#calendar') { calView = e.target.value; render(); } });
