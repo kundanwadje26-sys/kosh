@@ -456,3 +456,179 @@ table.imp-table label.pill input { accent-color: var(--royal); vertical-align: -
   .cal-cell.today .cal-num { width: 1.25rem; height: 1.25rem; }
 }
 .cal-amt.plan { color: var(--ink-3); font-weight: 600; } .cal-amt.plan-in { color: #5FA67D; font-weight: 600; }
+
+/* ---------- Quick picks in the add form ---------- */
+.date-chips, .cat-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .45rem; }
+.chip { border: 1px solid var(--line); background: #fff; color: var(--ink-2); border-radius: 999px; padding: .3rem .7rem; font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
+.chip:hover { border-color: var(--royal); color: var(--royal); }
+.chip.on { background: var(--royal-tint); border-color: var(--royal); color: var(--royal); }
+.inp[data-big] { font-family: 'Bricolage Grotesque', 'Plus Jakarta Sans', sans-serif; font-size: 1.35rem; font-weight: 700; }
+.txn-row { cursor: pointer; border-radius: 10px; }
+.txn-row:hover { background: #F7F9FD; }
+.txn-row:focus-visible { outline: 2px solid var(--royal); outline-offset: 2px; }
+.phone-only { display: none !important; }
+
+/* ---------- Phone tab bar ---------- */
+.tabbar { display: none; }
+
+/* =====================================================================
+   PHONE LAYOUT (below 640 px wide)
+   ===================================================================== */
+@media (max-width: 639px) {
+  /* Bottom tab bar replaces the floating + button */
+  .fab { display: none !important; }
+  .tabbar {
+    display: grid; grid-template-columns: repeat(5, 1fr); align-items: end;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    background: rgba(255,255,255,.96); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-top: 1px solid var(--line); padding: .35rem .25rem calc(.35rem + env(safe-area-inset-bottom));
+    box-shadow: 0 -4px 18px rgba(11,37,64,.06);
+  }
+  .tabbar a, .tabbar button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .15rem;
+    min-height: 48px; color: var(--ink-3); font: inherit; font-size: .68rem; font-weight: 600; text-decoration: none; background: none; border: 0; cursor: pointer; }
+  .tabbar i { font-size: 1.15rem; }
+  .tabbar .on { color: var(--royal); }
+  .tabbar .tab-add { align-self: center; justify-self: center; width: 3.4rem; height: 3.4rem; min-height: 0; border-radius: 999px; margin-top: -1.4rem;
+    background: var(--royal); color: #fff; box-shadow: 0 6px 16px rgba(10,111,176,.4); border: 4px solid #fff; }
+  .tabbar .tab-add i { font-size: 1.3rem; }
+  #view { padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)) !important; }
+  #toasts { bottom: calc(5.2rem + env(safe-area-inset-bottom)) !important; }
+
+  /* Header: keep the title readable; the sync chip shows only its dot */
+  header .sync-chip { padding: .45rem; min-width: 2.5rem; min-height: 2.5rem; justify-content: center; }
+  header .sync-chip .txt { display: none; }
+  #navToggle { width: 2.75rem; height: 2.75rem; }
+
+  /* No zoom-in on iPhone when a box is tapped: inputs must be 16 px */
+  .inp, input, select, textarea, .chart-filter { font-size: 16px !important; }
+  .inp[data-big] { font-size: 1.5rem !important; }
+  .inp-sm { min-width: 0; width: 100%; }
+
+  /* Bigger tap targets */
+  .icon-btn { width: 2.75rem; height: 2.75rem; }
+  .icon-btn.sm { width: 2.5rem; height: 2.5rem; font-size: .95rem; }
+  .btn { min-height: 2.75rem; }
+  .btn-sm { min-height: 2.5rem; padding: .45rem .8rem; }
+  .panel-head a.link, .panel-head a.text-sm { padding: .5rem 0; }
+  .chip { padding: .45rem .85rem; font-size: .85rem; }
+  .check input { width: 1.25rem; height: 1.25rem; }
+  .home-pick { width: 1.35rem !important; height: 1.35rem !important; }
+
+  /* Lists: names get the full width; buttons move to their own line */
+  .row { flex-wrap: wrap; row-gap: .35rem; }
+  .row > .row-actions { order: 10; width: 100%; justify-content: flex-end; opacity: 1; gap: .25rem; margin-top: -.25rem; }
+  .row .font-medium.truncate { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .txn-row > .row-actions { display: none; } /* tap the row to edit or delete */
+  .txn-row { padding-left: .15rem; padding-right: .15rem; }
+
+  /* Net worth: two tidy columns instead of a long equation */
+  .equation { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem .75rem; }
+  .equation .op { display: none; }
+  .equation > .t-val:last-child { display: none; }
+  .term { flex-direction: column; gap: 0; }
+  .term .t-label { font-size: .72rem; }
+  .nw-toggles { justify-content: flex-start; }
+
+  /* Portfolio holdings: one card per holding */
+  table.holdings, table.holdings tbody, table.holdings tr, table.holdings td { display: block; }
+  table.holdings { min-width: 0 !important; }
+  table.holdings thead { display: none; }
+  table.holdings tr:not(.group-row) { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem 1rem; padding: .9rem 1rem; border-bottom: 1px solid #EEF2F8; }
+  table.holdings tr:not(.group-row) td { padding: 0 !important; border: 0; text-align: left !important; white-space: normal; }
+  table.holdings tr:not(.group-row) td:nth-child(n) { display: block; }
+  table.holdings td.name-cell { grid-column: 1 / -1; max-width: none; }
+  table.holdings td[data-label]::before { content: attr(data-label); display: block; font-size: .7rem; font-weight: 600; color: var(--ink-3); margin-bottom: .1rem; }
+  table.holdings td.act-cell { grid-column: 1 / -1; }
+  table.holdings td.act-cell .row-actions { flex-direction: row !important; justify-content: flex-end; }
+  table.holdings tr.group-row { display: flex; align-items: baseline; gap: .75rem; padding: .6rem 1rem; background: #F6F8FC; }
+  table.holdings tr.group-row td { padding: 0 !important; background: none; }
+  table.holdings tr.group-row td:empty { display: none; }
+  table.holdings tr.group-row td:nth-child(4) { display: none; }
+  table.holdings tr.group-row td:first-child { flex: 1; }
+
+  /* Statement import: one card per row */
+  table.imp-table, table.imp-table tbody, table.imp-table tr, table.imp-table td { display: block; }
+  table.imp-table thead { display: none; }
+  table.imp-table tr { display: grid; grid-template-columns: auto 1fr auto; gap: .45rem .6rem; padding: .85rem .25rem; border-bottom: 1px solid var(--line); }
+  table.imp-table td { padding: 0 !important; border: 0 !important; text-align: left; }
+  table.imp-table td.imp-tick { grid-row: 1; grid-column: 1; padding-top: .15rem !important; }
+  table.imp-table td.imp-tick input { width: 1.35rem; height: 1.35rem; }
+  table.imp-table td.imp-date { grid-row: 1; grid-column: 2; font-size: .8rem; color: var(--ink-3); }
+  table.imp-table td.imp-amt { grid-row: 1; grid-column: 3; font-weight: 700; }
+  table.imp-table td.imp-desc { grid-column: 1 / -1; min-width: 0; max-width: none; }
+  table.imp-table td[data-label] { grid-column: 1 / -1; }
+  table.imp-table td[data-label]::before { content: attr(data-label); display: block; font-size: .7rem; font-weight: 600; color: var(--ink-3); margin-bottom: .15rem; }
+
+  /* Notifications: switch and buttons on their own line */
+  .ntf-side { flex-direction: row !important; align-items: center !important; justify-content: space-between; width: 100%; order: 10; }
+
+  /* Calendar: readable amounts */
+  .cal-amt { font-size: .64rem !important; letter-spacing: -0.01em; }
+  .cal-cell { min-height: 4.2rem; }
+  .due-word { display: none; }
+  .cal-legend { font-size: .72rem; gap: .35rem .8rem; }
+
+  /* Charts */
+  .chart-box { height: 19rem; }
+  .chart-filters { justify-content: flex-start; }
+  .chart-filter { max-width: 100%; }
+
+  /* Modals: full-width bottom sheet with a grab handle */
+  #modalForm { border-radius: 20px 20px 0 0 !important; max-height: 92dvh !important; }
+  #modalForm::before { content: ''; display: block; width: 2.6rem; height: .3rem; border-radius: 999px; background: #D6DDE9; margin: .5rem auto 0; }
+  #modalFooter { padding-bottom: calc(.75rem + env(safe-area-inset-bottom)) !important; }
+  #modalFooter .btn { flex: 1; }
+
+  /* Tables that stay tables scroll inside their card */
+  table.sched { font-size: .8rem; }
+  .brand-logo.sm.mono { font-size: .62rem; }
+}
+@media (max-width: 639px) {
+  .row .text-xs.truncate, .row .text-xs .truncate { white-space: normal; }
+}
+@media (max-width: 639px) {
+  .cal-amt { white-space: nowrap; }
+  .cal-amt .sign { display: none; }
+  #sidebar { z-index: 60; padding-bottom: env(safe-area-inset-bottom); }
+  #navBackdrop { z-index: 55; }
+}
+
+/* ---------- Transactions grouped by day ---------- */
+.day-group + .day-group { margin-top: .9rem; }
+.day-head { display: flex; justify-content: space-between; align-items: baseline; gap: .75rem; font-size: .78rem; font-weight: 700; color: var(--ink-2);
+  padding: .45rem .25rem; border-bottom: 1px solid var(--line); position: sticky; top: 4.1rem; background: rgba(255,255,255,.96); z-index: 2; }
+.day-head .num { font-weight: 600; }
+.sync-ico { display: none; font-size: .9rem; }
+.sync-chip.synced .sync-ico { color: #12A150; } .sync-chip.pending .sync-ico, .sync-chip.offline .sync-ico { color: var(--marigold); } .sync-chip.error .sync-ico { color: var(--loss); } .sync-chip.local .sync-ico { color: var(--ink-3); }
+@media (max-width: 639px) {
+  header .sync-chip .dot { display: none; }
+  header .sync-chip .sync-ico { display: inline-block; }
+  .hide-phone { display: none !important; }
+  .day-head { top: 3.9rem; }
+  /* Import rows: type on its own line, account and category side by side */
+  table.imp-table tr { grid-template-columns: auto 1fr 1fr auto; }
+  table.imp-table td.imp-date { grid-column: 2 / 4; }
+  table.imp-table td.imp-amt { grid-column: 4; }
+  table.imp-table td[data-label="Type"] { grid-column: 1 / -1; }
+  table.imp-table td[data-label="Account"] { grid-column: 1 / 3; }
+  table.imp-table td[data-label="Category"] { grid-column: 3 / 5; }
+}
+.day-group .txn-date { display: none; } /* the day heading already says it */
+@media (max-width: 639px) {
+  /* Row buttons get their name next to the icon, so nothing is a guess */
+  .row > .row-actions { flex-wrap: wrap; }
+  .row > .row-actions .icon-btn[title], td.act-cell .icon-btn[title] {
+    width: auto; height: 2.3rem; padding: 0 .75rem; gap: .4rem; display: inline-flex; align-items: center;
+    border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink-2);
+  }
+  .row > .row-actions .icon-btn[title]::after, td.act-cell .icon-btn[title]::after {
+    content: attr(title); font-size: .78rem; font-weight: 600; white-space: nowrap; max-width: 9rem; overflow: hidden; text-overflow: ellipsis;
+  }
+  .row > .row-actions .icon-btn.pinned[title] { color: var(--marigold-ink); }
+}
+@media (max-width: 639px) {
+  /* Chart cards: the title gets the whole width, buttons sit under it */
+  .panel-head.flex-nowrap { flex-wrap: wrap !important; }
+  .panel-head.flex-nowrap > .flex-none { width: 100%; justify-content: flex-end; margin-top: -.35rem; }
+  .chart-title { -webkit-line-clamp: 3; }
+}

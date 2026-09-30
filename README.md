@@ -238,6 +238,20 @@ By default SIPs also count as *money going out* in the "Where the money went" ch
 
 ---
 
+### Using KOSH on a phone
+
+On a phone the app is laid out for one hand:
+
+- **Bottom bar:** Home, Activity (transactions), a big **+** to add a transaction, Calendar, and **More** for every other page.
+- **Add a transaction fast:** the amount box is large and opens the number pad; **Today / Yesterday** buttons set the date; your five most-used categories appear as buttons under the category box; descriptions you've used before are suggested as you type.
+- **Transactions are grouped by day** ("Today", "Yesterday", "Mon, 28 Sept") with each day's total. Tap any transaction to edit or delete it.
+- **Buttons on lists say what they do** (Record payment, Pause, Edit...) and are big enough to tap easily. Long names wrap instead of being cut off.
+- **Portfolio holdings and statement-import rows show as cards** instead of wide tables.
+- **Calendar:** swipe left or right to change month.
+- Pop-up forms open as sheets from the bottom of the screen; tap outside or the × to close.
+- Boxes are sized so iPhone doesn't zoom in when you tap them.
+- The cloud icon at the top shows sync status (tap it to sync now); the getting-started card on the dashboard can be hidden with its ×.
+
 ### Calendar
 
 Open **Calendar** in the menu (or the *Calendar* link on the dashboard's This month panel). Each day of the month shows what you spent in **red**, income in **green** and money invested in **amber**, and days are shaded darker the more you spent, so heavy days stand out at a glance. A **Week** column on the right totals each week. The switch at the top shows both, only spending or only income.
@@ -421,7 +435,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 
 ## Part 10 — What changed in this version
 
-**Newest:** a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
+**Newest:** a phone-friendly layout (bottom bar, quick add, day-grouped transactions, labelled buttons, cards instead of wide tables). Before that: a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
 
 **Before that:** statement import reads account and card numbers (including short `xx50` card numbers), has a *Read it from the statement* option, turns payments to your own account numbers into self transfers, matches payments across PhonePe and bank statements by UTR (and can correct the account), and remembers your categories and account numbers permanently, including after you delete transactions or edit a category.
 

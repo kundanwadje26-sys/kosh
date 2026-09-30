@@ -535,7 +535,9 @@ function setSyncStatus(state, detail = '') {
   }[state] || 'Click to sync now';
   el.className = `sync-chip ${state}`;
   el.title = tip;
-  el.innerHTML = `<span class="dot"></span><span class="txt">${esc(text)}</span>`;
+  const icon = { local: 'fa-mobile-screen', syncing: 'fa-arrows-rotate fa-spin', synced: 'fa-cloud', pending: 'fa-cloud-arrow-up', offline: 'fa-cloud-arrow-up', error: 'fa-triangle-exclamation' }[state] || 'fa-cloud';
+  el.setAttribute('aria-label', `${text}. ${tip}`);
+  el.innerHTML = `<span class="dot"></span><i class="fa-solid ${icon} sync-ico" aria-hidden="true"></i><span class="txt">${esc(text)}</span>`;
   const foot = $('#sidebarFoot');
   if (foot) {
     foot.innerHTML = isConfigured()
@@ -1077,10 +1079,10 @@ const PAGES = {
   insights:      { title: 'Insights',         icon: 'fa-lightbulb' },
   transactions:  { title: 'Transactions',     icon: 'fa-list' },
   calendar:      { title: 'Calendar',         icon: 'fa-calendar-days' },
-  import:        { title: 'Import statement', icon: 'fa-file-import' },
+  import:        { title: 'Import statement', short: 'Import', icon: 'fa-file-import' },
   accounts:      { title: 'Accounts',         icon: 'fa-building-columns' },
   portfolio:     { title: 'Portfolio',        icon: 'fa-chart-line' },
-  goals:         { title: 'Goals & wishlist', icon: 'fa-flag-checkered' },
+  goals:         { title: 'Goals & wishlist', short: 'Goals', icon: 'fa-flag-checkered' },
   people:        { title: 'People',           icon: 'fa-user-group' },
   notifications: { title: 'Notifications',    icon: 'fa-bell' },
   subscriptions: { title: 'Recurring',        icon: 'fa-rotate' },
@@ -1088,7 +1090,7 @@ const PAGES = {
   budgets:       { title: 'Budgets',          icon: 'fa-bullseye' },
   charts:        { title: 'Charts',           icon: 'fa-chart-simple' },
   tax:           { title: 'Tax helper',       icon: 'fa-file-invoice' },
-  data:          { title: 'Export & backup',  icon: 'fa-file-export' },
+  data:          { title: 'Export & backup',  short: 'Export', icon: 'fa-file-export' },
 };
 const currentPage = () => { const h = location.hash.replace(/^#\/?/, ''); return PAGES[h] ? h : 'dashboard'; };
 
@@ -1107,7 +1109,11 @@ function render() {
   const page = currentPage();
   destroyCharts();
   renderNav();
-  $('#pageTitle').textContent = PAGES[page].title;
+  const phone = window.innerWidth < 640;
+  $('#pageTitle').textContent = phone && PAGES[page].short ? PAGES[page].short : PAGES[page].title;
+  // Phone tab bar: highlight the current page ("More" for pages not on the bar)
+  const onBar = ['dashboard', 'transactions', 'calendar'].includes(page);
+  $$('#tabbar [data-tab]').forEach((el) => { const on = el.dataset.tab === page || (!onBar && el.dataset.tab === 'more'); el.classList.toggle('on', on); if (el.tagName === 'A') el.toggleAttribute('aria-current', el.dataset.tab === page); });
   const brand = brandName();
   document.title = `${PAGES[page].title} | ${brand}`;
   $$('[data-brand]').forEach((el) => { el.textContent = brand; });
@@ -1160,12 +1166,12 @@ function txnRow(t, withActions = true) {
   else if (t.forHome) { amountHtml = `<span style="color:var(--violet)">−${money(amt)}</span>`; flow = `${accountName(t.fromAccountId)}, ${t.homeSettled ? 'taken back from' : 'to take back from'} ${accountName(t.toAccountId)}`; }
   else if (t.type === 'transfer') { amountHtml = money(amt); flow = `${accountName(t.fromAccountId)} to ${accountName(t.toAccountId)}`; }
   else { const up = !!t.toAccountId; amountHtml = `<span class="${up ? 'text-gain' : 'text-loss'}">${up ? '+' : '−'}${money(amt)}</span>`; flow = accountName(t.toAccountId || t.fromAccountId); }
-  return `<div class="row">
+  return `<div class="row txn-row" data-action="edit-txn" data-id="${t.id}" role="button" tabindex="0" aria-label="Edit ${esc(t.description || t.category || kind.label)}">
     <div class="row-icon ${kind.cls}" title="${kind.label}"><i class="fa-solid ${kind.icon}"></i></div>
     <div class="min-w-0 flex-1">
       <div class="font-medium truncate">${esc(t.description || t.category || kind.label)}</div>
       <div class="text-xs text-ink-3 flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
-        <span>${fmtDate(t.date)}</span>
+        <span class="txn-date">${fmtDate(t.date)}</span>
         ${t.category ? `<span class="pill">${esc(t.category)}</span>` : ''}
         ${t.units !== undefined && t.units !== null && t.units !== '' && (accountById(t.toAccountId)?.type === 'investment' || accountById(t.fromAccountId)?.type === 'investment')
           ? `<button class="pill blue" data-action="review-units" data-id="${t.id}" title="Units and NAV (click to change)">${num(t.units).toLocaleString('en-IN', { maximumFractionDigits: 3 })} units${t.unitNav ? ` at ${money(t.unitNav)}` : ''}</button>`
@@ -1264,9 +1270,10 @@ function gettingStarted() {
     { done: db.accounts.some((a) => a.type !== 'cash' || num(a.openingBalance) !== 0), text: 'Add your bank accounts, credit cards and investments with today\'s balances.', action: '<a class="btn btn-sm" href="#accounts">Add accounts</a>' },
     { done: db.transactions.length > 0, text: 'Log an expense or income. Balances update on their own from then on.', action: '<button class="btn btn-sm" data-action="add-txn" data-type="expense">Add transaction</button>' },
   ];
-  if (steps.every((s) => s.done)) return '';
+  if (steps.every((s) => s.done) || localStorage.getItem('kosh.setupHidden')) return '';
   return `<section class="panel p-5 mb-6">
-    <h2 class="panel-title mb-3">Get KOSH ready in three steps</h2>
+    <div class="flex items-start justify-between gap-2 mb-3"><h2 class="panel-title">Get KOSH ready in three steps</h2>
+      <button class="icon-btn sm" data-action="setup-hide" aria-label="Hide these steps" title="Hide"><i class="fa-solid fa-xmark"></i></button></div>
     <ol class="space-y-3">
       ${steps.map((s, i) => `<li class="flex items-center gap-3 flex-wrap">
         <span class="row-icon ${s.done ? 'in' : ''}" style="width:1.75rem;height:1.75rem;font-size:.8rem">${s.done ? '<i class="fa-solid fa-check"></i>' : i + 1}</span>
@@ -1578,7 +1585,7 @@ function renderTransactions() {
     `<select class="inp text-sm" data-filter="${name}" aria-label="${label}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${v === val ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   return `
     <div class="flex flex-wrap gap-2 mb-5">
-      <button class="btn btn-primary" data-action="add-txn" data-type="expense"><i class="fa-solid fa-arrow-up"></i> Add expense</button>
+      <button class="btn btn-primary hide-phone" data-action="add-txn" data-type="expense"><i class="fa-solid fa-arrow-up"></i> Add expense</button>
       <button class="btn" data-action="add-txn" data-type="income"><i class="fa-solid fa-arrow-down"></i> Add income</button>
       <button class="btn" data-action="add-txn" data-type="transfer"><i class="fa-solid fa-right-left"></i> Transfer money</button>
       <a class="btn" href="#import"><i class="fa-solid fa-file-import"></i> Import statement</a>
@@ -1595,6 +1602,19 @@ function renderTransactions() {
     </section>`;
 }
 
+/** Transactions under day headings ("Today", "Yesterday", "Mon, 28 Sept") with each day's spend and income. */
+function groupedByDay(list) {
+  const today = todayStr(), yest = addDays(today, -1);
+  const days = [];
+  for (const t of list) { const last = days[days.length - 1]; if (last && last.date === t.date) last.items.push(t); else days.push({ date: t.date, items: [t] }); }
+  return days.map((d) => {
+    const out = d.items.filter((t) => t.type === 'expense').reduce((s, t) => s + num(t.amount), 0);
+    const inn = d.items.filter((t) => t.type === 'income').reduce((s, t) => s + num(t.amount), 0);
+    const label = d.date === today ? 'Today' : d.date === yest ? 'Yesterday' : parseDate(d.date).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', ...(d.date.slice(0, 4) !== today.slice(0, 4) ? { year: 'numeric' } : {}) });
+    return `<div class="day-group"><div class="day-head"><span>${esc(label)}</span><span class="num">${out ? `<span class="text-loss">−${money(out)}</span>` : ''}${inn ? ` <span class="text-gain">+${money(inn)}</span>` : ''}</span></div>
+      <div class="divider">${d.items.map((t) => txnRow(t)).join('')}</div></div>`;
+  }).join('');
+}
 function txnResults() {
   const list = filteredTxns();
   const inc = list.filter((t) => t.type === 'income').reduce((s, t) => s + num(t.amount), 0);
@@ -1607,7 +1627,7 @@ function txnResults() {
       <span>Out <b class="num text-loss">${money(exp)}</b></span>
       <span>Net <b class="num">${money(inc - exp)}</b></span>
     </div>
-    ${shown.length ? `<div class="divider">${shown.map((t) => txnRow(t)).join('')}</div>`
+    ${shown.length ? groupedByDay(shown)
       : emptyState('fa-magnifying-glass', db.transactions.length ? 'No transactions match these filters.' : 'No transactions yet. Add an expense or income to get started.')}
     ${list.length > shown.length ? `<div class="text-center mt-4"><button class="btn btn-sm" data-action="txn-more">Show ${Math.min(100, list.length - shown.length)} more</button></div>` : ''}`;
 }
@@ -1992,15 +2012,15 @@ function holdingRow(h) {
       ${units > 0 ? `<div class="text-xs text-ink-2 mt-1 phone-only">${units.toLocaleString('en-IN', { maximumFractionDigits: 3 })} units${avg > 0 ? `, avg. ${money(round2(avg))}` : ''}${live ? `, ${isMF(a) ? 'NAV' : 'price'} ${money(a.unitPrice)}` : ''}</div>` : ''}
       ${problem ? `<div class="text-xs mt-1" style="color:var(--marigold-ink)"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${esc(problem)}</div>` : ''}
     </td>
-    <td class="num">${units > 0 ? units.toLocaleString('en-IN', { maximumFractionDigits: 3 }) : dash}</td>
-    <td class="num">${avg > 0 ? money(round2(avg)) : dash}</td>
-    <td class="num">${money(Math.round(h.invested))}</td>
-    <td class="num">${live ? `${money(a.unitPrice)}<div class="text-xs text-ink-3">${a.priceDate ? fmtDate(a.priceDate) : ''}</div>` : dash}</td>
-    <td class="num font-semibold">${money(Math.round(h.value))}</td>
-    <td class="num ${h.gain >= 0 ? 'text-gain' : 'text-loss'}">${h.invested > 0 ? `${money(Math.round(h.gain), { sign: true })}<div class="text-xs">${pct(h.gainPct)}</div>` : dash}</td>
-    <td><div class="row-actions justify-end">
+    <td class="num" data-label="Units">${units > 0 ? units.toLocaleString('en-IN', { maximumFractionDigits: 3 }) : dash}</td>
+    <td class="num" data-label="Avg. cost">${avg > 0 ? money(round2(avg)) : dash}</td>
+    <td class="num" data-label="Invested">${money(Math.round(h.invested))}</td>
+    <td class="num" data-label="Latest price">${live ? `${money(a.unitPrice)}<div class="text-xs text-ink-3">${a.priceDate ? fmtDate(a.priceDate) : ''}</div>` : dash}</td>
+    <td class="num font-semibold" data-label="Current value">${money(Math.round(h.value))}</td>
+    <td class="num ${h.gain >= 0 ? 'text-gain' : 'text-loss'}" data-label="Profit / loss">${h.invested > 0 ? `${money(Math.round(h.gain), { sign: true })}<div class="text-xs">${pct(h.gainPct)}</div>` : dash}</td>
+    <td class="act-cell"><div class="row-actions justify-end">
       <button class="icon-btn sm" data-action="invest-more" data-id="${a.id}" title="Add money" aria-label="Add money to ${esc(a.name)}"><i class="fa-solid fa-plus"></i></button>
-      ${tracked ? `<button class="icon-btn sm" data-action="units-history" data-id="${a.id}" title="Units and NAV of each instalment" aria-label="Units history"><i class="fa-solid fa-list-ol"></i></button>` : ''}
+      ${tracked ? `<button class="icon-btn sm" data-action="units-history" data-id="${a.id}" title="Units" aria-label="Units history"><i class="fa-solid fa-list-ol"></i></button>` : ''}
       ${live ? '' : `<button class="icon-btn sm" data-action="adjust-balance" data-id="${a.id}" title="Update value" aria-label="Update value"><i class="fa-solid fa-scale-balanced"></i></button>`}
       <button class="icon-btn sm" data-action="edit-account" data-id="${a.id}" title="Edit" aria-label="Edit holding"><i class="fa-regular fa-pen-to-square"></i></button>
     </div></td>
@@ -3204,7 +3224,7 @@ function drawChartInto(box, c) {
     const data = d.series[0].data.map(Math.abs);
     cfg = { type: c.type, data: { labels: d.labels, datasets: [{ data, backgroundColor: d.labels.map((l) => (c.type === 'polarArea' ? hexA(colorFor(l), 0.8) : colorFor(l))), borderColor: '#fff', borderWidth: 2 }] },
       options: { ...base, ...(c.type === 'doughnut' ? { cutout: '58%' } : {}),
-        plugins: { legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true } }, tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${fmtVal(data[ctx.dataIndex], unit)}` } }, kLabels: { mode: labelsMode, unit } },
+        plugins: { legend: { position: box.clientWidth < 480 ? 'bottom' : 'right', labels: { boxWidth: 12, usePointStyle: true } }, tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${fmtVal(data[ctx.dataIndex], unit)}` } }, kLabels: { mode: labelsMode, unit } },
         ...(c.type === 'polarArea' ? { scales: { r: { ticks: { display: false } } } } : {}) } };
   } else if (c.type === 'radar') {
     cfg = { type: 'radar', data: { labels: d.labels, datasets: d.series.map((s) => { const col = single ? '#0A6FB0' : colorFor(s.name); return { label: s.name, data: s.data, borderColor: col, backgroundColor: hexA(col, 0.18), pointBackgroundColor: col, pointRadius: 3 }; }) },
@@ -4589,17 +4609,17 @@ function previewPanel() {
       <div class="flex gap-2"><button class="btn btn-sm" data-action="imp-all" data-v="1">Tick new</button><button class="btn btn-sm" data-action="imp-all" data-v="0">Untick all</button></div></div>
     ${rows.length ? `<div class="overflow-x-auto"><table class="sched imp-table"><thead><tr><th></th><th>Date</th><th>Description</th><th>Account</th><th>Type</th><th>Category</th><th>Amount</th></tr></thead><tbody>
       ${rows.map((r, i) => `<tr class="${r.include ? '' : 'off'}">
-        <td><input type="checkbox" data-imp-inc="${i}" ${r.include ? 'checked' : ''} aria-label="Import this row"></td>
-        <td class="whitespace-nowrap">${fmtDate(r.date)}</td>
+        <td class="imp-tick"><input type="checkbox" data-imp-inc="${i}" ${r.include ? 'checked' : ''} aria-label="Import this row"></td>
+        <td class="whitespace-nowrap imp-date">${fmtDate(r.date)}</td>
         <td class="imp-desc"><div class="font-medium">${esc(r.desc)}</div>
           ${r.match ? `<span class="pill due" title="${esc(r.match.t.description || '')}">In the app already${r.match.t.source ? ` (${esc(r.match.t.source)})` : ''}${r.match.how === 'ref' ? ', same UTR' : ''}</span>${r.fixable ? `<label class="pill blue cursor-pointer"><input type="checkbox" data-imp-fix="${i}" ${r.fix ? 'checked' : ''} style="margin-right:.25rem">Correct its account to ${esc(accountName(r.accountId))}</label>` : ''}` : ''}
           ${r.guessed ? '<span class="pill">Check in / out</span>' : ''}${HOW_PILL[r.how] || ''}
           ${r.tail ? `<span class="pill" title="Account or card number on the statement">${r.tail.length <= 2 ? 'xx' : '…'}${esc(r.tail)}</span>` : ''}</td>
-        <td>${rowAccountSelect(r, i)}</td>
-        <td><select class="inp inp-sm" data-imp-kind="${i}">${rowTypeOptions(r)}</select></td>
-        <td>${['expense', 'home'].includes(r.kind) ? `<select class="inp inp-sm" data-imp-cat="${i}">${uniq([...db.settings.expenseCategories, r.category]).map((c) => `<option ${c === r.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`
+        <td data-label="Account">${rowAccountSelect(r, i)}</td>
+        <td data-label="Type"><select class="inp inp-sm" data-imp-kind="${i}">${rowTypeOptions(r)}</select></td>
+        <td data-label="Category">${['expense', 'home'].includes(r.kind) ? `<select class="inp inp-sm" data-imp-cat="${i}">${uniq([...db.settings.expenseCategories, r.category]).map((c) => `<option ${c === r.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`
           : r.kind === 'income' ? `<select class="inp inp-sm" data-imp-cat="${i}">${uniq([...db.settings.incomeCategories, r.category]).map((c) => `<option ${c === r.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : '<span class="text-ink-3">—</span>'}</td>
-        <td class="whitespace-nowrap ${r.out ? 'text-loss' : 'text-gain'}">${r.out ? '−' : '+'}${money(r.amount)}</td></tr>`).join('')}
+        <td class="whitespace-nowrap imp-amt ${r.out ? 'text-loss' : 'text-gain'}">${r.out ? '−' : '+'}${money(r.amount)}</td></tr>`).join('')}
       </tbody></table></div>
       ${needAcc ? `<p class="callout warn mt-4">${needAcc} row${needAcc === 1 ? '' : 's'} need an account (marked in red). Pick it once; the app remembers that number for next time.</p>` : ''}
       <div class="flex flex-wrap items-center justify-between gap-3 mt-4">
@@ -5526,7 +5546,7 @@ function notifyRow(n) {
       <div class="text-xs text-ink-3 mt-0.5">${esc(repeatText(n))}</div>
       <div class="ntf-preview">${p ? `<b>${esc(p.title)}</b><br>${esc(p.message).replace(/\n/g, '<br>')}` : '<span class="text-ink-3">Nothing to say right now, so it would stay silent today.</span>'}</div>
     </div>
-    <div class="flex flex-col items-end gap-2">
+    <div class="flex flex-col items-end gap-2 ntf-side">
       <label class="switch" title="${n.enabled === false ? 'Off' : 'On'}"><input type="checkbox" data-ntf-toggle="${n.id}" ${n.enabled === false ? '' : 'checked'}><span></span></label>
       <div class="flex gap-1"><button class="icon-btn sm" data-action="ntf-send" data-id="${n.id}" title="Send now" aria-label="Send now"><i class="fa-solid fa-paper-plane"></i></button>
         <button class="icon-btn sm" data-action="ntf-edit" data-id="${n.id}" title="Edit" aria-label="Edit"><i class="fa-regular fa-pen-to-square"></i></button></div>
@@ -5831,11 +5851,11 @@ function renderCalendar() {
     const label = [`${d} ${fmtMonth(mk)}`, e?.spent ? `spent ${money(e.spent)}` : '', e?.income ? `income ${money(e.income)}` : '', e?.invested ? `invested ${money(e.invested)}` : '', s.length ? `${s.length} scheduled` : ''].filter(Boolean).join(', ');
     cells.push(`<button type="button" class="cal-cell ${ds === today ? 'today' : ''} ${ds > today ? 'future' : ''}" style="${bg}" data-action="cal-day" data-date="${ds}" aria-label="${esc(label)}">
       <span class="cal-num">${d}</span>
-      ${showSpent && e?.spent ? `<span class="cal-amt out">−${money(e.spent, { compact: true })}</span>` : ''}
-      ${showIncome && e?.income ? `<span class="cal-amt in">+${money(e.income, { compact: true })}</span>` : ''}
+      ${showSpent && e?.spent ? `<span class="cal-amt out"><span class="sign">−</span>${money(e.spent, { compact: true })}</span>` : ''}
+      ${showIncome && e?.income ? `<span class="cal-amt in"><span class="sign">+</span>${money(e.income, { compact: true })}</span>` : ''}
       ${showSpent && e?.invested ? `<span class="cal-amt inv">${money(e.invested, { compact: true })}</span>` : ''}
       ${s.length && !e?.count ? (() => { const out = s.filter((x) => x.kind !== 'income').reduce((t, x) => t + x.amount, 0), inn = s.filter((x) => x.kind === 'income').reduce((t, x) => t + x.amount, 0);
-        return `${showSpent && out ? `<span class="cal-amt plan">${money(out, { compact: true })} due</span>` : ''}${showIncome && inn ? `<span class="cal-amt plan-in">+${money(inn, { compact: true })} due</span>` : ''}`; })() : ''}
+        return `${showSpent && out ? `<span class="cal-amt plan">${money(out, { compact: true })}<span class="due-word"> due</span></span>` : ''}${showIncome && inn ? `<span class="cal-amt plan-in">+${money(inn, { compact: true })}<span class="due-word"> due</span></span>` : ''}`; })() : ''}
       ${s.length ? `<span class="cal-due">${s.slice(0, 3).map((x) => `<i class="fa-solid ${x.icon} k-${x.kind}" title="${esc(x.title)} ${esc(money(x.amount))}"></i>`).join('')}${s.length > 3 ? `<b>+${s.length - 3}</b>` : ''}</span>` : ''}
     </button>`);
   }
@@ -5894,6 +5914,16 @@ function renderCalendar() {
         <div class="num font-semibold ${x.kind === 'income' ? 'text-gain' : ''}">${money(x.amount)}</div></div>`).join('')}</div></section>` : ''}`;
 }
 
+/** Swipe left or right on the calendar to change month (phones). */
+let calSwipe = null;
+document.addEventListener('touchstart', (e) => { if (location.hash === '#calendar' && e.target.closest('.cal-grid')) calSwipe = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, { passive: true });
+document.addEventListener('touchend', (e) => {
+  if (!calSwipe) return;
+  const dx = e.changedTouches[0].clientX - calSwipe.x, dy = e.changedTouches[0].clientY - calSwipe.y;
+  calSwipe = null;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) { calMonth = addMonths(`${calMonth}-01`, dx < 0 ? 1 : -1).slice(0, 7); render(); }
+}, { passive: true });
+
 /** One day's transactions and scheduled items. */
 function openCalendarDay(date) {
   const mk = date.slice(0, 7);
@@ -5937,6 +5967,13 @@ function transferCategory(fromId, toId) {
 }
 
 /* ===== Transactions ===== */
+/** Your 5 most-used categories of a type (last 90 days), as one-tap chips under the category box. */
+function quickCategoryChips(type) {
+  const since = addDays(todayStr(), -90), count = new Map();
+  for (const t of db.transactions) if (t.type === type && t.date >= since && t.category) count.set(t.category, (count.get(t.category) || 0) + 1);
+  const top = [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c);
+  return top.length ? `<div class="cat-chips">${top.map((c) => `<button type="button" class="chip" data-setcat="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '';
+}
 function openTxnForm(existing, preset = {}) {
   if (existing?.type === 'adjustment') return openAdjustmentEdit(existing);
   if (!db.accounts.length) { toast('Add an account first.', 'error'); location.hash = '#accounts'; return; }
@@ -5960,15 +5997,16 @@ function openTxnForm(existing, preset = {}) {
     <div class="seg" role="radiogroup" aria-label="Transaction type">
       ${types.map(([v, l]) => `<input type="radio" name="type" id="tt_${v}" value="${v}" ${t.type === v ? 'checked' : ''}><label for="tt_${v}">${l}</label>`).join('')}
     </div>
-    ${twoCol(field('Amount', moneyInput('amount', t.amount, 'required min="0.01" placeholder="0"')), field('Date', input('date', t.date, 'type="date" required')))}
+    ${twoCol(field('Amount', moneyInput('amount', t.amount, `required min="0.01" placeholder="0" data-big ${isNew ? 'autofocus' : ''}`)),
+      field('Date', input('date', t.date, 'type="date" required') + `<div class="date-chips">${[['Today', todayStr()], ['Yesterday', addDays(todayStr(), -1)]].map(([l, d]) => `<button type="button" class="chip ${t.date === d ? 'on' : ''}" data-setdate="${d}">${l}</button>`).join('')}</div>`))}
     ${showFor('expense', twoCol(
-      field('Category', select('category', expCats, t.type === 'expense' ? t.category : expCats[0])),
+      field('Category', select('category', expCats, t.type === 'expense' ? t.category : expCats[0]) + quickCategoryChips('expense')),
       field('Paid from', accountSelect('fromAccountId', defFrom, { types: MONEY_TYPES }))) +
       `<div class="home-claim">${checkbox('forHome', !!t.forHome, 'Paid for home: I\'ll take it back', 'It shows under People → Home expenses until it\'s paid back, and doesn\'t count as your own spending.')}
         <div data-claim ${t.forHome ? '' : 'hidden'} class="mt-3">${twoCol(field('Take it back from', select('claimPersonId', [...db.accounts.filter((a) => a.type === 'person' && !a.archived).map((a) => [a.id, a.name]), ['__new', '+ Someone new']], t.claimPersonId || defaultClaimPerson())),
           `<div data-newperson ${db.accounts.some((a) => a.type === 'person') ? 'hidden' : ''}>${field('Their name', input('newPersonName', '', 'placeholder="e.g. Dad"'))}</div>`)}</div></div>`)}
     ${showFor('income', twoCol(
-      field('Source', select('category', incCats, t.type === 'income' ? t.category : incCats[0])),
+      field('Source', select('category', incCats, t.type === 'income' ? t.category : incCats[0]) + quickCategoryChips('income')),
       field('Received in', accountSelect('toAccountId', t.type === 'income' ? (t.toAccountId || defTo) : defTo, { types: MONEY_TYPES }))))}
     ${showFor('transfer', twoCol(
       field('From', accountSelect('fromAccountId', t.type === 'transfer' ? t.fromAccountId || defFrom : firstAccountOf(['bank']))),
@@ -5985,6 +6023,20 @@ function openTxnForm(existing, preset = {}) {
     onOpen: (form) => {
       bindShowHide(form, 'type');
       attachDescriptionSuggest(form); // suggestions from descriptions you've used before
+      // Quick picks: Today / Yesterday and your most-used categories
+      form.addEventListener('click', (e) => {
+        const d = e.target.closest('[data-setdate]');
+        if (d) { form.elements.date.value = d.dataset.setdate; $$('[data-setdate]', form).forEach((b) => b.classList.toggle('on', b === d)); return; }
+        const c = e.target.closest('[data-setcat]');
+        if (c) { const sel = $$('select[name="category"]', form).find((x) => !x.disabled); if (sel) { sel.value = c.dataset.setcat; sel.dispatchEvent(new Event('change', { bubbles: true })); } $$('[data-setcat]', c.parentNode).forEach((b) => b.classList.toggle('on', b === c)); }
+      }, { signal: modalSignal() });
+      const markCats = () => { const sel = $$('select[name="category"]', form).find((x) => !x.disabled); $$('[data-setcat]', form).forEach((b) => b.classList.toggle('on', !!sel && b.dataset.setcat === sel.value && !b.closest('[hidden]'))); };
+      form.addEventListener('change', (e) => {
+        if (e.target.name === 'date') $$('[data-setdate]', form).forEach((b) => b.classList.toggle('on', b.dataset.setdate === e.target.value));
+        if (e.target.name === 'category' || e.target.name === 'type') markCats();
+      }, { signal: modalSignal() });
+      markCats();
+      if (isNew && window.innerWidth >= 640) setTimeout(() => form.elements.amount?.focus(), 50);
       const sig = { signal: modalSignal() };
       const claim = $('[data-claim]', form), newP = $('[data-newperson]', form);
       form.addEventListener('change', (e) => {
@@ -6886,6 +6938,8 @@ const ACTIONS = {
   'imp-range': (d) => importRange(d.r),
   'imp-all': (d) => { imp.rows.forEach((r) => { r.include = d.v === '1' && !r.match && r.kind !== 'skip'; }); render(); },
   'rules-open': () => openRules(),
+  'nav-more': () => toggleNav(true),
+  'setup-hide': (d, el) => { localStorage.setItem('kosh.setupHidden', '1'); el.closest('section')?.remove(); toast('Hidden. The steps are also in the README.'); },
   'cal-go': (d) => { calMonth = d.m; render(); },
   'cal-day': (d) => openCalendarDay(d.date),
   'cal-add': (d) => { closeModal(); openTxnForm(null, { type: d.type, date: d.date }); },
@@ -6970,6 +7024,11 @@ function init() {
 
   // Calendar: Both / Spent / Income
   document.addEventListener('change', (e) => { if (e.target.name === 'calView' && location.hash === '#calendar') { calView = e.target.value; render(); } });
+
+  // Rows that act as buttons (a transaction row opens it): Enter or Space
+  document.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('[role="button"][data-action]')) { e.preventDefault(); e.target.click(); }
+  });
 
   // Statement import page
   document.addEventListener('change', (e) => { if (location.hash === '#import') onImportChange(e); });

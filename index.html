@@ -78,7 +78,7 @@
     <div class="flex-1 min-w-0">
       <header class="sticky top-0 z-20 bg-paper/90 backdrop-blur border-b border-line">
         <div class="flex items-center gap-3 px-4 sm:px-6 lg:px-8 h-16">
-          <button id="navToggle" class="icon-btn lg:hidden" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
+          <button id="navToggle" class="icon-btn lg:hidden flex-none" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
           <div class="min-w-0">
             <div class="text-xs text-ink-3 font-semibold lg:hidden" data-brand>Kundan's Finance</div>
             <h1 id="pageTitle" class="text-lg sm:text-xl font-bold truncate">Dashboard</h1>
@@ -100,9 +100,14 @@
   </div>
 
   <!-- Floating add button (phones) -->
-  <button class="fab sm:hidden" data-action="add-txn" data-type="expense" aria-label="Add transaction">
-    <i class="fa-solid fa-plus"></i>
-  </button>
+  <!-- Phone: bottom tab bar (replaces the floating + button) -->
+  <nav id="tabbar" class="tabbar" aria-label="Quick navigation">
+    <a href="#dashboard" data-tab="dashboard"><i class="fa-solid fa-house"></i><span>Home</span></a>
+    <a href="#transactions" data-tab="transactions"><i class="fa-solid fa-list"></i><span>Activity</span></a>
+    <button type="button" class="tab-add" data-action="add-txn" data-type="expense" aria-label="Add a transaction"><i class="fa-solid fa-plus"></i></button>
+    <a href="#calendar" data-tab="calendar"><i class="fa-solid fa-calendar-days"></i><span>Calendar</span></a>
+    <button type="button" data-action="nav-more" data-tab="more" aria-label="All pages"><i class="fa-solid fa-grip"></i><span>More</span></button>
+  </nav>
 
   <!-- ============ Reusable modal ============ -->
   <div id="modal" class="fixed inset-0 z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
