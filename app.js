@@ -1075,24 +1075,25 @@ function bindModal() {
 
 /* ----- Router: #dashboard, #accounts, ... ----- */
 const PAGES = {
-  dashboard:     { title: 'Dashboard',        icon: 'fa-chart-pie' },
-  insights:      { title: 'Insights',         icon: 'fa-lightbulb' },
-  health:        { title: 'Money health',     short: 'Health', icon: 'fa-heart-pulse' },
-  transactions:  { title: 'Transactions',     icon: 'fa-list' },
-  calendar:      { title: 'Calendar',         icon: 'fa-calendar-days' },
-  import:        { title: 'Import statement', short: 'Import', icon: 'fa-file-import' },
-  accounts:      { title: 'Accounts',         icon: 'fa-building-columns' },
-  portfolio:     { title: 'Portfolio',        icon: 'fa-chart-line' },
-  goals:         { title: 'Goals & wishlist', short: 'Goals', icon: 'fa-flag-checkered' },
-  planner:       { title: 'Planners',         icon: 'fa-compass' },
-  people:        { title: 'People',           icon: 'fa-user-group' },
-  notifications: { title: 'Notifications',    icon: 'fa-bell' },
-  subscriptions: { title: 'Recurring',        icon: 'fa-rotate' },
-  emis:          { title: 'EMIs & loans',     icon: 'fa-calendar-check' },
-  budgets:       { title: 'Budgets',          icon: 'fa-bullseye' },
-  charts:        { title: 'Charts',           icon: 'fa-chart-simple' },
-  tax:           { title: 'Tax helper',       icon: 'fa-file-invoice' },
-  data:          { title: 'Export & backup',  short: 'Export', icon: 'fa-file-export' },
+  dashboard:     { title: 'Dashboard',        icon: 'fa-house',           group: 'Overview' },
+  insights:      { title: 'Insights',         icon: 'fa-lightbulb',       group: 'Overview' },
+  health:        { title: 'Money health',     short: 'Health', icon: 'fa-heart-pulse', group: 'Overview' },
+  calendar:      { title: 'Calendar',         icon: 'fa-calendar-days',   group: 'Overview' },
+  transactions:  { title: 'Transactions',     icon: 'fa-list',            group: 'Money' },
+  accounts:      { title: 'Accounts',         icon: 'fa-building-columns', group: 'Money' },
+  split:         { title: 'Split bills',      short: 'Split', icon: 'fa-people-arrows', group: 'Money' },
+  people:        { title: 'People',           icon: 'fa-user-group',      group: 'Money' },
+  subscriptions: { title: 'Recurring',        icon: 'fa-rotate',          group: 'Money' },
+  emis:          { title: 'EMIs & loans',     icon: 'fa-calendar-check',  group: 'Money' },
+  budgets:       { title: 'Budgets',          icon: 'fa-bullseye',        group: 'Money' },
+  portfolio:     { title: 'Portfolio',        icon: 'fa-chart-line',      group: 'Grow' },
+  goals:         { title: 'Goals & wishlist', short: 'Goals', icon: 'fa-flag-checkered', group: 'Grow' },
+  planner:       { title: 'Planners',         icon: 'fa-compass',         group: 'Grow' },
+  import:        { title: 'Import statement', short: 'Import', icon: 'fa-file-import', group: 'Tools' },
+  charts:        { title: 'Charts',           icon: 'fa-chart-simple',    group: 'Tools' },
+  notifications: { title: 'Notifications',    icon: 'fa-bell',            group: 'Tools' },
+  data:          { title: 'Export & backup',  short: 'Export', icon: 'fa-file-export', group: 'Tools' },
+  tax:           { title: 'Tax helper',       icon: 'fa-file-invoice',    hidden: true }, // now a tab in Planners
 };
 const currentPage = () => { const h = location.hash.replace(/^#\/?/, ''); return PAGES[h] ? h : 'dashboard'; };
 
@@ -1101,8 +1102,9 @@ function destroyCharts() { charts.forEach((c) => c.destroy()); charts = []; }
 
 function renderNav() {
   const cur = currentPage();
-  $('#nav').innerHTML = Object.entries(PAGES).map(([k, p]) =>
-    `<a href="#${k}" class="nav-link ${k === cur ? 'active' : ''}" ${k === cur ? 'aria-current="page"' : ''}><i class="fa-solid ${p.icon}"></i>${p.title}${k === 'portfolio' && M?.reviews?.length ? `<span class="nav-badge" title="Units to confirm">${M.reviews.length}</span>` : ''}${k === 'people' && typeof pendingHome === 'function' && pendingHome().length ? `<span class="nav-badge" title="Home expenses to take back">${pendingHome().length}</span>` : ''}</a>`).join('');
+  let lastGroup = '';
+  $('#nav').innerHTML = Object.entries(PAGES).filter(([, p]) => !p.hidden).map(([k, p]) =>
+    `${p.group !== lastGroup ? `<div class="nav-group">${(lastGroup = p.group)}</div>` : ''}<a href="#${k}" class="nav-link ${k === cur ? 'active' : ''}" ${k === cur ? 'aria-current="page"' : ''}><i class="fa-solid ${p.icon}"></i>${p.title}${k === 'portfolio' && M?.reviews?.length ? `<span class="nav-badge" title="Units to confirm">${M.reviews.length}</span>` : ''}${k === 'people' && typeof pendingHome === 'function' && pendingHome().length ? `<span class="nav-badge" title="Home expenses to take back">${pendingHome().length}</span>` : ''}</a>`).join('');
 }
 
 /** Redraws the current page from `db`. Called after every change. */
@@ -1121,7 +1123,7 @@ function render() {
   $$('[data-brand]').forEach((el) => { el.textContent = brand; });
   const view = $('#view');
   const fn = {
-    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, health: renderHealth, planner: renderPlanner, notifications: renderNotifications, transactions: renderTransactions,
+    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, health: renderHealth, planner: renderPlanner, split: renderSplit, notifications: renderNotifications, transactions: renderTransactions,
     emis: renderEmis, subscriptions: renderSubscriptions, budgets: renderBudgets, data: renderData,
   }[page];
   view.innerHTML = fn();
@@ -1199,79 +1201,86 @@ function monthSelect(filterName, value, allowAll = false) {
 /* ===== Dashboard ===== */
 let dashMonth = thisMonth();
 
+/* Dashboard sections. Hidden ones can be switched on with "Customize dashboard". */
+const DASH_SECTIONS = [
+  ['suggestions', 'Suggestions', true], ['quick', 'Quick actions', true], ['month', 'This month', true], ['budgets', 'Budgets', true],
+  ['insights', 'Insights', true], ['due', 'Due soon', true], ['recent', 'Recent transactions', true], ['pinned', 'Your pinned charts', true],
+  ['health', 'Money health card', false], ['portfolio', 'Portfolio card', false], ['subscriptions', 'Subscriptions card', false], ['goals', 'Goals card', false],
+  ['charts', 'Spending charts (category pie, 6-month bars)', false],
+];
+const dashOn = (k) => { const o = db.settings.dashShow || {}; return k in o ? !!o[k] : DASH_SECTIONS.find((x) => x[0] === k)[2]; };
+function openDashCustomize() {
+  openModal({
+    title: 'Customize dashboard',
+    body: `<p class="text-sm text-ink-2">Keep the dashboard calm: show only what you look at often. Everything else is one tap away in the menu.</p>
+      <div class="space-y-2">${DASH_SECTIONS.map(([k, l]) => `<label class="check-row"><input type="checkbox" name="d_${k}" ${dashOn(k) ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</div>`,
+    submitLabel: 'Save',
+    onSubmit: (d) => { commit([opSettings({ dashShow: Object.fromEntries(DASH_SECTIONS.map(([k]) => [k, !!d[`d_${k}`]])) })], 'Customize dashboard'); },
+  });
+}
 function renderDashboard() {
   const T = M.T;
   const s = monthSummary(dashMonth);
-  const keepRate = s.income > 0 ? Math.round(((s.left + s.invested) / s.income) * 100) : null;
   const upcoming = upcomingItems(30);
-  const recent = sortTxns(db.transactions.filter((t) => t.relatedType !== 'market')).slice(0, 6);
+  const recent = sortTxns(db.transactions.filter((t) => t.relatedType !== 'market')).slice(0, 5);
+  const payable = upcoming.filter((i) => !['fd', 'review', 'income', 'goal', 'wish'].includes(i.kind));
+  const side = [dashOn('health') ? healthMini() : '', dashOn('portfolio') ? portfolioMini() : '', dashOn('subscriptions') ? subscriptionPanel() : '', dashOn('goals') ? goalsMini() : ''].filter(Boolean);
+  const monthPanel = `<section class="panel p-5 ${dashOn('budgets') ? 'lg:col-span-2' : 'lg:col-span-3'}">
+      <div class="panel-head"><h2 class="panel-title">${dashMonth === thisMonth() ? 'This month' : fmtMonth(dashMonth)}</h2>${monthSelect('dashMonth', dashMonth)}</div>
+      <div class="month-stats">
+        <div><span>Money in</span><b class="num text-gain">${money(s.income)}</b></div>
+        <div><span>Spent</span><b class="num text-loss">${money(s.spent)}</b></div>
+        <div><span>Invested</span><b class="num" style="color:var(--marigold-ink)">${money(s.invested)}</b></div>
+        <div><span>Left over</span><b class="num ${s.left < 0 ? 'text-loss' : ''}">${money(s.left)}</b></div>
+      </div>
+      ${s.income > 0 ? `<div class="kept-bar mt-5" aria-hidden="true"><span class="k-spent" style="width:${Math.min(100, (s.spent / s.income) * 100)}%"></span><span class="k-inv" style="width:${Math.min(100, (s.invested / s.income) * 100)}%"></span></div>
+        <p class="text-xs text-ink-3 mt-2">Spent ${Math.round((s.spent / s.income) * 100)}% and invested ${Math.round((s.invested / s.income) * 100)}% of what came in; ${s.left >= 0 ? `${Math.round((s.left / s.income) * 100)}% is left` : 'you spent more than came in'}.</p>` : ''}
+    </section>`;
   return `
     ${installCard()}
     ${gettingStarted()}
     ${logNudge()}
-    ${nudgeStrip(2, true)}
     ${netWorthPanel(T)}
-    <div class="quick-actions" aria-label="Quick actions">
+    ${dashOn('suggestions') ? `<div class="mt-5">${nudgeStrip(1, true)}</div>` : ''}
+    ${dashOn('quick') ? `<div class="quick-actions" aria-label="Quick actions">
+      <button class="qa" data-action="add-txn" data-type="expense"><i class="fa-solid fa-plus"></i><span>Add expense</span></button>
       <button class="qa" data-action="split-new"><i class="fa-solid fa-people-arrows"></i><span>Split a bill</span></button>
       <button class="qa" data-action="cool-new"><i class="fa-solid fa-hourglass-half"></i><span>I want to buy this</span></button>
       <a class="qa" href="#health"><i class="fa-solid fa-heart-pulse"></i><span>Money health</span></a>
-      <a class="qa" href="#planner"><i class="fa-solid fa-compass"></i><span>Planners</span></a>
-    </div>
-    ${dashboardInsights()}
+    </div>` : ''}
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-      <section class="panel p-5 lg:col-span-2">
-        <div class="panel-head">
-          <h2 class="panel-title">${dashMonth === thisMonth() ? 'This month' : fmtMonth(dashMonth)}</h2>
-          <div class="flex items-center gap-3"><a href="#calendar" class="text-sm link"><i class="fa-regular fa-calendar mr-1"></i>Calendar</a>${monthSelect('dashMonth', dashMonth)}</div>
-        </div>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div class="stat-tile in"><div class="stat-label">Money in</div><div class="stat-value num">${money(s.income)}</div></div>
-          <div class="stat-tile out"><div class="stat-label">Spent</div><div class="stat-value num">${money(s.spent)}</div></div>
-          <div class="stat-tile invest"><div class="stat-label">Invested</div><div class="stat-value num">${money(s.invested)}</div></div>
-          <div class="stat-tile"><div class="stat-label">Left over</div><div class="stat-value num ${s.left < 0 ? 'text-loss' : ''}">${money(s.left)}</div></div>
-        </div>
-        ${keepRate !== null ? `<p class="text-sm text-ink-2 mt-4">You kept or invested <b class="num">${keepRate}%</b> of what came in${s.invested ? `, including <b class="num">${money(s.invested)}</b> in SIPs and investments` : ''}.</p>` : ''}
-      </section>
-      ${portfolioMini()}
-    </div>
+    ${dashOn('month') || dashOn('budgets') ? `<div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mt-6">
+      ${dashOn('month') ? monthPanel : ''}
+      ${dashOn('budgets') ? `<section class="panel p-5 ${dashOn('month') ? '' : 'lg:col-span-3'}"><div class="panel-head"><h2 class="panel-title">Budgets</h2><a href="#budgets" class="text-sm link">Manage</a></div>${budgetMini()}</section>` : ''}
+    </div>` : ''}
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-      <section class="panel p-5">
-        <div class="panel-head"><h2 class="panel-title">Where the money went</h2><span class="text-sm text-ink-3">${fmtMonth(dashMonth)}</span></div>
-        <div class="relative h-72" id="catChartBox"><canvas id="catChart" aria-label="Spending by category chart" role="img"></canvas></div>
-      </section>
-      <section class="panel p-5">
-        <div class="panel-head"><h2 class="panel-title">Money in and out, last 6 months</h2></div>
-        <div class="relative h-72"><canvas id="trendChart" aria-label="Income and expenses chart" role="img"></canvas></div>
-      </section>
-    </div>
+    ${dashOn('insights') ? dashboardInsights() : ''}
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-      <section class="panel p-5 lg:col-span-2">
-        <div class="panel-head"><h2 class="panel-title">Due in the next 30 days</h2>
-          <span class="text-sm text-ink-3 num">${upcoming.some((i) => !['fd', 'review', 'income', 'goal', 'wish'].includes(i.kind)) ? money(upcoming.filter((i) => !['fd', 'review', 'income', 'goal', 'wish'].includes(i.kind)).reduce((a, i) => a + i.amount, 0)) + ' to pay or invest' : ''}</span></div>
-        ${upcoming.length ? `<div class="divider">${upcoming.map(upcomingRow).join('')}</div>`
-          : emptyState('fa-calendar-check', 'Nothing due. SIPs, EMIs, subscriptions and card bills will show up here.')}
-      </section>
-      <div class="space-y-6">
-        <section class="panel p-5">
-          <div class="panel-head"><h2 class="panel-title">Budgets</h2><a href="#budgets" class="text-sm text-royal">Manage</a></div>
-          ${budgetMini()}
-        </section>
-        ${subscriptionPanel()}
-        ${healthMini()}
-        ${goalsMini()}
-      </div>
-    </div>
+    ${dashOn('due') || side.length ? `<div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mt-6">
+      ${dashOn('due') ? `<section class="panel p-5 ${side.length ? 'lg:col-span-2' : 'lg:col-span-3'}">
+        <div class="panel-head"><h2 class="panel-title">Due soon</h2><span class="text-sm text-ink-3 num">${payable.length ? `${money(payable.reduce((a, i) => a + i.amount, 0))} in 30 days` : ''}</span></div>
+        ${upcoming.length ? `<div class="divider">${upcoming.slice(0, 5).map(upcomingRow).join('')}</div>${upcoming.length > 5 ? `<a href="#calendar" class="text-sm link block mt-3">See all ${upcoming.length} in the calendar</a>` : ''}`
+          : '<p class="text-sm text-ink-3">Nothing due in the next 30 days.</p>'}
+      </section>` : ''}
+      ${side.length ? `<div class="space-y-5 ${dashOn('due') ? '' : 'lg:col-span-3 grid lg:grid-cols-3 gap-5 space-y-0'}">${side.join('')}</div>` : ''}
+    </div>` : ''}
 
-    <section class="panel p-5 mt-6">
-      <div class="panel-head"><h2 class="panel-title">Recent transactions</h2><a href="#transactions" class="text-sm text-royal">See all</a></div>
+    ${dashOn('charts') ? `<div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-6">
+      <section class="panel p-5"><div class="panel-head"><h2 class="panel-title">Where the money went</h2><span class="text-sm text-ink-3">${fmtMonth(dashMonth)}</span></div>
+        <div class="relative h-72" id="catChartBox"><canvas id="catChart" aria-label="Spending by category chart" role="img"></canvas></div></section>
+      <section class="panel p-5"><div class="panel-head"><h2 class="panel-title">Money in and out, last 6 months</h2></div>
+        <div class="relative h-72"><canvas id="trendChart" aria-label="Income and expenses chart" role="img"></canvas></div></section>
+    </div>` : ''}
+
+    ${dashOn('recent') ? `<section class="panel p-5 mt-6">
+      <div class="panel-head"><h2 class="panel-title">Recent</h2><a href="#transactions" class="text-sm link">See all</a></div>
       ${recent.length ? `<div class="divider">${recent.map((t) => txnRow(t)).join('')}</div>`
         : emptyState('fa-receipt', 'No transactions yet.', `<button class="btn btn-primary" data-action="add-txn" data-type="expense"><i class="fa-solid fa-plus"></i> Add your first expense</button>`)}
-    </section>
+    </section>` : ''}
 
-    ${pinnedChartsSection()}`;
+    ${dashOn('pinned') && db.charts.some((c) => c.pinned) ? pinnedChartsSection() : ''}
+
+    <div class="text-center mt-8"><button class="btn btn-sm" data-action="dash-customize"><i class="fa-solid fa-sliders"></i> Customize dashboard</button></div>`;
 }
 
 function gettingStarted() {
@@ -1337,7 +1346,8 @@ function netWorthPanel(T) {
         <div class="text-xs hero-dim">As on ${fmtDate(todayStr())}</div>
       </div>
     </div>
-    <div class="mt-6 space-y-2" aria-hidden="true">
+    <details class="nw-details" ${window.innerWidth >= 640 ? 'open' : ''}><summary>What makes it up</summary>
+    <div class="mt-4 space-y-2" aria-hidden="true">
       <div class="nw-track">${track(assets)}</div>
       <div class="nw-track">${track(liabs)}</div>
     </div>
@@ -1345,7 +1355,7 @@ function netWorthPanel(T) {
       ${assets.map(term).join('<span class="op">+</span>')}
       ${liabs.map((l) => `<span class="op">−</span>${term(l)}`).join('')}
       <span class="op">=</span><span class="t-val num font-semibold">${money(shown)}</span>
-    </div>
+    </div></details>
   </section>`;
 }
 
@@ -1425,6 +1435,7 @@ function drawDashboardCharts() {
     $$('canvas').forEach((c) => { c.parentElement.innerHTML = '<p class="text-sm text-ink-3">Charts could not load. Check your internet connection and reload.</p>'; });
     return;
   }
+  if (!$('#catChart') && !$('#trendChart')) return; // spending charts hidden on the dashboard
   chartDefaults();
   const tooltipMoney = { callbacks: { label: (ctx) => ` ${ctx.dataset.label ? ctx.dataset.label + ': ' : ''}${money(ctx.parsed.y ?? ctx.parsed)}` } };
 
@@ -1518,7 +1529,7 @@ function accountRow(a) {
     extra = bits.length ? `<div class="text-xs text-ink-3 mt-0.5">${bits.join(', ')}</div>` : '';
   }
   return `<div class="row ${a.archived ? 'opacity-60' : ''}">
-    <div class="row-icon t-${a.type}"><i class="fa-solid ${ACCOUNT_TYPES[a.type].icon}"></i></div>
+    ${accountIcon(a)}
     <div class="min-w-0 flex-1">
       <div class="font-medium truncate">${esc(a.name)} ${a.archived ? '<span class="pill">Archived</span>' : ''}</div>
       <div class="text-xs text-ink-3 truncate mt-0.5">${accountSubtitle(a) || ACCOUNT_TYPES[a.type].single}</div>
@@ -1539,10 +1550,10 @@ function cardTile(a) {
   const util = Math.round(m.utilization * 100);
   return `<article class="panel p-5 ${a.archived ? 'opacity-60' : ''}">
     <div class="flex items-start justify-between gap-3">
-      <div class="min-w-0">
+      <div class="min-w-0 flex items-center gap-3">${accountIcon(a)}<div class="min-w-0">
         <h3 class="font-semibold truncate">${esc(a.name)} ${a.archived ? '<span class="pill">Archived</span>' : ''}</h3>
         <div class="text-xs text-ink-3 truncate">${accountSubtitle(a) || 'Credit card'}</div>
-      </div>
+      </div></div>
       <div class="flex gap-0.5">
         <button class="icon-btn sm" data-action="adjust-balance" data-id="${a.id}" title="Correct outstanding" aria-label="Correct outstanding"><i class="fa-solid fa-scale-balanced"></i></button>
         <button class="icon-btn sm" data-action="edit-account" data-id="${a.id}" title="Edit" aria-label="Edit card"><i class="fa-regular fa-pen-to-square"></i></button>
@@ -1651,8 +1662,8 @@ function renderEmis() {
   const active = list.filter((x) => x.c.status === 'active');
   const sum = (f) => active.reduce((s, x) => s + f(x), 0);
   return `
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <p class="text-sm text-ink-2 max-w-2xl">Track loans and credit card EMIs. Remaining principal counts against your net worth, and card EMIs block part of the card's limit until paid.</p>
+    <div class="page-top">
+      <p class="page-intro">Track loans and credit card EMIs. Remaining principal counts against your net worth, and card EMIs block part of the card's limit until paid.</p>
       <button class="btn btn-primary" data-action="add-emi"><i class="fa-solid fa-plus"></i> Add EMI or loan</button>
     </div>
     ${list.length ? `
@@ -1715,8 +1726,8 @@ function renderSubscriptions() {
   const outMonthly = perMonth(sorted.filter((s) => recurKind(s) !== 'income'));
   const inMonthly = perMonth(sorted.filter((s) => recurKind(s) === 'income'));
   return `
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <p class="text-sm text-ink-2 max-w-2xl">Everything that repeats: subscriptions, bills like rent, and regular income like salary. Tick "record automatically" and they log themselves on the date.</p>
+    <div class="page-top">
+      <p class="page-intro">Everything that repeats: subscriptions, bills like rent, and regular income like salary. Tick "record automatically" and they log themselves on the date.</p>
     </div>
     <section class="panel p-5 mb-6"><dl class="kv">
       <div><dt>Going out per month</dt><dd class="text-lg">${money(Math.round(outMonthly))}</dd></div>
@@ -1901,8 +1912,8 @@ function renderPortfolio() {
   const up = T.gain >= 0;
   const anyLive = db.accounts.some((a) => a.type === 'investment' && hasLivePrice(a));
   return `
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <p class="text-sm text-ink-2 max-w-2xl">Your funds and shares at today's prices. Search a fund or company, enter the units and average cost once, and the value stays live.</p>
+    <div class="page-top">
+      <p class="page-intro">Your funds and shares at today's prices. Search a fund or company, enter the units and average cost once, and the value stays live.</p>
       <div class="flex gap-2 flex-wrap">
         <button class="btn" data-action="add-account" data-type="investment"><i class="fa-solid fa-plus"></i> Add holding</button>
         <button class="btn btn-primary" data-action="add-sip"><i class="fa-solid fa-seedling"></i> Add SIP</button>
@@ -3436,8 +3447,8 @@ function pinnedChartsSection() {
 }
 function renderCharts() {
   const list = sortedCharts();
-  return `<div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <p class="text-sm text-ink-2 max-w-2xl">Make as many charts as you like. Pinned charts <i class="fa-solid fa-thumbtack text-xs"></i> show on the dashboard for everyone who opens the app; unpinned ones stay here.</p>
+  return `<div class="page-top">
+      <p class="page-intro">Make as many charts as you like. Pinned charts <i class="fa-solid fa-thumbtack text-xs"></i> show on the dashboard for everyone who opens the app; unpinned ones stay here.</p>
       <button class="btn btn-primary" data-action="chart-new"><i class="fa-solid fa-plus"></i> New chart</button>
     </div>
     ${list.length ? `<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">${list.map((c) => chartCard(c, 'page')).join('')}</div>`
@@ -3627,11 +3638,10 @@ function renderPeople() {
   const pend = pendingHome();
   const pendTotal = pend.reduce((s, t) => s + num(t.amount), 0);
   return `
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <p class="text-sm text-ink-2 max-w-2xl">Money you lend or borrow, with family and friends, and home expenses you'll take back. Balances count in your net worth.</p>
+    <div class="page-top">
+      <p class="page-intro">Money you lend or borrow, with family and friends, and home expenses you'll take back. Balances count in your net worth.</p>
       <div class="flex gap-2 flex-wrap">
         <button class="btn" data-action="person-add"><i class="fa-solid fa-user-plus"></i> Add person</button>
-        <button class="btn" data-action="split-new"><i class="fa-solid fa-people-arrows"></i> Split a bill</button>
         <button class="btn btn-primary" data-action="add-txn" data-type="expense" data-home="1"><i class="fa-solid fa-house"></i> Add home expense</button>
       </div>
     </div>
@@ -3675,8 +3685,7 @@ function renderPeople() {
           <div class="min-w-0 flex-1">${esc(t.description || t.category)} <span class="text-ink-3">${fmtDate(t.date)}</span></div>
           <div class="num">${money(t.amount)}</div><span class="pill in">Taken back ${t.settledOn ? fmtDate(t.settledOn) : ''}</span>
           <button class="link text-xs" data-action="home-unsettle" data-id="${t.id}">Undo</button></div>`).join('')}</div></details>` : ''}
-    </section>
-    ${splitsSection()}`;
+    </section>`;
 }
 
 function openPersonForm(existing) {
@@ -3710,7 +3719,7 @@ function openPersonForm(existing) {
 }
 
 /** Money between you and a person. dir 'out' = you gave, 'in' = you received. */
-function openPersonMoney(personId, dir) {
+function openPersonMoney(personId, dir, presetAmount = '') {
   const p = accountById(personId);
   if (!p) return;
   const bal = M.balances.get(p.id) || 0;
@@ -3721,7 +3730,7 @@ function openPersonMoney(personId, dir) {
   openModal({
     title: dir === 'out' ? `Money I gave ${p.name}` : `Money I got from ${p.name}`,
     body: `${field('What was it?', select('what', kinds, guess))}
-      ${twoCol(field('Amount', moneyInput('amount', '', 'required min="0.01"')), field('Date', input('date', todayStr(), 'type="date" required')))}
+      ${twoCol(field('Amount', moneyInput('amount', presetAmount, 'required min="0.01"')), field('Date', input('date', todayStr(), 'type="date" required')))}
       ${field(dir === 'out' ? 'From my' : 'Into my', accountSelect('acc', firstAccountOf(['bank', 'cash']), { types: ['cash', 'bank', 'credit_card'] }))}
       ${field('Note (optional)', input('description', '', 'maxlength="120" placeholder="e.g. for college fees"'))}
       <p class="hint">${esc(p.name)}: ${personLine(bal).text.toLowerCase()} right now.</p>`,
@@ -3867,8 +3876,8 @@ function renderGoals() {
   const avg = avgLeftOver();
   const wantedTotal = wants.filter((w) => w.status !== 'bought').reduce((s, w) => s + num(w.price), 0);
   return `
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <p class="text-sm text-ink-2 max-w-2xl">Save towards things that matter, and keep a list of what you want to buy. The app tells you how much to put aside each month.</p>
+    <div class="page-top">
+      <p class="page-intro">Save towards things that matter, and keep a list of what you want to buy. The app tells you how much to put aside each month.</p>
       <div class="flex gap-2 flex-wrap"><button class="btn" data-action="cool-new"><i class="fa-solid fa-hourglass-half"></i> I want to buy this</button><button class="btn" data-action="wish-add"><i class="fa-solid fa-plus"></i> Add to wishlist</button>
         <button class="btn btn-primary" data-action="goal-new"><i class="fa-solid fa-bullseye"></i> New goal</button></div>
     </div>
@@ -4172,8 +4181,8 @@ function renderInsights() {
   };
   const maxCat = Math.max(1, ...I.cats.map((c) => Math.max(c.cur, c.usual)));
   return `
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <p class="text-sm text-ink-2 max-w-2xl">A report on your month, compared with your own usual (the average of the ${I.base.length || 'previous'} month${I.base.length === 1 ? '' : 's'} before it).</p>
+    <div class="page-top">
+      <p class="page-intro">A report on your month, compared with your own usual (the average of the ${I.base.length || 'previous'} month${I.base.length === 1 ? '' : 's'} before it).</p>
       ${monthSelect('insightMonth', insightMonth)}
     </div>
     <section class="panel p-5">
@@ -4209,10 +4218,10 @@ function renderInsights() {
 
 /** Two short highlights for the dashboard. */
 function dashboardInsights() {
-  const cards = insightCards(computeInsights(thisMonth())).filter((c) => c.tone !== 'neutral' || /On course/.test(c.title)).slice(0, 3);
+  const cards = insightCards(computeInsights(thisMonth())).filter((c) => c.tone !== 'neutral' || /On course/.test(c.title)).slice(0, 2);
   if (!cards.length) return '';
-  return `<section class="mt-6"><div class="flex items-center justify-between mb-3"><h2 class="display text-xl font-semibold">This month's insights</h2><a href="#insights" class="text-sm link">All insights</a></div>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">${cards.map((c) => `<div class="insight ${c.tone}"><span class="insight-icon"><i class="fa-solid ${c.icon}"></i></span>
+  return `<section class="mt-6"><div class="flex items-center justify-between mb-3"><h2 class="section-title">Insights</h2><a href="#insights" class="text-sm link">All insights</a></div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${cards.map((c) => `<div class="insight ${c.tone}"><span class="insight-icon"><i class="fa-solid ${c.icon}"></i></span>
       <div class="min-w-0"><div class="font-semibold">${esc(c.title)}</div><div class="text-sm text-ink-2 mt-0.5">${esc(c.text)}</div></div></div>`).join('')}</div></section>`;
 }
 
@@ -4568,8 +4577,8 @@ function renderImport() {
   const batchCount = lastBatch ? db.transactions.filter((t) => t.importBatch === lastBatch).length : 0;
   const noDigits = db.accounts.filter((a) => ['bank', 'credit_card'].includes(a.type) && !a.archived && !a.last4);
   return `
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <p class="text-sm text-ink-2 max-w-2xl">Bring in transactions from a PhonePe statement (PDF) or a bank or card statement (CSV, Excel or PDF). You check every row before anything is added, and the app remembers your choices for next time.</p>
+    <div class="page-top">
+      <p class="page-intro">Bring in transactions from a PhonePe statement (PDF) or a bank or card statement (CSV, Excel or PDF). You check every row before anything is added, and the app remembers your choices for next time.</p>
       <div class="flex gap-2 flex-wrap">${batchCount ? `<button class="btn btn-sm" data-action="import-undo" data-batch="${lastBatch}"><i class="fa-solid fa-rotate-left"></i> Undo last import (${batchCount})</button>` : ''}
         <button class="btn btn-sm" data-action="rules-open"><i class="fa-solid fa-brain"></i> Remembered choices (${db.rules.length})</button></div>
     </div>
@@ -4936,8 +4945,8 @@ function renderTax() {
   const fys = [...new Set([fyOf(todayStr()), fyOf(addMonths(todayStr(), -12)), ...db.transactions.map((t) => fyOf(t.date))])].sort().reverse();
   const better = D.taxNew <= D.taxOld ? 'new' : 'old';
   return `
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <p class="text-sm text-ink-2 max-w-2xl">A rough estimate from the income you log, to plan ahead. Not tax advice: surcharge, capital gains, HRA and other exemptions aren't included. Check with a CA before filing.</p>
+    <div class="page-top">
+      <p class="page-intro">A rough estimate from the income you log, to plan ahead. Not tax advice: surcharge, capital gains, HRA and other exemptions aren't included. Check with a CA before filing.</p>
       <select class="inp !w-auto !py-1.5 text-sm" data-filter="taxFy" aria-label="Financial year">${fys.map((f) => `<option value="${f}" ${f === taxFy ? 'selected' : ''}>FY ${f}</option>`).join('')}</select>
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -5574,8 +5583,8 @@ function renderNotifications() {
   const list = db.notifications.slice().sort((a, b) => a.time.localeCompare(b.time));
   const upToDate = topic && scheduleUpToDate();
   return `
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <p class="text-sm text-ink-2 max-w-2xl">Choose what your phone tells you and when: balances every morning, yesterday's spending, bills due, budget alerts, weekly and monthly summaries, or your own reminders. Times are India time.</p>
+    <div class="page-top">
+      <p class="page-intro">Choose what your phone tells you and when: balances every morning, yesterday's spending, bills due, budget alerts, weekly and monthly summaries, or your own reminders. Times are India time.</p>
       <div class="flex gap-2 flex-wrap">${list.length ? '' : '<button class="btn" data-action="ntf-recommended"><i class="fa-solid fa-wand-magic-sparkles"></i> Add a recommended set</button>'}
         <button class="btn btn-primary" data-action="ntf-add"><i class="fa-solid fa-plus"></i> Add notification</button></div>
     </div>
@@ -6022,7 +6031,7 @@ function openCalendarDay(date) {
    - Health score: 0 to 100 from five of the above
    Features marked PRO will be part of Premium in the Play Store app; here
    they are all unlocked so you can test them. */
-const PRO = '<span class="pro-chip" title="Part of Premium in the Play Store app">PRO</span>';
+const PRO = ''; // Premium labels are hidden in this version
 const ESSENTIAL_CATS = ['Rent', 'Groceries', 'Utilities', 'Health', 'Transport', 'Fuel', 'Insurance', 'Education', 'EMI'];
 const DISCRETIONARY_CATS = ['Food & dining', 'Shopping', 'Entertainment', 'Travel', 'Personal care', 'Subscriptions'];
 const FUN_DEFAULT = { monthly: 0, categories: ['Shopping', 'Entertainment', 'Food & dining'] };
@@ -6113,38 +6122,41 @@ function lifestyleCreep() {
   return { ready: true, recent, base, incNow, incThen, incGrowth, cats, flagged, yearly: base === yearAgo };
 }
 
-/* ----- Cash-flow forecast (each bank / cash account to month end) ----- */
+/* ----- Cash-flow forecast: all cash and bank money together, to month end -----
+   Starts from today's total, then day by day: everyday spending paid from
+   cash and bank (this month's pace), scheduled salary, bills, EMIs and SIPs,
+   and credit card bills on their due dates (they are paid from the bank). */
 function cashFlowForecast() {
   const today = todayStr(), end = addDays(addMonths(`${thisMonth()}-01`, 1), -1);
   const horizon = end > addDays(today, 10) ? end : addDays(today, 30);
-  const accounts = db.accounts.filter((a) => !a.archived && (a.type === 'bank' || a.type === 'cash'));
-  const events = new Map(accounts.map((a) => [a.id, []]));
-  const add = (acc, date, amount, label) => { if (events.has(acc) && date > today && date <= horizon) events.get(acc).push({ date, amount, label }); };
-  for (const s of db.subscriptions) { if (!s.active) continue; let d = s.nextRenewal, g = 0; while (d && d <= horizon && g++ < 40) { add(s.accountId, d, recurKind(s) === 'income' ? num(s.amount) : -num(s.amount), s.name); d = advanceDate(d, s.frequency); } }
-  for (const x of db.sips) { if (!x.active) continue; let d = x.nextDate, g = 0; while (d && d <= horizon && !sipEnded(x, d) && g++ < 40) { add(x.fromAccountId, d, -sipAmountOn(x, d), `${x.name} SIP`); d = advanceSip(x, d); } }
-  for (const { e, c } of M.emis) if (c.status === 'active' && c.nextDue) { let d = c.nextDue, k = 0; while (d <= horizon && k < c.remainingMonths) { add(e.accountId, d, -c.emi, `${e.name} EMI`); d = addMonths(c.nextDue, ++k); } }
-  // Everyday spending: this month's pace, shared between accounts the way they were used in the last 60 days.
-  const since = addDays(today, -60), use = new Map();
-  for (const t of db.transactions) if (t.type === 'expense' && !t.relatedType && t.date >= since && events.has(t.fromAccountId)) use.set(t.fromAccountId, (use.get(t.fromAccountId) || 0) + num(t.amount));
-  const useTotal = [...use.values()].reduce((s, v) => s + v, 0) || 1;
-  const monthSpent = db.transactions.filter((t) => t.type === 'expense' && !t.relatedType && t.date?.startsWith(thisMonth())).reduce((s, t) => s + num(t.amount), 0);
-  const pace = monthSpent / Math.max(1, parseDate(today).getDate()) || monthlyAverages(3).spent / 30;
+  const liquid = new Set(db.accounts.filter((a) => !a.archived && (a.type === 'bank' || a.type === 'cash')).map((a) => a.id));
+  const cards = new Set(db.accounts.filter((a) => a.type === 'credit_card').map((a) => a.id));
+  const events = [];
+  const add = (date, amount, label) => { if (date > today && date <= horizon) events.push({ date, amount, label }); };
+  for (const s of db.subscriptions) {
+    if (!s.active || !(liquid.has(s.accountId))) continue; // bills on a card come back as the card bill
+    let d = s.nextRenewal, g = 0;
+    while (d && d <= horizon && g++ < 40) { add(d, recurKind(s) === 'income' ? num(s.amount) : -num(s.amount), s.name); d = advanceDate(d, s.frequency); }
+  }
+  for (const x of db.sips) { if (!x.active || !liquid.has(x.fromAccountId)) continue; let d = x.nextDate, g = 0; while (d && d <= horizon && !sipEnded(x, d) && g++ < 40) { add(d, -sipAmountOn(x, d), `${x.name} SIP`); d = advanceSip(x, d); } }
+  for (const { e, c } of M.emis) if (c.status === 'active' && c.nextDue && liquid.has(e.accountId)) { let d = c.nextDue, k = 0; while (d <= horizon && k < c.remainingMonths) { add(d, -c.emi, `${e.name} EMI`); d = addMonths(c.nextDue, ++k); } }
+  const cardDue = db.accounts.filter((a) => cards.has(a.id) && !a.archived).map((a) => ({ a, m: cardMetrics(a) })).filter(({ m }) => m.outstanding > 0 && m.dates.nextDue && m.dates.nextDue <= horizon);
+  for (const { a, m } of cardDue) add(m.dates.nextDue, -m.outstanding, `${a.name} bill`);
+  const day = parseDate(today).getDate();
+  const spentLiquid = db.transactions.filter((t) => t.type === 'expense' && !t.relatedType && t.date?.startsWith(thisMonth()) && liquid.has(t.fromAccountId)).reduce((s, t) => s + num(t.amount), 0);
+  const pace = day > 3 ? spentLiquid / day : monthlyAverages(3).spent / 30 * 0.5;
   const buffer = num(db.settings.cashBuffer ?? 0);
-  const out = accounts.map((a) => {
-    const share = (use.get(a.id) || 0) / useTotal, daily = pace * share;
-    let bal = M.balances.get(a.id) || 0;
-    const series = [{ date: today, bal: round2(bal) }];
-    let low = null;
-    for (let d = addDays(today, 1); d <= horizon; d = addDays(d, 1)) {
-      bal -= daily;
-      for (const ev of events.get(a.id).filter((x) => x.date === d)) bal += ev.amount;
-      series.push({ date: d, bal: round2(bal) });
-      if (!low && bal < buffer) low = { date: d, bal: round2(bal) };
-    }
-    return { a, series, end: series[series.length - 1].bal, low, events: events.get(a.id).sort((x, y) => x.date.localeCompare(y.date)), daily: round2(daily) };
-  });
-  const cardDue = db.accounts.filter((a) => a.type === 'credit_card' && !a.archived).map((a) => ({ a, m: cardMetrics(a) })).filter(({ m }) => m.outstanding > 0 && m.dates.nextDue && m.dates.nextDue <= horizon);
-  return { horizon, accounts: out, cardDue, pace: round2(pace) };
+  let bal = [...liquid].reduce((s, id) => s + (M.balances.get(id) || 0), 0);
+  const series = [{ date: today, bal: round2(bal) }];
+  let low = null, lowest = { date: today, bal: round2(bal) };
+  for (let d = addDays(today, 1); d <= horizon; d = addDays(d, 1)) {
+    bal -= pace;
+    for (const ev of events) if (ev.date === d) bal += ev.amount;
+    series.push({ date: d, bal: round2(bal) });
+    if (bal < lowest.bal) lowest = { date: d, bal: round2(bal) };
+    if (!low && bal < buffer) low = { date: d, bal: round2(bal) };
+  }
+  return { horizon, series, start: series[0].bal, end: series[series.length - 1].bal, low, lowest, events: events.sort((x, y) => x.date.localeCompare(y.date)), pace: round2(pace), buffer };
 }
 
 /* ----- Health score (0 to 100) ----- */
@@ -6178,7 +6190,8 @@ function computeNudges() {
     const lower = Math.round((num(fm.monthly) * 0.6) / 100) * 100;
     add(`runway-fun-${thisMonth()}`, 'bad', 'fa-life-ring', `Your emergency money covers ${rw.whole} month${rw.whole === 1 ? '' : 's'} ${rw.days} days. Lower fun money to ${money(lower)} this month to rebuild it?`, `<button class="btn btn-sm" data-action="fun-set" data-v="${lower}">Lower to ${money(lower)}</button>`);
   }
-  for (const f of cashFlowForecast().accounts) if (f.low) add(`cash-${f.a.id}-${thisMonth()}`, 'bad', 'fa-arrow-trend-down', `${f.a.name} may drop to ${money(f.low.bal)} around ${fmtDate(f.low.date)} at your current pace.`, '<a class="btn btn-sm" href="#health">See forecast</a>');
+  const cf = cashFlowForecast();
+  if (cf.low) add(`cash-total-${thisMonth()}`, 'bad', 'fa-arrow-trend-down', `Your cash and bank money together may drop to ${money(Math.round(cf.low.bal))} around ${fmtDate(cf.low.date)} at your current pace, before income arrives.`, '<a class="btn btn-sm" href="#health">See forecast</a>');
   if (num(fm.monthly) > 0 && fm.pct >= 0.9 && fm.daysLeft > 7) add(`fun-${thisMonth()}`, 'neutral', 'fa-champagne-glasses', `Fun money is ${Math.round(fm.pct * 100)}% used with ${fm.daysLeft} days to go. Maybe a quiet week?`);
   if (ch.limit && ch.util >= 0.3) add(`credit-${thisMonth()}`, 'bad', 'fa-credit-card', `Card usage is ${Math.round(ch.util * 100)}% of your limits. Paying part of the bill before the statement date keeps your credit score healthier.`);
   for (const x of idleCash().slice(0, 1)) add(`idle-${x.a.id}-${thisMonth()}`, 'neutral', 'fa-sack-dollar', `${money(x.extra)} has sat in ${x.a.name} for a month, beyond ${db.settings.idleMonths ?? 3} months of your spending. It could work harder in a goal, an FD or a liquid fund.`, '<a class="btn btn-sm" href="#goals">Put it in a goal</a>');
@@ -6227,20 +6240,19 @@ function ring(score, size = 132, onDark = true) {
 }
 function renderHealth() {
   const hs = healthScore(), rw = runwayData(), fm = funMoney(), ch = creditHealth(), idle = idleCash(), lc = lifestyleCreep(), cf = cashFlowForecast();
-  const part = (p) => `<div class="hs-part"><div class="flex justify-between text-sm gap-2"><span class="font-semibold">${p.label}</span><span class="num">${p.v === null ? '–' : `${Math.round(p.v)}/20`}</span></div>
-    <div class="bar mt-1.5"><span style="width:${((p.v ?? 0) / 20) * 100}%;background:${p.v === null ? '#CBD5E1' : p.v >= 15 ? '#12A150' : p.v >= 10 ? '#0A6FB0' : p.v >= 6 ? '#F59E0B' : '#E0306E'}"></span></div>
-    <div class="text-xs text-ink-3 mt-1">${esc(p.note)}</div></div>`;
+  const part = (p) => `<div class="hs-part"><div class="flex justify-between text-sm gap-2"><span class="font-semibold">${p.label}</span><span class="num hero-dim">${p.v === null ? '–' : `${Math.round(p.v)}/20`}</span></div>
+    <div class="bar hero-bar mt-1"><span style="width:${((p.v ?? 0) / 20) * 100}%;background:${p.v === null ? '#CBD5E1' : p.v >= 15 ? '#12A150' : p.v >= 10 ? '#0A6FB0' : p.v >= 6 ? '#F59E0B' : '#E0306E'}"></span></div>
+    <div class="text-xs hero-dim mt-0.5">${esc(p.note)}</div></div>`;
   return `
     ${nudgeStrip(5)}
     <section class="hero p-5 sm:p-7">
-      <div class="flex flex-col sm:flex-row sm:items-center gap-5">
-        ${ring(hs.score)}
-        <div class="flex-1"><div class="hero-dim text-sm">Money health score</div>
-          <div class="display text-3xl font-semibold">${hs.label}</div>
-          <p class="hero-dim text-sm mt-1 max-w-xl">Out of 100, from five things that matter most: how long your savings last, how much you keep, card usage, EMIs and investing. Improve the weakest bar first.</p></div>
+      <div class="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-6 items-center">
+        <div class="flex items-center gap-5">${ring(hs.score)}
+          <div><div class="hero-dim text-sm">Money health</div><div class="display text-3xl font-semibold">${hs.label}</div>
+            <div class="hero-dim text-xs mt-1">Score out of 100 · improve the shortest bar</div></div></div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">${hs.parts.map(part).join('')}</div>
       </div>
     </section>
-    <section class="panel p-5 mt-6"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">${hs.parts.map(part).join('')}</div></section>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
       <section class="panel p-5">
@@ -6268,19 +6280,26 @@ function renderHealth() {
     </div>
 
     <section class="panel p-5 mt-6">
-      <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-chart-line mr-1.5 text-royal"></i>Cash-flow forecast ${PRO}</h2><span class="text-xs text-ink-3">To ${fmtDate(cf.horizon)} · everyday spending ${money(Math.round(cf.pace))}/day</span></div>
-      <p class="text-sm text-ink-2 mb-4">Where each account's balance is heading, from today's balance, scheduled salary, bills, EMIs and SIPs, and your everyday spending pace.</p>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${cf.accounts.map((f) => {
-        const min = Math.min(...f.series.map((x) => x.bal)), max = Math.max(...f.series.map((x) => x.bal), 1), w = 300, h = 70;
-        const lo = min < 0 ? min * 1.1 : min * 0.97, hi = max * 1.01 + 1;
-        const X = (i) => (i / Math.max(1, f.series.length - 1)) * w, Y = (v) => 2 + h - ((v - lo) / (hi - lo || 1)) * h;
-        const path = f.series.map((x, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(x.bal).toFixed(1)}`).join(' ');
-        return `<div class="cf-card ${f.low ? 'warn' : ''}"><div class="flex justify-between gap-2"><b class="truncate">${esc(f.a.name)}</b><span class="num text-sm">${money(Math.round(f.series[0].bal))} → <b class="${f.end < 0 ? 'text-loss' : ''}">${money(Math.round(f.end))}</b></span></div>
-          <svg viewBox="0 0 ${w} ${h + 4}" class="cf-spark" preserveAspectRatio="none" aria-hidden="true">${min < 0 ? `<line x1="0" x2="${w}" y1="${Y(0)}" y2="${Y(0)}" stroke="#E0306E" stroke-dasharray="4 4"/>` : ''}<path d="${path}" fill="none" stroke="${f.low ? '#E0306E' : '#0A6FB0'}" stroke-width="2.2"/></svg>
-          <div class="text-xs ${f.low ? 'text-loss font-semibold' : 'text-ink-3'}">${f.low ? `May go below ${money(num(db.settings.cashBuffer ?? 0))} around ${fmtDate(f.low.date)}` : 'Stays positive'}${f.events.length ? ` · ${f.events.length} scheduled` : ''}</div>
-          ${f.events.length ? `<details class="mt-2"><summary class="text-xs link cursor-pointer">Scheduled items</summary><div class="text-xs mt-1 space-y-0.5">${f.events.map((e) => `<div class="flex justify-between gap-2"><span>${fmtDate(e.date)} ${esc(e.label)}</span><span class="num ${e.amount > 0 ? 'text-gain' : ''}">${e.amount > 0 ? '+' : '−'}${money(Math.abs(e.amount))}</span></div>`).join('')}</div></details>` : ''}</div>`;
-      }).join('') || emptyState('fa-building-columns', 'Add a bank account to see its forecast.')}</div>
-      ${cf.cardDue.length ? `<p class="text-sm mt-4"><i class="fa-solid fa-credit-card text-loss mr-1"></i>Also due: ${cf.cardDue.map(({ a, m }) => `${esc(a.name)} ${money(m.outstanding)} on ${fmtDate(m.dates.nextDue)}`).join(', ')}. Pay these from the account with room.</p>` : ''}
+      <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-chart-line mr-1.5 text-royal"></i>Cash-flow forecast</h2><span class="text-xs text-ink-3">All cash and bank money, to ${fmtDate(cf.horizon)}</span></div>
+      ${(() => {
+        const S = cf.series, W = 640, H = 150, min = Math.min(...S.map((x) => x.bal)), max = Math.max(...S.map((x) => x.bal), 1);
+        const lo = min < 0 ? min * 1.1 : min * 0.95, hi = max * 1.02 + 1;
+        const X = (i) => 8 + (i / Math.max(1, S.length - 1)) * (W - 16), Y = (v) => 8 + (H - 16) - ((v - lo) / (hi - lo || 1)) * (H - 16);
+        const path = S.map((x, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(x.bal).toFixed(1)}`).join(' ');
+        const li = S.findIndex((x) => x.date === cf.lowest.date);
+        return `<div class="grid grid-cols-3 gap-3 mb-3 cf-stats">
+            <div><div class="stat-label">Today</div><div class="display text-2xl font-semibold num">${money(Math.round(cf.start))}</div></div>
+            <div><div class="stat-label">Lowest point</div><div class="display text-2xl font-semibold num ${cf.lowest.bal < cf.buffer ? 'text-loss' : ''}">${money(Math.round(cf.lowest.bal))}</div><div class="text-xs text-ink-3">${fmtDate(cf.lowest.date)}</div></div>
+            <div><div class="stat-label">${fmtDate(cf.horizon)}</div><div class="display text-2xl font-semibold num">${money(Math.round(cf.end))}</div></div></div>
+          <svg viewBox="0 0 ${W} ${H}" class="w-full cf-chart" preserveAspectRatio="none" role="img" aria-label="Forecast of your cash and bank money">
+            ${min < 0 ? `<line x1="0" x2="${W}" y1="${Y(0)}" y2="${Y(0)}" stroke="#E0306E" stroke-dasharray="5 5"/>` : ''}
+            <path d="${path} L${X(S.length - 1)},${H} L${X(0)},${H} Z" fill="${cf.low ? 'rgba(224,48,110,.08)' : 'rgba(10,111,176,.08)'}"/>
+            <path d="${path}" fill="none" stroke="${cf.low ? '#E0306E' : '#0A6FB0'}" stroke-width="2.5" vector-effect="non-scaling-stroke"/>
+            <circle cx="${X(li)}" cy="${Y(cf.lowest.bal)}" r="4.5" fill="${cf.lowest.bal < cf.buffer ? '#E0306E' : '#0A6FB0'}"/></svg>
+          <p class="text-sm mt-3 ${cf.low ? 'text-loss font-semibold' : 'text-ink-2'}">${cf.low ? `At your current pace your money may drop below ${money(cf.buffer)} around ${fmtDate(cf.low.date)}. Slowing everyday spending or moving a payment would help.` : 'Your cash and bank money stays positive through the month.'}</p>
+          <p class="text-xs text-ink-3 mt-1">Everyday spending ${money(Math.round(cf.pace))} a day (this month's pace from cash and bank), plus the scheduled items below. Card spending counts when the card bill is due.</p>
+          ${cf.events.length ? `<details class="mt-3"><summary class="text-sm link cursor-pointer">${cf.events.length} scheduled item${cf.events.length === 1 ? '' : 's'}</summary><div class="divider mt-2">${cf.events.map((e) => `<div class="row text-sm"><span class="flex-1">${fmtDate(e.date)} · ${esc(e.label)}</span><span class="num ${e.amount > 0 ? 'text-gain' : ''}">${e.amount > 0 ? '+' : '−'}${money(Math.abs(Math.round(e.amount)))}</span></div>`).join('')}</div></details>` : ''}`;
+      })()}
     </section>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
@@ -6296,15 +6315,14 @@ function renderHealth() {
         <p class="text-xs text-ink-3 mt-4">Keeping card usage under 30% of your limits helps your score. You can get one free credit report a year from each credit bureau; log the score here to see its trend. The app can't read your score by itself.</p>
       </section>
 
-      <section class="panel p-5">
-        <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-sack-dollar mr-1.5" style="color:var(--marigold)"></i>Idle cash ${PRO}</h2></div>
-        ${idle.length ? idle.map((x) => `<div class="callout mb-3"><b class="num">${money(x.extra)}</b> has stayed in <b>${esc(x.a.name)}</b> for at least a month, more than ${db.settings.idleMonths ?? 3} months of your spending (${money(x.keep)}). Money above that could earn more in a goal, a fixed or recurring deposit, or a liquid fund. Keep your runway first.</div>`).join('')
-          : `<p class="text-sm text-ink-2">Nothing idle. Your bank accounts don't hold much more than ${db.settings.idleMonths ?? 3} months of spending.</p>`}
-        <h3 class="font-semibold mt-5 mb-2">Lifestyle creep ${PRO}</h3>
-        ${!lc.ready ? `<p class="text-sm text-ink-2">Needs 6 months of data (you have ${lc.have}). It compares how your spending grows with how your income grows.</p>`
-          : `<p class="text-sm text-ink-2 mb-3">Income ${lc.incGrowth === null ? 'not logged earlier' : `${lc.incGrowth >= 0 ? 'up' : 'down'} ${Math.abs(Math.round(lc.incGrowth * 100))}%`} (last 3 months vs ${lc.yearly ? 'a year before' : 'your first 3 months'}).</p>
-            ${lc.flagged.length ? lc.flagged.map((x) => `<div class="callout warn mb-2"><b>${esc(x.c)}</b> grew ${x.growth === null ? 'from nothing' : `${Math.round(x.growth * 100)}%`}: ${money(Math.round(x.then))} → ${money(Math.round(x.now))} a month. That's faster than your income.</div>`).join('') : '<p class="text-sm text-gain">No creep: your lifestyle spending is growing slower than your income. Well done.</p>'}`}
-      </section>
+      ${(() => {
+        const items = [
+          ...idle.map((x) => `<div class="callout mb-3"><b>Idle cash:</b> <b class="num">${money(x.extra)}</b> has stayed in ${esc(x.a.name)} for a month, beyond ${db.settings.idleMonths ?? 3} months of spending (${money(x.keep)}). It could earn more in a goal, an FD or RD, or a liquid fund.</div>`),
+          ...(lc.ready ? lc.flagged.map((x) => `<div class="callout warn mb-3"><b>Lifestyle creep:</b> ${esc(x.c)} grew ${x.growth === null ? 'from nothing' : `${Math.round(x.growth * 100)}%`} (${money(Math.round(x.then))} → ${money(Math.round(x.now))} a month), faster than your income (${lc.incGrowth === null ? 'not logged earlier' : `${lc.incGrowth >= 0 ? '+' : ''}${Math.round(lc.incGrowth * 100)}%`}).</div>`) : []),
+        ];
+        return `<section class="panel p-5"><div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-binoculars mr-1.5" style="color:var(--marigold)"></i>Watch-outs</h2></div>
+          ${items.length ? items.join('') : `<p class="text-sm text-gain font-semibold"><i class="fa-solid fa-circle-check mr-1"></i>All clear.</p><p class="text-xs text-ink-3 mt-1">No idle cash in your bank accounts${lc.ready ? ', and your lifestyle spending is growing slower than your income' : `; lifestyle creep checks start after 6 months of data (you have ${lc.have})`}.</p>`}</section>`;
+      })()}
     </div>`;
 }
 
@@ -6362,7 +6380,7 @@ function healthMini() {
    Update CG_RULES if a budget changes them. */
 const CG_RULES = { ltcgExempt: 125000, ltcgRate: 0.125, stcgRate: 0.20, cess: 0.04, longAfterDays: 365 };
 const PLANNER_TABS = [['fire', 'Financial freedom', 'fa-mountain-sun'], ['loan', 'Loan prepayment', 'fa-house-circle-check'], ['gains', 'Capital gains', 'fa-scale-unbalanced'],
-  ['direct', 'Regular vs Direct', 'fa-code-compare'], ['salary', 'Salary-day plan', 'fa-briefcase'], ['review', 'Year in review', 'fa-star']];
+  ['direct', 'Regular vs Direct', 'fa-code-compare'], ['tax', 'Tax estimate', 'fa-file-invoice'], ['salary', 'Salary-day plan', 'fa-briefcase'], ['review', 'Year in review', 'fa-star']];
 let plannerTab = 'fire';
 const PLAN_KEY = 'kosh.planners.v1';
 let planIn = readLS(PLAN_KEY, {});
@@ -6379,9 +6397,9 @@ function readPlanInputs(tool) {
 }
 
 function renderPlanner() {
-  return `<p class="text-sm text-ink-2 mb-4 max-w-3xl">Calculators for the big decisions. Change any number and the result updates. They are estimates based on the assumptions you see, not financial or tax advice.</p>
+  return `<p class="page-intro mb-4">Calculators for big decisions. Change any number and the result updates. Estimates, not financial or tax advice.</p>
     <div class="tabs" role="tablist">${PLANNER_TABS.map(([k, l, ic]) => `<button role="tab" class="tab ${plannerTab === k ? 'on' : ''}" aria-selected="${plannerTab === k}" data-action="planner-tab" data-t="${k}"><i class="fa-solid ${ic}"></i><span>${l}</span></button>`).join('')}</div>
-    <div class="mt-5">${({ fire: fireTool, loan: loanTool, gains: gainsTool, direct: directTool, salary: salaryTool, review: reviewTool }[plannerTab])()}</div>`;
+    <div class="mt-5">${({ fire: fireTool, loan: loanTool, gains: gainsTool, direct: directTool, tax: renderTax, salary: salaryTool, review: reviewTool }[plannerTab])()}</div>`;
 }
 /** Recalculate the open tool without re-rendering its inputs (keeps focus and keyboard). */
 function onPlannerInput(e) {
@@ -6667,7 +6685,7 @@ function reviewTool() {
   const biggest = spent.slice().sort((a, b) => num(b.amount) - num(a.amount))[0];
   const days = new Set(spent.map((t) => t.date)); const span = Math.max(1, Math.round((parseDate(to) - parseDate(from)) / 864e5) + 1);
   // Net worth from when tracking began that year (accounts added later aren't counted as a jump)
-  const firstOpen = db.accounts.map((a) => a.openingDate).filter(Boolean).sort()[0] || from;
+  const firstOpen = db.accounts.filter((a) => a.type === 'bank' || a.type === 'cash').map((a) => a.openingDate).filter(Boolean).sort()[0] || from;
   const startDay = firstOpen > from ? firstOpen : addDays(from, -1);
   const nwStart = snapshotAt(startDay).net, nwEnd = snapshotAt(to).net;
   const wins = db.wishlist.filter((w) => w.status === 'skipped' && (w.skippedOn || '').startsWith(y)).reduce((s, w) => s + num(w.price), 0);
@@ -6711,6 +6729,7 @@ function openSplitForm() {
     wide: true,
     body: `${twoCol(field('What was it?', input('description', '', 'required maxlength="100" placeholder="e.g. Dinner at Vaishali, Goa villa"')), field('Total bill', moneyInput('total', '', 'required min="1" data-big')))}
       ${twoCol(field('Date', input('date', todayStr(), 'type="date" required')), field('Category', select('category', cats, cats.includes('Food & dining') ? 'Food & dining' : cats[0])))}
+      ${field('Group (optional)', input('group', splitFilter || '', 'list="splitGroups" maxlength="40" placeholder="e.g. Goa trip, Flatmates"') + `<datalist id="splitGroups">${splitGroups().map((g) => `<option value="${esc(g)}">`).join('')}</datalist>`, 'Keeps a trip or a flat\'s bills together.')}
       ${twoCol(field('Who paid?', select('payer', [['me', 'I paid'], ...ppl.map((p) => [p.id, `${p.name} paid`])], 'me')), `<div data-myacc>${field('Paid from', accountSelect('fromAccountId', firstAccountOf(['credit_card', 'bank']), { types: ['cash', 'bank', 'credit_card'] }))}</div>`)}
       <div><span class="lbl">Split between</span><div class="filter-picks">
         <label class="check-chip"><input type="checkbox" name="with_me" checked> Me</label>
@@ -6754,7 +6773,7 @@ function openSplitForm() {
       for (const p of list) if (p.isNew) { const rec = newPersonRecord(p.name); ops.push(opUpsert('accounts', rec)); idOf[p.id] = rec.id; }
       const pid = (id) => idOf[id] || id;
       const splitId = uid('split'), payer = d.payer;
-      const base = (amount, extra) => ({ id: uid('txn'), date: d.date, amount: round2(amount), category: d.category, description: `${d.description} (split)`, relatedType: 'split', relatedId: splitId, splitTotal: round2(num(d.total)), notes: `Split ${s.shares.map((x) => `${x.name} ${x.amount}`).join(', ')}`, ...extra });
+      const base = (amount, extra) => ({ id: uid('txn'), date: d.date, amount: round2(amount), category: d.category, description: `${d.description} (split)`, relatedType: 'split', relatedId: splitId, splitTotal: round2(num(d.total)), splitGroup: (d.group || '').trim(), notes: `Split ${s.shares.map((x) => `${x.name} ${x.amount}`).join(', ')}`, ...extra });
       if (payer === 'me') {
         for (const x of s.shares) {
           if (x.id === 'me') ops.push(opUpsert('transactions', base(x.amount, { type: 'expense', fromAccountId: d.fromAccountId, toAccountId: '' })));
@@ -6790,22 +6809,43 @@ function splitShares(form, list) {
   }
   return { shares };
 }
-/** Recent splits for the People page. */
-function splitsSection() {
+/* ----- Split bills page ----- */
+let splitFilter = '';
+const splitGroups = () => [...new Set(db.transactions.filter((t) => t.relatedType === 'split' && t.splitGroup).map((t) => t.splitGroup))].sort();
+function splitList() {
   const groups = new Map();
-  for (const t of db.transactions.filter((x) => x.relatedType === 'split')) { if (!groups.has(t.relatedId)) groups.set(t.relatedId, []); groups.get(t.relatedId).push(t); }
-  const list = [...groups.entries()].map(([id, items]) => ({ id, items, date: items[0].date, desc: items[0].description.replace(/ \(split\)$/, ''), total: items[0].splitTotal || items.reduce((s, t) => s + num(t.amount), 0) })).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 15);
-  return `<section class="panel p-5 mt-6"><div class="panel-head"><div><h2 class="panel-title"><i class="fa-solid fa-people-arrows mr-1.5 text-royal"></i>Split bills</h2><div class="text-xs text-ink-3 mt-0.5">Share a bill with friends or family; balances above update by themselves.</div></div>
-    <button class="btn btn-sm btn-primary" data-action="split-new"><i class="fa-solid fa-plus"></i> Split a bill</button></div>
-    ${list.length ? `<div class="divider">${list.map((g) => {
-      const mine = g.items.find((t) => t.type === 'expense'), paidByMe = g.items.some((t) => MONEY_TYPES.includes(accountById(t.fromAccountId)?.type));
-      const others = g.items.filter((t) => t.type === 'transfer');
-      return `<div class="row"><span class="row-icon move"><i class="fa-solid fa-people-arrows"></i></span>
-        <div class="flex-1 min-w-0"><div class="font-medium">${esc(g.desc)}</div><div class="text-xs text-ink-3">${fmtDate(g.date)} · total ${money(g.total)} · ${paidByMe ? 'you paid' : `${esc(accountName(mine?.fromAccountId))} paid`}</div>
-          <div class="text-xs mt-1">${mine ? `Your share <b class="num">${money(mine.amount)}</b>` : ''}${others.map((t) => ` · ${esc(accountName(t.toAccountId))} owes <b class="num text-gain">${money(t.amount)}</b>`).join('')}${!paidByMe && mine ? ` · you owe <b class="num text-loss">${money(mine.amount)}</b>` : ''}</div></div>
-        <div class="row-actions"><button class="icon-btn sm" data-action="split-del" data-id="${g.id}" title="Delete split" aria-label="Delete split"><i class="fa-regular fa-trash-can"></i></button></div></div>`;
-    }).join('')}</div>` : emptyState('fa-people-arrows', 'No splits yet. Had dinner with friends? Split it here and see who owes whom.')}
-  </section>`;
+  for (const t of db.transactions.filter((x) => x.relatedType === 'split' && (!splitFilter || x.splitGroup === splitFilter))) { if (!groups.has(t.relatedId)) groups.set(t.relatedId, []); groups.get(t.relatedId).push(t); }
+  return [...groups.entries()].map(([id, items]) => ({ id, items, date: items[0].date, group: items[0].splitGroup || '', desc: items[0].description.replace(/ \(split\)$/, ''), total: items[0].splitTotal || items.reduce((s, t) => s + num(t.amount), 0) })).sort((a, b) => b.date.localeCompare(a.date));
+}
+function renderSplit() {
+  const list = splitList(), groups = splitGroups();
+  const people = db.accounts.filter((a) => a.type === 'person' && !a.archived).map((p) => ({ p, bal: M.balances.get(p.id) || 0 })).filter((x) => Math.abs(x.bal) >= 1);
+  const owed = people.filter((x) => x.bal > 0).reduce((s, x) => s + x.bal, 0), owe = people.filter((x) => x.bal < 0).reduce((s, x) => s - x.bal, 0);
+  return `
+    <div class="page-top"><p class="page-intro">Share bills with friends, flatmates or family and see who owes whom.</p>
+      <button class="btn btn-primary" data-action="split-new"><i class="fa-solid fa-plus"></i> Split a bill</button></div>
+    <section class="panel p-5">
+      <div class="grid grid-cols-2 gap-4"><div><div class="stat-label">Friends owe you</div><div class="display text-3xl font-semibold num text-gain">${money(Math.round(owed))}</div></div>
+        <div><div class="stat-label">You owe</div><div class="display text-3xl font-semibold num text-loss">${money(Math.round(owe))}</div></div></div>
+      ${people.length ? `<div class="divider mt-4">${people.map(({ p, bal }) => `<div class="row">${avatar(p.name)}
+        <div class="flex-1 min-w-0"><div class="font-medium">${esc(p.name)}</div><div class="text-xs ${bal > 0 ? 'text-gain' : 'text-loss'} font-semibold">${bal > 0 ? `Owes you ${money(Math.round(bal))}` : `You owe ${money(Math.round(-bal))}`}</div></div>
+        <button class="btn btn-sm" data-action="split-settle" data-id="${p.id}" data-dir="${bal > 0 ? 'in' : 'out'}" data-amt="${Math.abs(round2(bal))}">Settle up</button></div>`).join('')}</div>` : ''}
+      <p class="text-xs text-ink-3 mt-3">Balances include everything with each person (splits, loans, home expenses).</p>
+    </section>
+    ${groups.length ? `<div class="chip-row mt-5"><button class="chip ${splitFilter ? '' : 'on'}" data-action="split-filter" data-g="">All</button>${groups.map((g) => `<button class="chip ${splitFilter === g ? 'on' : ''}" data-action="split-filter" data-g="${esc(g)}">${esc(g)}</button>`).join('')}</div>` : ''}
+    <section class="panel p-5 mt-4">
+      <div class="panel-head"><h2 class="panel-title">${splitFilter ? esc(splitFilter) : 'All splits'}</h2>${list.length ? `<span class="text-sm text-ink-3 num">${money(Math.round(list.reduce((s, g) => s + g.total, 0)))} in ${list.length} bill${list.length === 1 ? '' : 's'}</span>` : ''}</div>
+      ${list.length ? `<div class="divider">${list.map(splitRow).join('')}</div>` : emptyState('fa-people-arrows', 'No splits yet. Had dinner with friends? Split it here and see who owes whom.', '<button class="btn btn-primary" data-action="split-new">Split a bill</button>')}
+    </section>`;
+}
+function splitRow(g) {
+  const mine = g.items.find((t) => t.type === 'expense'), paidByMe = g.items.some((t) => MONEY_TYPES.includes(accountById(t.fromAccountId)?.type));
+  const others = g.items.filter((t) => t.type === 'transfer');
+  return `<div class="row"><span class="row-icon move"><i class="fa-solid fa-receipt"></i></span>
+    <div class="flex-1 min-w-0"><div class="font-medium">${esc(g.desc)} ${g.group && !splitFilter ? `<span class="pill">${esc(g.group)}</span>` : ''}</div>
+      <div class="text-xs text-ink-3">${fmtDate(g.date)} · ${money(g.total)} · ${paidByMe ? 'you paid' : `${esc(accountName(mine?.fromAccountId))} paid`}</div>
+      <div class="text-xs mt-1">${mine ? `Your share <b class="num">${money(mine.amount)}</b>` : ''}${others.map((t) => ` · ${esc(accountName(t.toAccountId))} <b class="num text-gain">${money(t.amount)}</b>`).join('')}</div></div>
+    <div class="row-actions"><button class="icon-btn sm" data-action="split-del" data-id="${g.id}" title="Delete" aria-label="Delete split"><i class="fa-regular fa-trash-can"></i></button></div></div>`;
 }
 function deleteSplit(id) {
   const items = db.transactions.filter((t) => t.relatedType === 'split' && t.relatedId === id);
@@ -6869,6 +6909,66 @@ function coolKeep(id) {
   toast('Moved to your wishlist. Mark it bought when you buy it, or start saving for it.');
 }
 const savingWins = () => db.wishlist.filter((x) => x.status === 'skipped').reduce((s, x) => s + num(x.price), 0);
+
+/* ===== Bank and platform brand tiles =====
+   Accounts show a tile in the bank's colours with its short name (SBI, HDFC,
+   ICICI...), matched from the account's bank/institution and name. These are
+   brand-coloured name tiles, not the banks' official logo artwork (which is
+   trademarked). Unknown banks get the usual account icon. */
+const BANK_BRANDS = [
+  [/\bsbi\b|state bank/i, 'SBI', '#22409A'],
+  [/hdfc/i, 'HDFC', '#004C8F'],
+  [/icici/i, 'ICICI', '#AE282E'],
+  [/axis/i, 'AXIS', '#97144D'],
+  [/kotak|\b811\b/i, 'KOTAK', '#ED1C24'],
+  [/baroda|\bbob\b/i, 'BOB', '#F15A22'],
+  [/punjab national|\bpnb\b/i, 'PNB', '#A20A3A'],
+  [/canara/i, 'CANARA', '#0091D5'],
+  [/union bank/i, 'UBI', '#D71920'],
+  [/bank of india|\bboi\b/i, 'BOI', '#F37021'],
+  [/idfc/i, 'IDFC', '#9C1D26'],
+  [/yes ?bank/i, 'YES', '#0054A6'],
+  [/indusind/i, 'INDUS', '#98272A'],
+  [/federal/i, 'FED', '#1B3F8B'],
+  [/\bau\b.*(bank|small)|au small/i, 'AU', '#6D2077'],
+  [/\bidbi\b/i, 'IDBI', '#00836C'],
+  [/\brbl\b/i, 'RBL', '#1E3E8E'],
+  [/indian overseas|\biob\b/i, 'IOB', '#1B75BB'],
+  [/central bank/i, 'CBI', '#D2232A'],
+  [/indian bank/i, 'IB', '#1C4E9D'],
+  [/uco/i, 'UCO', '#0F4C81'],
+  [/bank of maharashtra|\bmahabank\b/i, 'BOM', '#EE3124'],
+  [/\bhsbc\b/i, 'HSBC', '#DB0011'],
+  [/standard chartered|\bscb\b/i, 'SC', '#0473EA'],
+  [/\bciti/i, 'CITI', '#056DAE'],
+  [/amex|american express/i, 'AMEX', '#2E77BC'],
+  [/\bonecard\b/i, 'ONE', '#111827'],
+  [/paytm/i, 'PAYTM', '#00BAF2'],
+  [/phonepe/i, 'PE', '#5F259F'],
+  [/google ?pay|gpay/i, 'GPAY', '#4285F4'],
+  [/amazon ?pay/i, 'APAY', '#232F3E'],
+  [/airtel/i, 'AIRTEL', '#E40000'],
+  [/jupiter/i, 'JUP', '#F26B3A'],
+  [/\bfi\b|fi money/i, 'FI', '#00B899'],
+  [/zerodha|\bcoin\b/i, 'ZRD', '#387ED1'],
+  [/groww/i, 'GROWW', '#00B386'],
+  [/upstox/i, 'UPSTX', '#5A2989'],
+  [/kuvera/i, 'KUV', '#1C8B6F'],
+  [/angel/i, 'ANGEL', '#2C3E91'],
+  [/\blic\b/i, 'LIC', '#0B4DA2'],
+  [/post office|india post|\bippb\b/i, 'POST', '#C8102E'],
+];
+function bankBrand(a) {
+  const text = `${a.institution || ''} ${a.name || ''}`;
+  const hit = BANK_BRANDS.find(([re]) => re.test(text));
+  return hit ? { short: hit[1], bg: hit[2] } : null;
+}
+/** The icon for an account: the bank's tile if we know the bank, else the account-type icon. */
+function accountIcon(a, cls = '') {
+  const b = a.type === 'cash' || a.type === 'person' ? null : bankBrand(a);
+  if (!b) return `<div class="row-icon t-${a.type} ${cls}"><i class="fa-solid ${ACCOUNT_TYPES[a.type]?.icon || 'fa-building-columns'}"></i></div>`;
+  return `<div class="bank-tile ${cls} ${b.short.length > 4 ? 'long' : ''}" style="background:${b.bg}" title="${esc(a.institution || a.name)}" aria-hidden="true">${esc(b.short)}</div>`;
+}
 
 /* ---------------------------------------------------------------------
    9. FORMS & ACTIONS
@@ -7875,6 +7975,9 @@ const ACTIONS = {
   'review-share': () => shareReview(),
   'split-new': () => openSplitForm(),
   'split-del': (d) => deleteSplit(d.id),
+  'split-filter': (d) => { splitFilter = d.g; render(); },
+  'split-settle': (d) => openPersonMoney(d.id, d.dir, d.amt),
+  'dash-customize': () => openDashCustomize(),
   'cool-new': () => openCoolOff(),
   'cool-decide': (d) => openCoolDecide(d.id),
   'cool-skip': (d) => coolSkip(d.id),
