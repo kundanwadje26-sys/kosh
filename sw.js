@@ -3,9 +3,9 @@
      the cached copy is used when you're offline.
    - Libraries and fonts from CDNs: cached after first use, so the app opens offline.
    - GitHub, price and notification services are never cached. */
-const VERSION = 'kosh-v13';
+const VERSION = 'kosh-v16';
 const APP_FILES = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/apple-touch-icon.png'];
-const NEVER_CACHE = ['api.github.com', 'api.mfapi.in', 'www.alphavantage.co', 'ntfy.sh'];
+const NEVER_CACHE = ['api.github.com', 'api.mfapi.in', 'www.alphavantage.co', 'ntfy.sh', 'www.goldapi.io'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => Promise.all(APP_FILES.map((f) => c.add(f).catch(() => null)))).then(() => self.skipWaiting()));
@@ -17,7 +17,7 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (NEVER_CACHE.includes(url.hostname)) return;
+  if (NEVER_CACHE.includes(url.hostname) || url.pathname.includes('currency-api') || url.pathname.startsWith('/logins/') || url.pathname.includes('/logins/')) return; // live rates and login files are never cached
   if (url.origin === self.location.origin) {
     e.respondWith(fetch(req).then((res) => {
       if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); }

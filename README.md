@@ -238,6 +238,92 @@ By default SIPs also count as *money going out* in the "Where the money went" ch
 
 ---
 
+### Several people on one repository (test setup)
+
+Family and friends can use the same app and the **same GitHub repository**, each with their **own data file**, and share splits, settle-ups and portfolios.
+
+**How the files are laid out**
+
+| File | What it holds |
+|---|---|
+| `data.json` (yours, as now) or `users/<username>/data.json` | Each person's own data |
+| `kosh/users.json` | Who uses this KOSH: username and name |
+| `kosh/shared.json` | Shared splits and settle-ups between linked people |
+| `kosh/portfolio/<username>.json` | A person's portfolio summary, only if they choose to share it |
+
+**You (the owner):** open Settings → GitHub storage and fill in **Your KOSH username** (e.g. `kundan`). Keep your file path as `data.json`, so nothing moves.
+
+**Adding someone (e.g. Rahul):**
+
+1. On GitHub (your account) create a separate fine-grained token for him: Settings → Developer settings → Fine-grained tokens → Generate. Repository access: only your data repository; permission **Contents: Read and write**; set an expiry. Send it to him privately. One token per person means you can revoke anyone's access on its own.
+2. He opens the same app link, then Settings → GitHub storage: your GitHub username, the repository name, **his** token, and **his KOSH username** (e.g. `rahul`). The file path fills in as `users/rahul/data.json`. Save. His data file is created on first sync.
+3. In his Settings he sets his name (Preferences) so others see it.
+
+**Linking people:** on the People page, edit a person and choose **Their KOSH username**. Then:
+
+- **Split bills:** a bill you split with a linked person appears in their app: what they owe you if you paid, or what you owe the person who paid. Deleting your split removes it for them too. Splits they create show "from Rahul" in yours.
+- **Settle up / I gave / I got:** money you record giving or getting from a linked person is added on their side as well.
+- **Home expenses:** if the person who pays you back (e.g. Dad) is linked, he sees what he owes you.
+- Shared entries are added to your own ledger using your first bank account, with a note saying who shared them; edit them like any other entry.
+
+**Family portfolio (like Coin's family view):** in Portfolio → Family portfolio, each person taps **Share mine** (or the Settings option), and anyone can **Add member** to see a combined family total, profit, allocation, and each person's holdings. Values update whenever that person opens the app.
+
+**Phone notifications** work per person: each data file gets its own scheduled job (`.github/workflows/kosh-<name>.yml`) and its own ntfy topic.
+
+**Privacy, honestly:** GitHub tokens can't be limited to one file, so anyone with a token for this repository could technically open every file in it, and you, as the account owner, can see everything. Use this for family and close friends you trust. The Play Store version will give each person truly private data.
+
+### Gold ornaments (Portfolio → Add gold)
+
+Record each ornament: name, purity (24K, 22K, 18K or 14K), weight in grams, date bought, and optionally the city, the rate you paid per gram, making charges, the total bill, and whether 3% GST was included.
+
+- **Invested amount:** the bill if you enter it; otherwise weight × the rate for that purity on the purchase date (your rate, or looked up), plus making charges, plus 3% GST if ticked.
+- **Value today:** weight × today's rate for that purity in that city, updated with **Refresh prices** (and when the app opens). Making charges and GST aren't recovered when you sell, so value is the gold itself; set a buy-back deduction in **Gold → Rates** if your jeweller deducts some %.
+- **Gold summary:** total weight by purity, pure-gold (24K) equivalent, invested, value today and profit.
+- **Where rates come from:** with a free **GoldAPI.io** key (Gold → Rates) the app gets today's and past-date gold prices in rupees; without one it tries a free exchange-rate feed; you can always type the rate. These are world prices, so an India premium is added (6% by default, for import duty and local premium). For the best accuracy, enter **today's rate from a jeweller in your city** once (Gold → Rates): the app works out that city's premium and uses it for ornaments bought there.
+- **Show only…:** chips above the portfolio totals (All, Mutual funds, Stocks & ETFs, Gold, Deposits…) pick what the totals and the holdings list include; pick several to combine them.
+
+### Shared flat (menu → Shared flat)
+
+For flatmates who each use KOSH (needs the shared repository from the private-logins setup).
+
+- **New home:** name it (e.g. "Flat 302"), add flatmates by their KOSH username, and set **room shares** if rooms differ (e.g. 1.5 for the bigger room).
+- **Every month:** add rent, Wi-Fi, maid, cook and so on once, with the day, who pays it (e.g. the landlord is paid by you) and the split (equally or by room share). On that day it's added for everyone, exactly once, even if several phones open the app.
+- **Add expense:** electricity bill, groceries, repairs: who paid, who shares it, and equally, by room share or exact amounts.
+- **Balances and settling up:** each flatmate's net (gets back / owes) and the **fewest payments** to settle everyone, with **Record** buttons. **Record payment** for money handed over between flatmates.
+- **Activity:** the home's own list, month by month, with who added each entry and each person's share; a month-by-person table (paid, share, difference); **Export** to CSV. Removing an entry marks it removed for everyone and undoes it in their ledgers.
+- **In your own transactions:** your share of each cost is your expense (e.g. "Flat 302: Rent"), and money flatmates owe you, or you owe them, shows on the People page. Shared entries use your first bank account; edit any of them if you paid from another account.
+- Moving out: untick someone in **Home settings**; they stop sharing new costs but their balance stays until settled.
+- The dashboard reminds you a few days before a monthly cost that you pay is due.
+
+### Private logins: each person can open only their own data
+
+This is the stricter setup: every person has **their own private repository**, and their token can open only that repository plus one shared repository. GitHub enforces this, so nobody can read anyone else's data with their token. They sign in to the app with a **username and password**.
+
+**One-time setup (you):**
+
+1. Create a private repository **`kosh-shared`** (tick *Add a README* so it isn't empty). Family features (people list, shared splits, family portfolio) live here.
+2. Edit **your own** token (GitHub → Settings → Developer settings → Fine-grained tokens → your token): add `kosh-shared` to its repositories. In the app: Settings → GitHub storage → **Shared repository**: `kosh-shared` → Save.
+3. In your app website repository (`kosh`), create a folder **`logins`** (Add file → Create new file → type `logins/README.md` → commit).
+
+**For each person (e.g. Rahul):**
+
+1. Create a private repository **`kosh-rahul`** (with a README).
+2. Create a fine-grained token: Repository access **Only select repositories** → `kosh-rahul` and `kosh-shared`; permissions **Contents: Read and write** (add **Workflows: Read and write** if they want phone notifications); set an expiry. Copy it.
+3. In the app: Settings → **Create a login for someone**: username `rahul`, his name, data repository `kosh-rahul`, shared repository `kosh-shared`, the token, and a password (10+ characters; let him choose it). It downloads **`rahul.json`**.
+4. Upload `rahul.json` into the **`logins`** folder of the `kosh` website repository.
+5. Give Rahul the app link, his username and his password. He opens the app and signs in on the dashboard; his data starts empty in `kosh-rahul`.
+
+**How it protects data:** the login file holds his token and repository names encrypted with his password (AES-256, key made with 600,000 rounds of PBKDF2), so the public file is useless without the password, and the token inside opens only `kosh-rahul` and `kosh-shared`. **Sign out** (Settings) removes the token and the data from that browser.
+
+**Good to know:**
+
+- As the owner of the GitHub account you can still open every repository; only end-to-end encryption would hide data from you.
+- Use strong passwords: the login files sit on a public website, so a weak password could be guessed offline.
+- Tokens expire (up to a year). When one does, create a new token and a new login file the same way.
+- To change a password, create a new login file with the new password and replace the old one.
+- To remove someone, delete their token on GitHub (access stops at once) and their login file.
+- The simpler setup above (everyone in one repository, `users/<name>/data.json`) still works, but anyone with a token there can read every file.
+
 ### SIPs, instalments and units
 
 - **Investments are money going out.** SIP instalments and other money moved into investments show as **−₹ amounts** (in amber) on Transactions, the Calendar and day totals. The Transactions summary shows **Out** as spent plus invested, and the type filter has **Investments**.
@@ -481,7 +567,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 
 ## Part 10 — What changed in this version
 
-**Newest:** investments shown as money out, a better investing score, Coin-style instalment cards with XIRR, editable allotment dates. Before that: a calmer layout (grouped menu, customisable dashboard), Split bills as its own page, a single total cash-flow forecast, bank colour tiles. Before that: Money health (score, runway, cash-flow forecast, fun money, credit health, idle cash, lifestyle creep, suggestions), Planners (financial freedom, loan prepayment, capital gains, Regular vs Direct, salary-day plan, year in review), bill splitting and the cool-off list. Before that: a phone-friendly layout (bottom bar, quick add, day-grouped transactions, labelled buttons, cards instead of wide tables). Before that: a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
+**Newest:** gold ornaments with automatic rates and city prices, portfolio toggles, and the Shared flat tracker for flatmates. Before that: private logins (own repository per person, sign in with username and password). Before that: several people on one repository (own data files, linked splits and settle-ups, family portfolio). Before that: investments shown as money out, a better investing score, Coin-style instalment cards with XIRR, editable allotment dates. Before that: a calmer layout (grouped menu, customisable dashboard), Split bills as its own page, a single total cash-flow forecast, bank colour tiles. Before that: Money health (score, runway, cash-flow forecast, fun money, credit health, idle cash, lifestyle creep, suggestions), Planners (financial freedom, loan prepayment, capital gains, Regular vs Direct, salary-day plan, year in review), bill splitting and the cool-off list. Before that: a phone-friendly layout (bottom bar, quick add, day-grouped transactions, labelled buttons, cards instead of wide tables). Before that: a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
 
 **Before that:** statement import reads account and card numbers (including short `xx50` card numbers), has a *Read it from the statement* option, turns payments to your own account numbers into self transfers, matches payments across PhonePe and bank statements by UTR (and can correct the account), and remembers your categories and account numbers permanently, including after you delete transactions or edit a category.
 

@@ -231,7 +231,7 @@ function normalizeDB(d) {
   return out;
 }
 
-let config = Object.assign({ owner: '', repo: '', branch: 'main', path: 'data.json', token: '' }, readLS(STORAGE_KEYS.config, {}));
+let config = Object.assign({ owner: '', repo: '', branch: 'main', path: 'data.json', token: '', user: '' }, readLS(STORAGE_KEYS.config, {}));
 let db = normalizeDB(readLS(STORAGE_KEYS.db, null));
 let pending = readLS(STORAGE_KEYS.pending, []);
 const isFirstRun = !localStorage.getItem(STORAGE_KEYS.db);
@@ -502,6 +502,7 @@ async function runSync() {
     writeLS(STORAGE_KEYS.lastSync, new Date().toISOString());
     setSyncStatus(pending.length ? 'pending' : 'synced');
     if (dataSignature(db) !== before) render();
+    if (typeof syncShared === 'function') setTimeout(() => syncShared(), 300); // shared splits, profiles, family portfolios
   } catch (e) {
     console.error('Sync failed:', e);
     setSyncStatus('error', e.message);
@@ -1082,6 +1083,7 @@ const PAGES = {
   transactions:  { title: 'Transactions',     icon: 'fa-list',            group: 'Money' },
   accounts:      { title: 'Accounts',         icon: 'fa-building-columns', group: 'Money' },
   split:         { title: 'Split bills',      short: 'Split', icon: 'fa-people-arrows', group: 'Money' },
+  flat:          { title: 'Shared flat',      short: 'Flat', icon: 'fa-house-user', group: 'Money' },
   people:        { title: 'People',           icon: 'fa-user-group',      group: 'Money' },
   subscriptions: { title: 'Recurring',        icon: 'fa-rotate',          group: 'Money' },
   emis:          { title: 'EMIs & loans',     icon: 'fa-calendar-check',  group: 'Money' },
@@ -1123,7 +1125,7 @@ function render() {
   $$('[data-brand]').forEach((el) => { el.textContent = brand; });
   const view = $('#view');
   const fn = {
-    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, health: renderHealth, planner: renderPlanner, split: renderSplit, notifications: renderNotifications, transactions: renderTransactions,
+    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, health: renderHealth, planner: renderPlanner, split: renderSplit, flat: renderFlat, notifications: renderNotifications, transactions: renderTransactions,
     emis: renderEmis, subscriptions: renderSubscriptions, budgets: renderBudgets, data: renderData,
   }[page];
   view.innerHTML = fn();
@@ -1238,6 +1240,7 @@ function renderDashboard() {
         <p class="text-xs text-ink-3 mt-2">Spent ${Math.round((s.spent / s.income) * 100)}% and invested ${Math.round((s.invested / s.income) * 100)}% of what came in; ${s.left >= 0 ? `${Math.round((s.left / s.income) * 100)}% is left` : 'you spent more than came in'}.</p>` : ''}
     </section>`;
   return `
+    ${signInCard()}
     ${installCard()}
     ${gettingStarted()}
     ${logNudge()}
@@ -1907,29 +1910,31 @@ function sipScheduleLabel(x) {
 }
 
 function renderPortfolio() {
-  const P = M.P, T = P.totals;
+  const P = M.P, F = pfFiltered(), T = { ...P.totals, value: F.value, invested: F.invested, gain: F.gain, gainPct: F.gainPct, sipMonthly: F.sipMonthly, sipCount: F.sipCount };
   const sips = db.sips.slice().sort((a, b) => (b.active - a.active) || (a.nextDate || '').localeCompare(b.nextDate || ''));
-  const groups = [...new Set(P.holdings.map((h) => h.group))];
-  const byGroup = (g) => P.holdings.filter((h) => h.group === g).sort((a, b) => (a.a.archived - b.a.archived) || b.value - a.value);
+  const groups = [...new Set(F.holdings.map((h) => h.group))];
+  const byGroup = (g) => F.holdings.filter((h) => h.group === g).sort((a, b) => (a.a.archived - b.a.archived) || b.value - a.value);
   const up = T.gain >= 0;
-  const anyLive = db.accounts.some((a) => a.type === 'investment' && hasLivePrice(a));
+  const anyLive = db.accounts.some((a) => a.type === 'investment' && (hasLivePrice(a) || isGoldItem(a)));
   return `
     <div class="page-top">
       <p class="page-intro">Your funds and shares at today's prices. Search a fund or company, enter the units and average cost once, and the value stays live.</p>
       <div class="flex gap-2 flex-wrap">
         <button class="btn" data-action="add-account" data-type="investment"><i class="fa-solid fa-plus"></i> Add holding</button>
+        <button class="btn" data-action="gold-add"><i class="fa-solid fa-ring"></i> Add gold</button>
         <button class="btn btn-primary" data-action="add-sip"><i class="fa-solid fa-seedling"></i> Add SIP</button>
       </div>
     </div>
 
+    ${pfChips()}
     <section class="hero hero-leaf p-5 sm:p-7">
       <div class="grid grid-cols-2 lg:grid-cols-5 gap-5">
         <div class="col-span-2">
-          <div class="text-sm hero-dim mb-1">Current value</div>
+          <div class="text-sm hero-dim mb-1">Current value${F.sel.length ? ` · ${F.sel.map(esc).join(' + ')}` : ''}</div>
           <div class="display text-4xl sm:text-5xl font-semibold num">${money(Math.round(T.value))}</div>
         </div>
         <div><div class="text-sm hero-dim mb-1">Invested</div><div class="display text-2xl font-semibold num">${money(Math.round(T.invested))}</div>
-          ${(() => { const cost = P.holdings.reduce((s, h) => s + (num(h.a.expenseRatio) ? h.value * num(h.a.expenseRatio) / 100 : 0), 0); return cost ? `<div class="text-sm hero-dim" title="Fund expense ratios are already taken out of the NAV">Fund costs about ${money(Math.round(cost))} a year</div>` : ''; })()}</div>
+          ${(() => { const cost = F.holdings.reduce((s, h) => s + (num(h.a.expenseRatio) ? h.value * num(h.a.expenseRatio) / 100 : 0), 0); return cost ? `<div class="text-sm hero-dim" title="Fund expense ratios are already taken out of the NAV">Fund costs about ${money(Math.round(cost))} a year</div>` : ''; })()}</div>
         <div><div class="text-sm hero-dim mb-1">Total ${up ? 'profit' : 'loss'}</div>
           <div class="display text-2xl font-semibold num">${money(Math.round(T.gain), { sign: true })}</div>
           <div class="text-sm num hero-dim">${pct(T.gainPct)}</div></div>
@@ -1945,9 +1950,10 @@ function renderPortfolio() {
     </div>
 
     ${M.reviews.length ? reviewPanel() : ''}
+    ${!F.sel.length || F.sel.includes('Gold') ? goldSection() : ''}
 
     ${groups.length ? `<section class="panel mt-6 overflow-hidden">
-      <div class="panel-head px-5 pt-5"><h2 class="panel-title">Holdings</h2><span class="text-sm text-ink-3">${P.holdings.length} holding${P.holdings.length === 1 ? '' : 's'}</span></div>
+      <div class="panel-head px-5 pt-5"><h2 class="panel-title">Holdings</h2><span class="text-sm text-ink-3">${F.holdings.length} holding${F.holdings.length === 1 ? '' : 's'}</span></div>
       <div class="overflow-x-auto relative"><table class="holdings">
         <thead><tr><th>Name</th><th>Units</th><th>Avg. cost</th><th>Invested</th><th>Latest price</th><th>Current value</th><th>Profit / loss</th><th aria-label="Actions"></th></tr></thead>
         ${groups.map((g) => {
@@ -1983,7 +1989,8 @@ function renderPortfolio() {
           }).join('')}</div>`
         : emptyState('fa-chart-pie', 'Add a holding to see how your money is spread.')}
       </section>
-    </div>`;
+    </div>
+    ${familySection()}`;
 }
 
 function reviewPanel() {
@@ -2340,6 +2347,9 @@ function hoursSince(ts) { return (Date.now() - (ts || 0)) / 3600000; }
 async function refreshPrices({ auto = false, onlyId = null } = {}) {
   if (priceState.busy || !navigator.onLine) { if (!auto && !navigator.onLine) toast('You are offline. Prices will update when you are back online.'); return; }
   if (auto && db.settings.autoPrices === false) return;
+  // Gold ornaments: today's rate for each purity and city.
+  const goldDone = onlyId && !isGoldItem(accountById(onlyId) || {}) ? 0 : await refreshGold({ auto, onlyId }).catch(() => 0);
+  if (onlyId && isGoldItem(accountById(onlyId) || {})) return goldDone;
   const runs = priceRuns();
   const key = String(db.settings.stockApiKey || '').trim();
   const doMF = !auto || hoursSince(runs.mf) >= MF_REFRESH_HOURS;
@@ -2347,6 +2357,7 @@ async function refreshPrices({ auto = false, onlyId = null } = {}) {
   const targets = db.accounts.filter((a) => a.type === 'investment' && !a.archived && (!onlyId || a.id === onlyId)
     && ((isMF(a) && doMF) || (isStockLive(a) && doStock)));
   if (!targets.length) {
+    if (!auto && goldDone) { toast(`Gold rates updated for ${goldDone} ornament${goldDone === 1 ? '' : 's'}.`, 'success'); render(); return; }
     if (!auto) toast(db.accounts.some(isStockLive) && !key ? 'Add a free stock price key in Settings to update stock prices.' : 'Link a holding to its fund or stock (edit the holding) to get live prices.');
     return;
   }
@@ -3709,7 +3720,7 @@ function renderPeople() {
       const bal = M.balances.get(p.id) || 0, l = personLine(bal), ph = pendingHome(p.id);
       return `<section class="panel p-5 ${p.archived ? 'opacity-60' : ''}">
         <div class="flex items-center gap-3">${avatar(p.name)}
-          <div class="min-w-0 flex-1"><div class="font-semibold truncate">${esc(p.name)}</div><div class="text-sm font-semibold num ${l.cls}">${l.text}</div></div>
+          <div class="min-w-0 flex-1"><div class="font-semibold truncate">${esc(p.name)}${p.linkedUser ? ` <span class="pill blue" title="Linked KOSH user">@${esc(p.linkedUser)}</span>` : ''}</div><div class="text-sm font-semibold num ${l.cls}">${l.text}</div></div>
           <button class="icon-btn sm" data-action="person-edit" data-id="${p.id}" title="Edit" aria-label="Edit ${esc(p.name)}"><i class="fa-regular fa-pen-to-square"></i></button></div>
         ${ph.length ? `<div class="text-xs text-ink-2 mt-3"><i class="fa-solid fa-house mr-1" style="color:var(--violet)"></i>${ph.length} home expense${ph.length === 1 ? '' : 's'} to take back: <b class="num">${money(ph.reduce((s, t) => s + num(t.amount), 0))}</b> (already counted in the balance above)</div>` : ''}
         <div class="grid grid-cols-2 gap-2 mt-4">
@@ -3752,6 +3763,7 @@ function openPersonForm(existing) {
       <div><span class="lbl">Right now</span>
         <div class="seg">${[['none', 'We are settled'], ['they', 'They owe me'], ['me', 'I owe them']].map(([v, l]) => `<input type="radio" name="dir" id="pd_${v}" value="${v}" ${(ob > 0 ? 'they' : ob < 0 ? 'me' : 'none') === v ? 'checked' : ''}><label for="pd_${v}">${l}</label>`).join('')}</div></div>
       ${showFor('they me', twoCol(field('How much', moneyInput('amount', Math.abs(ob) || '', 'min="0"')), field('As on', input('openingDate', p.openingDate, 'type="date"'))))}
+      ${sharedOn() ? field('Their KOSH username (optional)', select('linkedUser', [['', 'Not linked'], ...shared.users.filter((u) => u.username !== myUser()).map((u) => [u.username, `${u.name} (@${u.username})`])], p.linkedUser || ''), 'Linked people see the splits and money you record with them in their own app.') : ''}
       ${isNew ? '' : checkbox('archived', p.archived, 'Hide (archive)', 'Keeps their history but hides them from lists.')}
       ${field('Notes (optional)', textarea('notes', p.notes, 'rows="2"'))}`,
     submitLabel: isNew ? 'Add person' : 'Save',
@@ -3760,6 +3772,7 @@ function openPersonForm(existing) {
       const amt = d.dir === 'none' ? 0 : round2(num(d.amount)) * (d.dir === 'me' ? -1 : 1);
       const rec = existing ? { ...existing, name: d.name.trim(), openingBalance: amt, openingDate: d.openingDate || existing.openingDate || todayStr(), archived: !!d.archived, notes: d.notes || '' }
         : { ...newPersonRecord(d.name.trim(), amt, d.openingDate || todayStr()), notes: d.notes || '' };
+      if ('linkedUser' in d) rec.linkedUser = d.linkedUser || '';
       commit([opUpsert('accounts', rec)], `${isNew ? 'Add' : 'Edit'} person ${rec.name}`);
       toast(isNew ? `${rec.name} added` : 'Saved', 'success');
     },
@@ -3797,6 +3810,7 @@ function openPersonMoney(personId, dir, presetAmount = '') {
         description: d.description || `${label} ${dir === 'out' ? 'to' : 'from'} ${p.name}`,
         fromAccountId: dir === 'out' ? d.acc : p.id, toAccountId: dir === 'out' ? p.id : d.acc, relatedType: 'person', relatedId: p.id, notes: '' };
       commit([opUpsert('transactions', rec)], `${label} ${money(amount)} ${dir === 'out' ? 'to' : 'from'} ${p.name}`);
+      if (shareSettle(rec, p.id, dir)) setTimeout(() => toast(`${p.name} will see this in their app too.`), 1500);
       const after = (M.balances.get(p.id) || 0);
       toast(`${p.name}: ${personLine(after).text.toLowerCase()}`, 'success');
     },
@@ -5117,18 +5131,19 @@ ${script.split('\n').map((l) => '          ' + l).join('\n')}
           JS
 `;
 }
-const WORKFLOW_PATH = '.github/workflows/kosh-reminder.yml';
-async function ghPath(path, method = 'GET', body) {
-  const url = `https://api.github.com/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}/contents/${path}${method === 'GET' ? `?ref=${encodeURIComponent(config.branch || 'main')}` : ''}`;
+// One notification job per data file, so each person on this repository gets their own.
+const workflowPath = () => (config.path === 'data.json' ? '.github/workflows/kosh-reminder.yml' : `.github/workflows/kosh-${config.path.replace(/\/?data\.json$/, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'reminder'}.yml`);
+async function ghPath(path, method = 'GET', body, repo = config.repo) {
+  const url = `https://api.github.com/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(repo)}/contents/${path}${method === 'GET' ? `?ref=${encodeURIComponent(config.branch || 'main')}` : ''}`;
   return fetch(url, { method, cache: 'no-store', headers: { Authorization: `Bearer ${config.token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
 }
 async function setupPhoneReminders(topic, time) {
   if (!isConfigured()) { toast('Connect GitHub first (Settings above).', 'error'); return; }
   const yml = reminderWorkflow(topic, time);
   try {
-    const cur = await ghPath(WORKFLOW_PATH);
+    const cur = await ghPath(workflowPath());
     const sha = cur.ok ? (await cur.json()).sha : undefined;
-    const res = await ghPath(WORKFLOW_PATH, 'PUT', { message: 'KOSH: daily reminder', content: toBase64(yml), branch: config.branch || 'main', ...(sha ? { sha } : {}) });
+    const res = await ghPath(workflowPath(), 'PUT', { message: 'KOSH: daily reminder', content: toBase64(yml), branch: config.branch || 'main', ...(sha ? { sha } : {}) });
     if (res.status === 403 || res.status === 404) throw Object.assign(new Error('perm'), { perm: true });
     if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
     commit([opSettings({ ntfyTopic: topic, reminderTime: time })], 'Turn on phone reminders');
@@ -5144,22 +5159,22 @@ function showWorkflowManual(yml) {
     wide: true,
     body: `<p class="text-sm">Your token can't create the reminder job. Either give it one more permission, or add the file yourself:</p>
       <p class="text-sm mt-3"><b>Option 1:</b> GitHub → Settings → Developer settings → Fine-grained tokens → your token → <b>Repository permissions → Workflows: Read and write</b> → Update. Then press "Turn on" again.</p>
-      <p class="text-sm mt-3"><b>Option 2:</b> In your data repository click <b>Add file → Create new file</b>, name it <code>${WORKFLOW_PATH}</code>, paste the text below and commit.</p>
+      <p class="text-sm mt-3"><b>Option 2:</b> In your data repository click <b>Add file → Create new file</b>, name it <code>${workflowPath()}</code>, paste the text below and commit.</p>
       <textarea class="inp mt-3 font-mono text-xs" rows="12" readonly onclick="this.select()">${esc(yml)}</textarea>`,
     submitLabel: 'Done', cancelLabel: 'Close', onSubmit: () => {},
   });
 }
 async function removePhoneReminders() {
   try {
-    const cur = await ghPath(WORKFLOW_PATH);
+    const cur = await ghPath(workflowPath());
     if (cur.ok) {
       const { sha } = await cur.json();
-      const res = await ghPath(WORKFLOW_PATH, 'DELETE', { message: 'KOSH: remove daily reminder', sha, branch: config.branch || 'main' });
+      const res = await ghPath(workflowPath(), 'DELETE', { message: 'KOSH: remove daily reminder', sha, branch: config.branch || 'main' });
       if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
     }
     commit([opSettings({ ntfyTopic: '' })], 'Turn off phone reminders');
     toast('Phone reminders turned off.');
-  } catch (e) { toast(`Couldn't remove it: ${e.message}. Delete ${WORKFLOW_PATH} in your data repository instead.`, 'error'); }
+  } catch (e) { toast(`Couldn't remove it: ${e.message}. Delete ${workflowPath()} in your data repository instead.`, 'error'); }
 }
 function remindersSection(s) {
   return `<section class="space-y-4">
@@ -5601,9 +5616,9 @@ async function syncNotifyWorkflow({ quiet = false } = {}) {
   const sig = scheduleSignature();
   try {
     const yml = notifyWorkflow();
-    const cur = await ghPath(WORKFLOW_PATH);
+    const cur = await ghPath(workflowPath());
     const sha = cur.ok ? (await cur.json()).sha : undefined;
-    const res = await ghPath(WORKFLOW_PATH, 'PUT', { message: 'KOSH: update notifications', content: toBase64(yml), branch: config.branch || 'main', ...(sha ? { sha } : {}) });
+    const res = await ghPath(workflowPath(), 'PUT', { message: 'KOSH: update notifications', content: toBase64(yml), branch: config.branch || 'main', ...(sha ? { sha } : {}) });
     if (res.status === 403 || res.status === 404) { notifyState.error = 'perm'; if (!quiet) showWorkflowManual(yml); return false; }
     if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
     notifyState.error = '';
@@ -6259,6 +6274,7 @@ function computeNudges() {
   for (const x of idleCash().slice(0, 1)) add(`idle-${x.a.id}-${thisMonth()}`, 'neutral', 'fa-sack-dollar', `${money(x.extra)} has sat in ${x.a.name} for a month, beyond ${db.settings.idleMonths ?? 3} months of your spending. It could work harder in a goal, an FD or a liquid fund.`, '<a class="btn btn-sm" href="#goals">Put it in a goal</a>');
   for (const g of db.goals.filter((x) => !x.done)) { const lag = goalLag(g); if (lag && lag.behind > 500) add(`goal-${g.id}-${thisMonth()}`, 'neutral', 'fa-flag', `${g.name} is ${money(lag.behind)} behind plan.${lag.reason ? ` ${lag.reason}` : ''}`, `<button class="btn btn-sm" data-action="goal-add" data-id="${g.id}">Add money</button>`); }
   for (const w of db.wishlist.filter((x) => x.status === 'cooling' && x.coolUntil && x.coolUntil <= new Date().toISOString())) add(`cool-${w.id}`, 'good', 'fa-hourglass-end', `Your cool-off for "${w.name}" is over. Still want it?`, `<button class="btn btn-sm" data-action="cool-decide" data-id="${w.id}">Decide</button>`);
+  if (typeof flatNudges === 'function') for (const n of flatNudges()) add(n.id, 'neutral', 'fa-house-user', n.text, '<a class="btn btn-sm" href="#flat">Open</a>');
   const salary = salaryToday();
   if (salary && (db.settings.salaryPlan || []).length && db.settings.salaryPlanApplied !== thisMonth()) add(`salary-${thisMonth()}`, 'good', 'fa-briefcase', `Salary of ${money(salary.amount)} arrived. Apply your salary-day plan?`, '<button class="btn btn-sm btn-primary" data-action="salary-apply">Apply plan</button>');
   return out;
@@ -6847,6 +6863,8 @@ function openSplitForm() {
         ops.push(opUpsert('transactions', base(mine.amount, { type: 'expense', fromAccountId: payer, toAccountId: '' })));
       }
       commit(ops, `Split ${d.description}`);
+      const sharedWith = shareSplit({ splitId, payer, shares: s.shares.map((x) => ({ ...x, realId: pid(x.id) })), d });
+      if (sharedWith) setTimeout(() => toast(`Shared with ${sharedWith} linked ${sharedWith === 1 ? 'person' : 'people'}; it will appear in their app.`), 1800);
       toast(payer === 'me' ? `Split saved. Others owe you ${money(round2(num(d.total) - (s.shares.find((x) => x.id === 'me')?.amount || 0)))}.` : `Split saved. You owe ${accountName(payer)} ${money(s.shares.find((x) => x.id === 'me').amount)}.`, 'success');
     },
   });
@@ -6904,7 +6922,7 @@ function splitRow(g) {
   const mine = g.items.find((t) => t.type === 'expense'), paidByMe = g.items.some((t) => MONEY_TYPES.includes(accountById(t.fromAccountId)?.type));
   const others = g.items.filter((t) => t.type === 'transfer');
   return `<div class="row"><span class="row-icon move"><i class="fa-solid fa-receipt"></i></span>
-    <div class="flex-1 min-w-0"><div class="font-medium">${esc(g.desc)} ${g.group && !splitFilter ? `<span class="pill">${esc(g.group)}</span>` : ''}</div>
+    <div class="flex-1 min-w-0"><div class="font-medium">${esc(g.desc)} ${g.group && !splitFilter ? `<span class="pill">${esc(g.group)}</span>` : ''}${g.items[0].splitBy ? ` <span class="pill blue">from ${esc(userName(g.items[0].splitBy))}</span>` : ''}</div>
       <div class="text-xs text-ink-3">${fmtDate(g.date)} · ${money(g.total)} · ${paidByMe ? 'you paid' : `${esc(accountName(mine?.fromAccountId))} paid`}</div>
       <div class="text-xs mt-1">${mine ? `Your share <b class="num">${money(mine.amount)}</b>` : ''}${others.map((t) => ` · ${esc(accountName(t.toAccountId))} <b class="num text-gain">${money(t.amount)}</b>`).join('')}</div></div>
     <div class="row-actions"><button class="icon-btn sm" data-action="split-del" data-id="${g.id}" title="Delete" aria-label="Delete split"><i class="fa-regular fa-trash-can"></i></button></div></div>`;
@@ -6913,6 +6931,7 @@ function deleteSplit(id) {
   const items = db.transactions.filter((t) => t.relatedType === 'split' && t.relatedId === id);
   if (!items.length || !confirm('Delete this split and all its entries?')) return;
   commit(items.map((t) => opDelete('transactions', t.id)), 'Delete split');
+  if (!items[0].sharedFrom) unshare(id); // your own split: also remove it for the people you shared it with
 }
 
 /* ===== Cool-off list ("I want to buy this") =====
@@ -7030,6 +7049,818 @@ function accountIcon(a, cls = '') {
   const b = a.type === 'cash' || a.type === 'person' ? null : bankBrand(a);
   if (!b) return `<div class="row-icon t-${a.type} ${cls}"><i class="fa-solid ${ACCOUNT_TYPES[a.type]?.icon || 'fa-building-columns'}"></i></div>`;
   return `<div class="bank-tile ${cls} ${b.short.length > 4 ? 'long' : ''}" style="background:${b.bg}" title="${esc(a.institution || a.name)}" aria-hidden="true">${esc(b.short)}</div>`;
+}
+
+/* ===== Several people, one GitHub repository (test setup) =====
+   Each person picks a KOSH username and gets their own data file:
+     users/<username>/data.json        (their private ledger, synced as before)
+   Small shared files sit next to them:
+     kosh/users.json                   who uses this KOSH (username, name)
+     kosh/shared.json                  shared splits and settle-ups between linked people
+     kosh/portfolio/<username>.json    portfolio summary, only if that person chooses to share it
+   Link a person on your People page to their KOSH username. Then:
+   - a bill you split with them appears in their app as what they owe you (or you owe them)
+   - money you record giving or getting from them appears on their side too
+   - family members can see each other's shared portfolios and a combined total
+   Important: GitHub tokens can't be limited to one file, so anyone holding a token for this
+   repository can technically open every file in it. Use it with family and friends you trust. */
+const SHARED_DIR = 'kosh';
+const USERS_FILE = `${SHARED_DIR}/users.json`, LEDGER_FILE = `${SHARED_DIR}/shared.json`;
+const pfFile = (u) => `${SHARED_DIR}/portfolio/${u}.json`;
+const myUser = () => String(config.user || '').toLowerCase();
+// Shared files live in the shared repository if one is set (each person has their own data repository),
+// otherwise next to the data files in the same repository.
+const sharedRepo = () => config.sharedRepo || config.repo;
+const sharedOn = () => isConfigured() && !!myUser();
+const shared = { users: [], records: [], portfolios: {}, last: 0, busy: false, error: '' };
+const SHARED_QUEUE = 'kosh.sharedQueue.v1';
+
+async function readJsonFile(path) {
+  const res = await ghPath(path, 'GET', undefined, sharedRepo());
+  if (res.status === 404) return { data: null, sha: undefined };
+  if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+  const j = await res.json();
+  return { data: JSON.parse(fromBase64(String(j.content || '').replace(/\n/g, '')) || 'null'), sha: j.sha };
+}
+/** Change a shared JSON file safely: read, change, write; retry if someone else wrote meanwhile. */
+async function updateJsonFile(path, mutate, message) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { data, sha } = await readJsonFile(path);
+    const next = mutate(data);
+    if (next === null) return data;
+    const res = await ghPath(path, 'PUT', { message, content: toBase64(JSON.stringify(next, null, 1)), branch: config.branch || 'main', ...(sha ? { sha } : {}) }, sharedRepo());
+    if (res.ok) return next;
+    if (res.status === 409 || res.status === 422) { await sleep(400 * (attempt + 1)); continue; }
+    throw new Error(`GitHub answered ${res.status}`);
+  }
+  throw new Error('A shared file kept changing. Try again in a moment.');
+}
+
+/* ----- Shared records: queued, so they also work offline ----- */
+function queueShared(item) { const q = readLS(SHARED_QUEUE, []); q.push(item); writeLS(SHARED_QUEUE, q); if (navigator.onLine) syncShared(true); }
+async function flushShared() {
+  const q = readLS(SHARED_QUEUE, []);
+  if (!q.length) return;
+  await updateJsonFile(LEDGER_FILE, (data) => {
+    const list = (data && data.records) || [];
+    let changed = false;
+    for (const item of q) {
+      if (item.kind === 'post' && !list.some((x) => x.id === item.rec.id)) { list.push({ ...item.rec, at: new Date().toISOString() }); changed = true; }
+      if (item.kind === 'delete') { const r = list.find((x) => x.id === item.id && x.by === myUser()); if (r && !r.deleted) { r.deleted = true; changed = true; } }
+    }
+    return changed ? { records: list } : null;
+  }, `KOSH: shared entries from ${myUser()}`);
+  writeLS(SHARED_QUEUE, []);
+}
+const linkedOf = (personId) => accountById(personId)?.linkedUser || '';
+const userName = (u) => shared.users.find((x) => x.username === u)?.name || u;
+
+/** Called after a split is saved (see openSplitForm). */
+function shareSplit({ splitId, payer, shares, d }) {
+  if (!sharedOn()) return 0;
+  const userOf = (id) => (id === 'me' ? myUser() : linkedOf(id));
+  const payerUser = userOf(payer);
+  const linkedShares = shares.map((x) => ({ user: userOf(x.realId || x.id), amount: x.amount })).filter((x) => x.user);
+  if (!payerUser || !linkedShares.some((x) => x.user !== myUser())) return 0;
+  queueShared({ kind: 'post', rec: { id: splitId, type: 'split', by: myUser(), date: d.date, desc: d.description, total: round2(num(d.total)), category: d.category, group: (d.group || '').trim(), payer: payerUser, shares: linkedShares } });
+  return linkedShares.filter((x) => x.user !== myUser()).length;
+}
+/** Called after money is recorded with a linked person, and for home expenses they'll pay back. */
+function shareSettle(rec, personId, dir) {
+  const other = linkedOf(personId);
+  if (!sharedOn() || !other) return false;
+  queueShared({ kind: 'post', rec: { id: rec.id, type: 'settle', by: myUser(), date: rec.date, amount: rec.amount, note: rec.description, payer: dir === 'out' ? myUser() : other, payee: dir === 'out' ? other : myUser() } });
+  return true;
+}
+function shareHomeClaim(rec) {
+  const other = linkedOf(rec.toAccountId);
+  if (!sharedOn() || !other) return false;
+  queueShared({ kind: 'post', rec: { id: rec.id, type: 'split', by: myUser(), date: rec.date, desc: `For home: ${rec.description || rec.category}`, total: rec.amount, category: rec.category, group: 'Home', payer: myUser(), shares: [{ user: other, amount: rec.amount }] } });
+  return true;
+}
+function unshare(id) { if (sharedOn()) queueShared({ kind: 'delete', id }); }
+
+/* ----- Bringing other people's entries into your own ledger ----- */
+function personFor(user, ops, made) {
+  const found = db.accounts.find((a) => a.type === 'person' && a.linkedUser === user) || made[user];
+  if (found) return found.id;
+  // Someone with the same name already on your People page: link them instead of adding a second one.
+  const same = db.accounts.find((a) => a.type === 'person' && !a.linkedUser && !a.archived && a.name.trim().toLowerCase() === String(userName(user)).trim().toLowerCase());
+  if (same) { const linked = { ...same, linkedUser: user }; ops.push(opUpsert('accounts', linked)); made[user] = linked; return same.id; }
+  const p = { ...newPersonRecord(userName(user)), linkedUser: user };
+  ops.push(opUpsert('accounts', p)); made[user] = p;
+  return p.id;
+}
+function applyShared() {
+  const meU = myUser(), applied = new Set(db.settings.sharedApplied || []);
+  const ops = [], made = {};
+  const acc = db.settings.defaultAccountId && accountById(db.settings.defaultAccountId) ? db.settings.defaultAccountId : firstAccountOf(['bank']) || firstAccountOf(['cash']);
+  let added = 0, removed = 0;
+  // Shared splits/settle-ups from others, plus every shared-flat entry (including your own, so your
+  // ledger gets them the same way as your flatmates').
+  for (const r of [...shared.records, ...(typeof flatRecords === 'function' ? flatRecords() : [])]) {
+    if (r.by === meU && !r.mirrorSelf) continue;
+    const mine = r.type === 'split' ? r.shares.some((x) => x.user === meU) || r.payer === meU : r.payer === meU || r.payee === meU;
+    if (!mine) continue;
+    if (r.deleted) {
+      if (applied.has(r.id)) { for (const t of db.transactions.filter((x) => x.relatedId === r.id || x.sharedFrom === r.id)) { ops.push(opDelete('transactions', t.id)); removed++; } applied.delete(r.id); }
+      continue;
+    }
+    if (applied.has(r.id) || !acc) continue;
+    const base = { date: r.date, notes: r.flat ? `Shared flat: ${r.flat}` : `Shared by ${userName(r.by)} in KOSH`, sharedFrom: r.id };
+    if (r.type === 'split') {
+      const myShare = r.shares.find((x) => x.user === meU)?.amount || 0;
+      const common = { ...base, category: r.category || 'Other', description: r.flat ? r.desc : `${r.desc} (split)`, relatedType: r.flat ? 'flat' : 'split', relatedId: r.id, splitTotal: r.total, splitGroup: r.group || '', splitBy: r.flat ? '' : r.by };
+      if (r.payer === meU) {
+        if (myShare) ops.push(opUpsert('transactions', { ...common, id: uid('txn'), type: 'expense', amount: myShare, fromAccountId: acc, toAccountId: '' }));
+        for (const x of r.shares.filter((y) => y.user !== meU && y.amount > 0)) ops.push(opUpsert('transactions', { ...common, id: uid('txn'), type: 'transfer', amount: x.amount, fromAccountId: acc, toAccountId: personFor(x.user, ops, made) }));
+      } else if (myShare) ops.push(opUpsert('transactions', { ...common, id: uid('txn'), type: 'expense', amount: myShare, fromAccountId: personFor(r.payer, ops, made), toAccountId: '' }));
+    } else if (r.type === 'settle') {
+      const other = r.payer === meU ? r.payee : r.payer;
+      const pid = personFor(other, ops, made);
+      ops.push(opUpsert('transactions', { ...base, id: uid('txn'), type: 'transfer', amount: r.amount, category: r.payee === meU ? 'Got back' : 'Repaid', description: `${r.payee === meU ? 'From' : 'To'} ${userName(other)}${r.note && !/^(Lent|Repaid|Borrowed|Got back) (to|from) /.test(r.note) ? `: ${r.note}` : ''}`,
+        fromAccountId: r.payee === meU ? pid : acc, toAccountId: r.payee === meU ? acc : pid, relatedType: 'person', relatedId: pid }));
+    }
+    applied.add(r.id); added++;
+  }
+  if (!ops.length && !removed) return;
+  ops.push(opSettings({ sharedApplied: [...applied].slice(-3000) }));
+  commit(ops, `Shared entries from others (${added} new${removed ? `, ${removed} removed` : ''})`);
+  if (added) toast(`${added} shared entr${added === 1 ? 'y' : 'ies'} from people you're linked with ${added === 1 ? 'was' : 'were'} added.`, 'success');
+}
+
+/* ----- Profiles, family portfolio, and the sync loop ----- */
+function portfolioSummary() {
+  return { username: myUser(), name: db.settings.ownerName || myUser(), updatedAt: new Date().toISOString(), totals: { value: Math.round(M.P.totals.value), invested: Math.round(M.P.totals.invested), sipMonthly: Math.round(M.P.totals.sipMonthly || 0) },
+    holdings: M.P.holdings.map((h) => ({ name: h.a.name, group: h.group, value: Math.round(h.value), invested: Math.round(h.invested), units: h.units ?? null })) };
+}
+async function syncShared(force = false) {
+  if (!sharedOn() || shared.busy || !navigator.onLine) return;
+  if (!force && Date.now() - shared.last < 60000) return;
+  shared.busy = true;
+  try {
+    await flushShared();
+    const meRec = { username: myUser(), name: db.settings.ownerName || myUser(), path: config.path, sharesPortfolio: !!db.settings.sharePortfolio };
+    const users = await updateJsonFile(USERS_FILE, (data) => {
+      const list = (data && data.users) || [];
+      const i = list.findIndex((u) => u.username === meRec.username);
+      const rec = { ...meRec, joined: i >= 0 ? list[i].joined : todayStr() };
+      if (i >= 0 && JSON.stringify(list[i]) === JSON.stringify(rec)) return null;
+      if (i >= 0) list[i] = rec; else list.push(rec);
+      return { users: list };
+    }, `KOSH: ${myUser()} joined or updated their profile`);
+    shared.users = (users && users.users) || [];
+    shared.records = (await readJsonFile(LEDGER_FILE)).data?.records || [];
+    try { await loadHomes(); } catch (e) { console.warn('Homes', e); }
+    applyShared();
+    if (db.settings.sharePortfolio) {
+      const sum = portfolioSummary(), sig = JSON.stringify([sum.totals, sum.holdings]);
+      if (localStorage.getItem('kosh.pfSig') !== sig) {
+        await updateJsonFile(pfFile(myUser()), () => sum, `KOSH: ${myUser()} portfolio summary`);
+        localStorage.setItem('kosh.pfSig', sig);
+      }
+    }
+    for (const u of db.settings.familyMembers || []) {
+      try { shared.portfolios[u] = (await readJsonFile(pfFile(u))).data; } catch { /* keep the last copy */ }
+    }
+    shared.error = ''; shared.last = Date.now();
+    if (['#people', '#split', '#portfolio', '#flat'].includes(location.hash)) render();
+  } catch (e) { shared.error = e.message; console.warn('Shared sync', e); }
+  finally { shared.busy = false; }
+}
+
+/* ----- Family portfolio (on the Portfolio page) ----- */
+function familySection() {
+  if (!sharedOn()) return `<section class="panel p-5 mt-6"><div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-people-roof mr-1.5 text-royal"></i>Family portfolio</h2></div>
+    <p class="text-sm text-ink-2">See your family's investments together, like a family account. Set your KOSH username in Settings (GitHub storage) to start.</p></section>`;
+  const members = (db.settings.familyMembers || []).map((u) => ({ u, p: shared.portfolios[u] }));
+  const mine = portfolioSummary();
+  const all = [{ u: myUser(), p: mine, me: true }, ...members.filter((m) => m.p)];
+  const tot = all.reduce((s, m) => ({ value: s.value + m.p.totals.value, invested: s.invested + m.p.totals.invested, sip: s.sip + (m.p.totals.sipMonthly || 0) }), { value: 0, invested: 0, sip: 0 });
+  const gain = tot.value - tot.invested;
+  const groups = {}; for (const m of all) for (const h of m.p.holdings) groups[h.group] = (groups[h.group] || 0) + h.value;
+  return `<section class="panel p-5 mt-6">
+    <div class="panel-head"><div><h2 class="panel-title"><i class="fa-solid fa-people-roof mr-1.5 text-royal"></i>Family portfolio</h2><div class="text-xs text-ink-3 mt-0.5">${db.settings.sharePortfolio ? 'You share your portfolio with family.' : 'You are not sharing your portfolio.'} <button class="link" data-action="family-share">${db.settings.sharePortfolio ? 'Stop sharing' : 'Share mine'}</button></div></div>
+      <button class="btn btn-sm" data-action="family-add"><i class="fa-solid fa-user-plus"></i> Add member</button></div>
+    <div class="grid grid-cols-3 gap-3 mb-4">
+      <div><div class="stat-label">Family total</div><div class="display text-2xl font-semibold num">${money(tot.value)}</div></div>
+      <div><div class="stat-label">Invested</div><div class="display text-2xl font-semibold num">${money(tot.invested)}</div></div>
+      <div><div class="stat-label">Profit</div><div class="display text-2xl font-semibold num ${gain >= 0 ? 'text-gain' : 'text-loss'}">${gain >= 0 ? '+' : '−'}${money(Math.abs(gain))}</div><div class="text-xs text-ink-3">${tot.invested ? `${((gain / tot.invested) * 100).toFixed(1)}%` : ''}${tot.sip ? ` · SIPs ${money(tot.sip)}/mo` : ''}</div></div>
+    </div>
+    ${Object.keys(groups).length ? `<div class="nw-track fam-track mb-4">${Object.entries(groups).sort((a, b) => b[1] - a[1]).map(([g, v]) => `<span style="width:${(v / Math.max(1, tot.value)) * 100}%;background:${GROUP_COLORS[g] || colorFor(g)}" title="${esc(g)} ${money(v)}"></span>`).join('')}</div>` : ''}
+    <div class="divider">${[...all, ...members.filter((m) => !m.p).map((m) => ({ ...m, missing: true }))].map((m) => m.missing
+      ? `<div class="row">${avatar(userName(m.u))}<div class="flex-1 min-w-0"><div class="font-medium">${esc(userName(m.u))}</div><div class="text-xs text-ink-3">Not sharing yet. Ask them to tap "Share mine" in their Portfolio.</div></div><button class="icon-btn sm" data-action="family-remove" data-u="${esc(m.u)}" title="Remove" aria-label="Remove"><i class="fa-solid fa-xmark"></i></button></div>`
+      : `<details class="fam-row"><summary class="row">${avatar(m.p.name || m.u)}<div class="flex-1 min-w-0"><div class="font-medium">${esc(m.p.name || m.u)}${m.me ? ' <span class="pill">You</span>' : ''}</div><div class="text-xs text-ink-3">${m.p.holdings.length} holding${m.p.holdings.length === 1 ? '' : 's'}${m.me ? '' : ` · updated ${fmtDate(m.p.updatedAt.slice(0, 10))}`}</div></div>
+          <div class="text-right"><div class="num font-semibold">${money(m.p.totals.value)}</div><div class="text-xs num ${m.p.totals.value - m.p.totals.invested >= 0 ? 'text-gain' : 'text-loss'}">${m.p.totals.value - m.p.totals.invested >= 0 ? '+' : '−'}${money(Math.abs(m.p.totals.value - m.p.totals.invested))}</div></div>
+          ${m.me ? '' : `<button class="icon-btn sm" data-action="family-remove" data-u="${esc(m.u)}" title="Remove" aria-label="Remove"><i class="fa-solid fa-xmark"></i></button>`}</summary>
+        <div class="fam-holdings">${m.p.holdings.map((h) => `<div class="flex justify-between gap-3 text-sm py-1"><span class="truncate">${esc(h.name)}</span><span class="num">${money(h.value)} <span class="${h.value - h.invested >= 0 ? 'text-gain' : 'text-loss'} text-xs">${h.invested ? `${(((h.value - h.invested) / h.invested) * 100).toFixed(1)}%` : ''}</span></span></div>`).join('') || '<p class="text-sm text-ink-3">No holdings.</p>'}</div></details>`).join('')}</div>
+    ${shared.error ? `<p class="text-xs text-loss mt-2">Couldn't refresh family data: ${esc(shared.error)}</p>` : ''}
+  </section>`;
+}
+function openFamilyAdd() {
+  const others = shared.users.filter((u) => u.username !== myUser() && !(db.settings.familyMembers || []).includes(u.username));
+  openModal({
+    title: 'Add a family member',
+    body: others.length ? `${field('Who', select('u', others.map((u) => [u.username, `${u.name} (@${u.username})${u.sharesPortfolio ? '' : ' · not sharing yet'}`])))}<p class="hint">You'll see their portfolio once they share it from their Portfolio page.</p>`
+      : '<p class="text-sm text-ink-2">Nobody else uses this KOSH yet. When family members connect with their own username, they appear here.</p>',
+    submitLabel: others.length ? 'Add' : 'OK',
+    onSubmit: (d) => { if (!d.u) return; commit([opSettings({ familyMembers: [...(db.settings.familyMembers || []), d.u] })], 'Add family member'); syncShared(true); },
+  });
+}
+/** "People on this KOSH", for Settings. */
+function sharedUsersList() {
+  if (!sharedOn()) return '<p class="hint">Set a KOSH username to share splits and portfolios with others who use this same repository.</p>';
+  return `<div class="text-sm"><b>People on this KOSH:</b> ${shared.users.length ? shared.users.map((u) => `${esc(u.name)} <span class="text-ink-3">@${esc(u.username)}</span>${u.username === myUser() ? ' (you)' : ''}`).join(', ') : 'loading…'}</div>`;
+}
+
+/* ===== Sign in with a KOSH username and password =====
+   Each person has their own private data repository, and a GitHub token that can open
+   only that repository and the shared one. The owner (you) makes a small login file for
+   each person: their token and repository names, encrypted with the password they choose
+   (AES-256-GCM, key from PBKDF2-SHA256 with 600,000 rounds). The file goes in the app's
+   own website repository as logins/<username>.json. Signing in downloads that file and
+   unlocks it with the password, in the browser. Without the password the file is useless,
+   and the token inside opens only that person's repository. */
+const LOGIN_ITER = 600000;
+const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+async function loginKey(password, salt, iterations = LOGIN_ITER) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function makeLoginFile(user, password, secret) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await loginKey(password, salt);
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(secret)));
+  return { v: 1, user, kdf: 'PBKDF2-SHA256', iterations: LOGIN_ITER, salt: b64(salt), iv: b64(iv), data: b64(data), created: todayStr() };
+}
+async function openLoginFile(file, password) {
+  const key = await loginKey(password, unb64(file.salt), file.iterations || LOGIN_ITER);
+  try { return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(file.iv) }, key, unb64(file.data)))); }
+  catch { throw new Error('Wrong username or password.'); }
+}
+async function signIn(user, password) {
+  user = String(user || '').trim().toLowerCase();
+  if (!/^[a-z0-9_-]{2,30}$/.test(user)) throw new Error('Enter your KOSH username.');
+  const res = await fetch(`logins/${user}.json`, { cache: 'no-store' });
+  if (!res.ok) throw new Error('Wrong username or password.');
+  const s = await openLoginFile(await res.json(), password);
+  if (db.transactions.length && config.user && config.user !== user && !confirm('Another person\'s data is on this device. Sign in anyway? Their unsynced changes stay in this browser until they sign in again.')) return false;
+  const switching = config.user !== user;
+  config = { owner: s.owner, repo: s.repo, sharedRepo: s.sharedRepo || '', branch: s.branch || 'main', path: s.path || 'data.json', token: s.token, user };
+  writeLS(STORAGE_KEYS.config, config);
+  if (switching) { db = normalizeDB(emptyDB()); persist(); writeLS(STORAGE_KEYS.pending, []); }
+  setSyncStatus('syncing');
+  const ok = await runSync();
+  // A new person's file starts with the default name; use the name from their login instead.
+  if (!db.settings.ownerName || (db.settings.ownerName === DEFAULT_SETTINGS.ownerName && user !== 'kundan')) commit([opSettings({ ownerName: s.name || user })], 'Set name');
+  render();
+  return ok;
+}
+function signOut() {
+  if (!confirm('Sign out on this device? Your data stays safe in your repository; this browser forgets your token and its copy of your data.')) return;
+  config = { owner: '', repo: '', branch: 'main', path: 'data.json', token: '', user: '' };
+  writeLS(STORAGE_KEYS.config, config);
+  db = normalizeDB(emptyDB()); persist(); writeLS(STORAGE_KEYS.pending, []);
+  closeModal(); render(); toast('Signed out.');
+}
+/** Dashboard card when nobody is connected yet. */
+function signInCard() {
+  if (isConfigured()) return '';
+  return `<section class="panel p-5 mb-6 signin-card"><div class="flex flex-col sm:flex-row sm:items-end gap-4">
+    <div class="flex-1"><h2 class="panel-title">Sign in to your KOSH</h2><p class="text-sm text-ink-2 mt-1">Use the username and password you were given. Your data stays in your own private repository.</p></div>
+    <form id="signinForm" class="flex flex-col sm:flex-row gap-2 sm:items-end" autocomplete="on">
+      <input class="inp" name="user" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      <input class="inp" name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+      <button class="btn btn-primary" type="submit">Sign in</button></form></div></section>`;
+}
+document.addEventListener('submit', async (e) => {
+  if (e.target.id !== 'signinForm') return;
+  e.preventDefault();
+  const f = e.target, btn = f.querySelector('button');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  try { await signIn(f.elements.user.value, f.elements.password.value); toast('Signed in.', 'success'); }
+  catch (err) { toast(err.message, 'error'); btn.disabled = false; btn.textContent = 'Sign in'; }
+});
+/** Owner tool: make a login file for a person. */
+function openMakeLogin() {
+  openModal({
+    title: 'Create a login for someone',
+    body: `<p class="text-sm text-ink-2">Before this: create a private repository for them (e.g. <code>kosh-rahul</code>) and a fine-grained token limited to that repository and your shared repository, with Contents: Read and write. Steps are in the README.</p>
+      ${twoCol(field('Their KOSH username', input('user', '', 'required pattern="[a-z0-9_-]{2,30}" placeholder="rahul" autocapitalize="none" spellcheck="false"')), field('Their name', input('name', '', 'placeholder="Rahul Sharma"')))}
+      ${twoCol(field('Their data repository', input('repo', '', 'required placeholder="kosh-rahul" spellcheck="false"')), field('Shared repository', input('sharedRepo', config.sharedRepo || '', 'placeholder="kosh-shared" spellcheck="false"'), 'Leave empty if you do not use family features.'))}
+      ${field('Their token', input('token', '', 'type="password" required placeholder="github_pat_…" autocomplete="off"'))}
+      ${twoCol(field('Their password', input('password', '', 'type="password" required minlength="10" autocomplete="new-password"'), 'At least 10 characters; longer is safer.'), field('Password again', input('password2', '', 'type="password" required autocomplete="new-password"')))}`,
+    submitLabel: 'Create login file',
+    onSubmit: async (d) => {
+      const user = String(d.user || '').trim().toLowerCase();
+      if (!/^[a-z0-9_-]{2,30}$/.test(user)) { toast('Username: 2 to 30 lowercase letters, numbers, - or _.', 'error'); return false; }
+      if (d.password !== d.password2) { toast('The passwords don\'t match.', 'error'); return false; }
+      if (String(d.password).length < 10) { toast('Use at least 10 characters for the password.', 'error'); return false; }
+      const file = await makeLoginFile(user, d.password, { owner: config.owner, repo: d.repo.trim(), sharedRepo: (d.sharedRepo || '').trim(), branch: 'main', path: 'data.json', token: d.token.trim(), name: d.name || '' });
+      download(`${user}.json`, JSON.stringify(file, null, 1), 'application/json');
+      toast(`Downloaded ${user}.json. Upload it to the logins folder of your app's website repository.`, 'success');
+    },
+  });
+}
+
+/* ===== Gold ornaments =====
+   Each ornament is a holding (subtype Gold) with its purity, weight and purchase date.
+   Rates, in rupees per gram:
+   1. GoldAPI.io (free account key in Settings): today's and past-date gold prices in INR.
+   2. Otherwise a free exchange-rate feed (XAU to INR), when available.
+   3. Or the rate you type in.
+   These are world (spot) prices. Indian jewellers' rates are higher because of import duty and
+   local premium, so the app adds a premium (6% by default). Better: enter today's rate from
+   your jeweller for your city once; the app works out that city's premium and uses it.
+   Purity factors: 24K = 1, 22K = 22/24, 18K = 0.75, 14K = 0.585.
+   Invested = bill amount if given, else weight x rate on the purchase date + making charges,
+   plus 3% GST if ticked. Current value = weight x today's rate for that purity and city,
+   minus the buy-back deduction you set (0% by default). */
+const PURITY = { '24K': 1, '22K': 22 / 24, '18K': 0.75, '14K': 0.585 };
+const GOLD_CACHE = 'kosh.goldRates.v1', GOLD_RUN = 'kosh.goldRun.v1';
+const isGoldItem = (a) => a.type === 'investment' && a.subtype === 'Gold' && !!a.goldPurity;
+const normCity = (c) => String(c || '').trim().toLowerCase();
+const OZ = 31.1034768;
+
+async function goldSpot(date) {
+  const today = todayStr(), isToday = date >= today;
+  const cache = readLS(GOLD_CACHE, {});
+  const hit = cache[isToday ? today : date];
+  if (hit && (!isToday || Date.now() - hit.at < 6 * 3600e3)) return hit;
+  let r = null;
+  const key = db.settings.goldApiKey;
+  if (key) {
+    try {
+      const res = await fetch(`https://www.goldapi.io/api/XAU/INR${isToday ? '' : `/${date.replace(/-/g, '')}`}`, { headers: { 'x-access-token': key } });
+      if (res.ok) { const j = await res.json(); if (num(j.price_gram_24k) > 0) r = { date: isToday ? today : date, g24: num(j.price_gram_24k), src: 'GoldAPI' }; }
+    } catch { /* fall through */ }
+  }
+  if (!r) {
+    try {
+      const res = await fetch(`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${isToday ? 'latest' : date}/v1/currencies/xau.json`);
+      if (res.ok) { const j = await res.json(); if (num(j.xau?.inr) > 0) r = { date: j.date || date, g24: num(j.xau.inr) / OZ, src: 'exchange-rate feed' }; }
+    } catch { /* no rate */ }
+  }
+  if (r) { r.at = Date.now(); cache[isToday ? today : date] = r; writeLS(GOLD_CACHE, cache); }
+  return r;
+}
+function goldPremium(city) {
+  const c = (db.settings.goldCities || {})[normCity(city)];
+  return c ? num(c.premium) : num(db.settings.goldPremium ?? 6) / 100;
+}
+/** Indian rate per gram for a purity in a city, from the spot 24K price. */
+const goldRateFor = (spot, purity, city) => round2(spot.g24 * (1 + goldPremium(city)) * (PURITY[purity] || PURITY['22K']));
+const goldDeduct = () => num(db.settings.goldDeduction ?? 0) / 100;
+
+async function refreshGold({ auto = false, onlyId = null } = {}) {
+  const items = db.accounts.filter((a) => isGoldItem(a) && !a.archived && (!onlyId || a.id === onlyId));
+  if (!items.length) return 0;
+  if (auto && !onlyId && (Date.now() - readLS(GOLD_RUN, 0)) / 3600e3 < 6) return 0;
+  const spot = await goldSpot(todayStr());
+  if (!spot) { if (!auto) toast("Couldn't get today's gold rate. Add a free GoldAPI key in Portfolio → Gold → Rates, or set your city's rate.", 'error'); return 0; }
+  const ops = [];
+  for (const a of items) {
+    const rate = goldRateFor(spot, a.goldPurity, a.city);
+    ops.push(...marketValueOps(a, round2(num(a.units) * rate * (1 - goldDeduct())), `${a.goldPurity} gold ₹${rate}/g on ${spot.date} (${spot.src})`));
+    ops.push(opUpsert('accounts', { ...accountById(a.id), unitPrice: rate, priceDate: spot.date }));
+  }
+  commit(ops, 'Gold rates');
+  if (!onlyId) writeLS(GOLD_RUN, Date.now());
+  return items.length;
+}
+
+function goldSummary() {
+  const items = M.P.holdings.filter((h) => isGoldItem(h.a));
+  const byPurity = {};
+  for (const h of items) byPurity[h.a.goldPurity] = (byPurity[h.a.goldPurity] || 0) + num(h.a.units);
+  const pure = items.reduce((s, h) => s + num(h.a.units) * (PURITY[h.a.goldPurity] || 0), 0);
+  const value = items.reduce((s, h) => s + h.value, 0), invested = items.reduce((s, h) => s + h.invested, 0);
+  return { items, byPurity, pure, value, invested, gain: value - invested };
+}
+function goldSection() {
+  const g = goldSummary();
+  if (!g.items.length) return '';
+  const spot = readLS(GOLD_CACHE, {})[todayStr()];
+  const cities = Object.entries(db.settings.goldCities || {});
+  return `<section class="panel p-5 mt-6">
+    <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-ring mr-1.5" style="color:#D4A017"></i>Gold</h2>
+      <div class="flex gap-2"><button class="btn btn-sm" data-action="gold-rates"><i class="fa-solid fa-sliders"></i> Rates</button><button class="btn btn-sm btn-primary" data-action="gold-add"><i class="fa-solid fa-plus"></i> Add ornament</button></div></div>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div><div class="stat-label">Total weight</div><div class="display text-2xl font-semibold num">${g.items.reduce((s, h) => s + num(h.a.units), 0).toFixed(2)} g</div>
+        <div class="text-xs text-ink-3">${Object.entries(g.byPurity).map(([p, w]) => `${p} ${w.toFixed(2)} g`).join(' · ')}</div></div>
+      <div><div class="stat-label">Pure gold (24K)</div><div class="display text-2xl font-semibold num">${g.pure.toFixed(2)} g</div></div>
+      <div><div class="stat-label">Invested</div><div class="display text-2xl font-semibold num">${money(Math.round(g.invested))}</div></div>
+      <div><div class="stat-label">Value today</div><div class="display text-2xl font-semibold num">${money(Math.round(g.value))}</div>
+        <div class="text-xs num ${g.gain >= 0 ? 'text-gain' : 'text-loss'}">${g.gain >= 0 ? '+' : '−'}${money(Math.abs(Math.round(g.gain)))}${g.invested ? ` (${((g.gain / g.invested) * 100).toFixed(1)}%)` : ''}</div></div>
+    </div>
+    <p class="text-xs text-ink-3 mt-3">${spot ? `Today ${['24K', '22K', '18K'].map((p) => `${p} ₹${goldRateFor(spot, p, '').toLocaleString('en-IN')}/g`).join(' · ')} (${esc(spot.src)}, +${Math.round(goldPremium('') * 100)}% India premium).` : 'Tap Refresh prices to get today\'s rate.'}
+      ${cities.length ? ` City rates: ${cities.map(([c, v]) => `${esc(c.replace(/\b\w/g, (m) => m.toUpperCase()))} +${(v.premium * 100).toFixed(1)}%`).join(', ')}.` : ''} Value is what the gold itself is worth; making charges and GST are not recovered when selling${goldDeduct() ? `, and ${Math.round(goldDeduct() * 100)}% buy-back deduction is applied` : ''}.</p>
+  </section>`;
+}
+
+function openGoldForm(existing) {
+  const isNew = !existing;
+  const a = existing || { goldPurity: '22K', unitsDate: todayStr(), gst: true };
+  const cities = [...new Set([...Object.keys(db.settings.goldCities || {}), ...db.accounts.filter(isGoldItem).map((x) => normCity(x.city)).filter(Boolean)])];
+  openModal({
+    title: isNew ? 'Add a gold ornament' : `Edit ${a.name}`,
+    body: `${twoCol(field('Ornament', input('name', a.name, 'required maxlength="60" placeholder="e.g. Mangalsutra, gold chain, coin"')), field('Purity', select('purity', Object.keys(PURITY).map((p) => [p, p === '24K' ? '24K (coin / bar)' : p]), a.goldPurity)))}
+      ${twoCol(field('Weight (grams)', input('weight', a.units ?? '', 'type="number" step="0.001" min="0.001" inputmode="decimal" required placeholder="e.g. 10.5"')), field('Bought on', input('date', a.unitsDate || a.openingDate || todayStr(), 'type="date" required')))}
+      ${twoCol(field('City where bought (optional)', input('city', a.city || '', `list="goldCities" placeholder="e.g. Pune"`) + `<datalist id="goldCities">${cities.map((c) => `<option value="${esc(c.replace(/\b\w/g, (m) => m.toUpperCase()))}">`).join('')}</datalist>`, 'Used for city-specific rates.'),
+        field('Rate on that day, ₹ per gram (optional)', input('rate', a.boughtRate ?? '', 'type="number" step="0.01" min="0" inputmode="decimal" placeholder="Leave empty to look it up"')))}
+      ${twoCol(field('Making charges ₹ (optional)', moneyInput('making', a.making ?? '', 'min="0"')), field('Total bill ₹ (optional)', moneyInput('bill', a.bill ?? '', 'min="0"'), 'If you know what you paid, enter it; it overrides the calculation.'))}
+      ${checkbox('gst', a.gst !== false, 'Add 3% GST to the invested amount', 'Jewellery bills include 3% GST on gold and making charges.')}
+      <p class="callout" data-gold-preview>Invested amount is worked out when you save.</p>`,
+    submitLabel: isNew ? 'Add ornament' : 'Save',
+    onOpen: (form) => {
+      const sig = { signal: modalSignal() };
+      const preview = async () => {
+        const d = readForm(form), w = num(d.weight), box = $('[data-gold-preview]', form);
+        if (num(d.bill) > 0) { box.innerHTML = `Invested: <b class="num">${money(num(d.bill))}</b> (your bill).`; return; }
+        if (!w || !d.date) return;
+        let rate = num(d.rate), src = 'your rate';
+        if (!rate) { box.textContent = 'Looking up the rate…'; const s = await goldSpot(d.date); if (!s) { box.textContent = "Couldn't find the rate for that day. Enter it above."; return; } rate = goldRateFor(s, d.purity, d.city); src = `${d.purity} rate on ${fmtDate(s.date)}${d.city ? ` in ${d.city}` : ''}`; }
+        const inv = (w * rate + num(d.making)) * (d.gst ? 1.03 : 1);
+        box.innerHTML = `Invested: <b class="num">${money(Math.round(inv))}</b> = ${w} g × ₹${rate.toLocaleString('en-IN')} (${esc(src)})${num(d.making) ? ` + making ${money(num(d.making))}` : ''}${d.gst ? ' + 3% GST' : ''}.`;
+      };
+      form.addEventListener('change', preview, sig);
+      preview();
+    },
+    onSubmit: async (d) => {
+      const w = round2(num(d.weight) * 1000) / 1000;
+      let rate = num(d.rate), invested;
+      if (num(d.bill) > 0) invested = round2(num(d.bill));
+      else {
+        if (!rate) { const s = await goldSpot(d.date); if (!s) { toast("Couldn't find the gold rate for that day. Enter the rate or the bill amount.", 'error'); return false; } rate = goldRateFor(s, d.purity, d.city); }
+        invested = round2((w * rate + num(d.making)) * (d.gst ? 1.03 : 1));
+      }
+      const rec = { ...(existing || newAccountBase()), id: existing?.id || uid('acc'), name: d.name.trim(), type: 'investment', subtype: 'Gold', institution: d.city || '', goldPurity: d.purity, units: w, unitsDate: d.date,
+        openingBalance: invested, openingDate: d.date, investedAmount: invested, boughtRate: num(d.rate) || null, making: num(d.making) || null, bill: num(d.bill) || null, gst: !!d.gst, city: d.city || '', archived: existing?.archived || false };
+      commit([opUpsert('accounts', rec)], `${isNew ? 'Add' : 'Edit'} gold ${rec.name}`);
+      toast(`${rec.name}: ${w} g ${d.purity}, invested ${money(invested)}. Getting today's value…`, 'success');
+      refreshGold({ onlyId: rec.id }).then(() => render());
+    },
+    onDelete: existing ? () => { if (!confirm(`Delete ${a.name}?`)) return false; commit([opDelete('accounts', a.id), ...db.transactions.filter((t) => t.fromAccountId === a.id || t.toAccountId === a.id).map((t) => opDelete('transactions', t.id))], `Delete gold ${a.name}`); } : null,
+  });
+}
+const newAccountBase = () => ({ institution: '', last4: '', creditLimit: null, statementDay: null, dueDay: null, interestRate: null, maturityDate: '', notes: '' });
+function openGoldRates() {
+  const s = db.settings;
+  openModal({
+    title: 'Gold rates',
+    body: `<p class="text-sm text-ink-2">Free online rates are world prices. Indian rates include import duty and a local premium, so they are adjusted. For the most accurate value, enter today's rate from a jeweller in your city.</p>
+      ${twoCol(field('City', input('city', '', 'placeholder="e.g. Pune" list="goldCities2"') + `<datalist id="goldCities2">${[...new Set(db.accounts.filter(isGoldItem).map((x) => x.city).filter(Boolean))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist>`), field("Today's rate there, ₹ per gram", input('rate', '', 'type="number" step="0.01" min="0" inputmode="decimal"')))}
+      ${field('That rate is for', select('purity', [['22K', '22K'], ['24K', '24K']], '22K'))}
+      <hr class="border-line">
+      ${twoCol(field('India premium when no city rate is set (%)', input('premium', s.goldPremium ?? 6, 'type="number" step="0.1" min="0" max="30"')), field('Buy-back deduction (%)', input('deduct', s.goldDeduction ?? 0, 'type="number" step="0.5" min="0" max="30"'), 'Jewellers often deduct a few % when buying back.'))}
+      ${field('GoldAPI key (optional, free)', input('key', s.goldApiKey || '', 'autocomplete="off" spellcheck="false" placeholder="goldapi-…"'), 'Sign up free at goldapi.io for past-date rates in rupees. Without it a free feed is tried, or type rates yourself.')}`,
+    submitLabel: 'Save',
+    onSubmit: async (d) => {
+      const ops = [opSettings({ goldPremium: num(d.premium), goldDeduction: num(d.deduct), goldApiKey: (d.key || '').trim() })];
+      if (d.city && num(d.rate) > 0) {
+        const spot = await goldSpot(todayStr());
+        if (!spot) { toast("Couldn't get today's world rate to compare with. Try again online.", 'error'); return false; }
+        const premium = num(d.rate) / (spot.g24 * PURITY[d.purity]) - 1;
+        ops.push(opSettings({ goldCities: { ...(s.goldCities || {}), [normCity(d.city)]: { premium: round2(premium * 10000) / 10000, rate: num(d.rate), purity: d.purity, date: todayStr() } } }));
+      }
+      commit(ops, 'Gold rate settings');
+      localStorage.removeItem(GOLD_RUN);
+      await refreshGold();
+      render();
+    },
+  });
+}
+
+/* ----- Portfolio group toggles (Mutual funds / Stocks / Gold / ... or all) ----- */
+const PF_SEL = 'kosh.pfGroups.v1';
+const pfSelected = () => readLS(PF_SEL, []);
+function pfFiltered() {
+  const sel = pfSelected();
+  const hs = M.P.holdings.filter((h) => !sel.length || sel.includes(h.group));
+  const value = hs.reduce((s, h) => s + h.value, 0), invested = hs.reduce((s, h) => s + h.invested, 0);
+  const ids = new Set(hs.map((h) => h.a.id));
+  const sips = db.sips.filter((x) => x.active && ids.has(x.accountId));
+  return { sel, holdings: hs, value, invested, gain: value - invested, gainPct: invested ? (value - invested) / invested : 0, sipMonthly: sips.reduce((s, x) => s + sipAmountOn(x, todayStr()) * perMonthOf(x.frequency), 0), sipCount: sips.length };
+}
+function pfChips() {
+  const groups = [...new Set(M.P.holdings.map((h) => h.group))];
+  if (groups.length < 2) return '';
+  const sel = pfSelected();
+  return `<div class="chip-row mb-4" role="group" aria-label="Show in totals">
+    <button class="chip ${sel.length ? '' : 'on'}" data-action="pf-group" data-g="">All</button>
+    ${groups.map((g) => `<button class="chip ${sel.includes(g) ? 'on' : ''}" data-action="pf-group" data-g="${esc(g)}" aria-pressed="${sel.includes(g)}"><i class="fa-solid ${GROUP_ICONS[g] || 'fa-circle'} mr-1"></i>${esc(g)}</button>`).join('')}</div>`;
+}
+function togglePfGroup(g) {
+  let sel = pfSelected();
+  if (!g) sel = []; else sel = sel.includes(g) ? sel.filter((x) => x !== g) : [...sel, g];
+  const all = [...new Set(M.P.holdings.map((h) => h.group))];
+  if (sel.length === all.length) sel = [];
+  writeLS(PF_SEL, sel); render();
+}
+
+/* ===== Shared flat (flatmates) =====
+   A home is shared by people who each use KOSH. Its file lives in the shared repository:
+     kosh/homes.json            list of homes and their members
+     kosh/homes/<homeId>.json   members, recurring costs and every entry
+   Anyone in the home can add expenses (rent, bills, groceries...), recurring costs post
+   themselves once a month (with a fixed id per month, so two phones can never post rent twice),
+   and payments between flatmates settle balances. Each entry also lands in each member's own
+   transactions: your share as your expense, and money flatmates owe you (or you owe them). */
+const HOMES_FILE = `${SHARED_DIR}/homes.json`;
+const homeFile = (id) => `${SHARED_DIR}/homes/${id}.json`;
+const FLAT_CATS = ['Rent', 'Electricity', 'Internet', 'Water', 'Gas', 'Maid', 'Cook', 'Groceries', 'Maintenance', 'Repairs', 'Household supplies', 'Subscriptions', 'Other'];
+const FLAT_ICON = { Rent: 'fa-house', Electricity: 'fa-bolt', Internet: 'fa-wifi', Water: 'fa-droplet', Gas: 'fa-fire-flame-simple', Maid: 'fa-broom', Cook: 'fa-kitchen-set', Groceries: 'fa-basket-shopping', Maintenance: 'fa-screwdriver-wrench', Repairs: 'fa-hammer', 'Household supplies': 'fa-pump-soap', Subscriptions: 'fa-tv', Other: 'fa-receipt', Settle: 'fa-handshake' };
+const flats = { list: [], homes: {}, current: '', month: '' };
+
+/* ----- Loading and saving ----- */
+async function loadHomes() {
+  const idx = (await readJsonFile(HOMES_FILE)).data;
+  flats.list = ((idx && idx.homes) || []).filter((h) => h.members.includes(myUser()));
+  for (const h of flats.list) { try { flats.homes[h.id] = (await readJsonFile(homeFile(h.id))).data; } catch { /* keep last copy */ } }
+  if (!flats.homes[flats.current]) flats.current = flats.list[0]?.id || '';
+  for (const h of flats.list) if (flats.homes[h.id]) await postDueRecurring(flats.homes[h.id]);
+}
+async function saveHome(id, mutate, message) {
+  const next = await updateJsonFile(homeFile(id), (data) => mutate(data ? JSON.parse(JSON.stringify(data)) : null), message);
+  flats.homes[id] = next;
+  await updateJsonFile(HOMES_FILE, (data) => {
+    const list = (data && data.homes) || [], i = list.findIndex((h) => h.id === id);
+    const rec = { id, name: next.name, members: next.members.map((m) => m.user) };
+    if (i >= 0 && JSON.stringify(list[i]) === JSON.stringify(rec)) return null;
+    if (i >= 0) list[i] = rec; else list.push(rec);
+    return { homes: list };
+  }, 'KOSH: homes list');
+  flats.list = flats.list.filter((h) => h.id !== id).concat(next.members.some((m) => m.user === myUser()) ? [{ id, name: next.name, members: next.members.map((m) => m.user) }] : []);
+  applyShared(); render();
+  return next;
+}
+const flatGuard = () => { if (!sharedOn()) { toast('Set your KOSH username and shared repository in Settings first.', 'error'); return false; } if (!navigator.onLine) { toast('You are offline. Flat entries need the internet.', 'error'); return false; } return true; };
+
+/* ----- Money maths ----- */
+const activeMembers = (home, date = todayStr()) => home.members.filter((m) => (!m.joined || m.joined <= date) && (!m.left || m.left > date));
+/** Shares that add up exactly to the amount; the last person absorbs the rounding. */
+function flatShares(home, amount, mode, users, exact = {}) {
+  const list = users.map((u) => home.members.find((m) => m.user === u)).filter(Boolean);
+  if (!list.length) return [];
+  if (mode === 'exact') return list.map((m) => ({ user: m.user, amount: round2(num(exact[m.user])) }));
+  const w = list.map((m) => (mode === 'weights' ? Math.max(0, num(m.weight ?? 1)) : 1)), tw = w.reduce((s, x) => s + x, 0) || 1;
+  let used = 0;
+  return list.map((m, i) => { const a = i === list.length - 1 ? round2(amount - used) : Math.floor((amount * w[i] / tw) * 100) / 100; used += a; return { user: m.user, amount: round2(a) }; });
+}
+function flatBalances(home) {
+  const net = Object.fromEntries(home.members.map((m) => [m.user, 0]));
+  for (const e of home.entries.filter((x) => !x.deleted)) {
+    if (e.kind === 'settle') { net[e.payer] = (net[e.payer] || 0) + e.amount; net[e.payee] = (net[e.payee] || 0) - e.amount; continue; }
+    net[e.payer] = (net[e.payer] || 0) + e.amount;
+    for (const s of e.shares) net[s.user] = (net[s.user] || 0) - s.amount;
+  }
+  return Object.fromEntries(Object.entries(net).map(([u, v]) => [u, round2(v)]));
+}
+/** The fewest payments that settle everyone up. */
+function simplifyDebts(net) {
+  const cred = Object.entries(net).filter(([, v]) => v > 0.5).map(([u, v]) => ({ u, v })).sort((a, b) => b.v - a.v);
+  const debt = Object.entries(net).filter(([, v]) => v < -0.5).map(([u, v]) => ({ u, v: -v })).sort((a, b) => b.v - a.v);
+  const out = [];
+  while (cred.length && debt.length) {
+    const c = cred[0], d = debt[0], amt = round2(Math.min(c.v, d.v));
+    out.push({ from: d.u, to: c.u, amount: amt });
+    c.v -= amt; d.v -= amt;
+    if (c.v < 0.5) cred.shift(); if (d.v < 0.5) debt.shift();
+  }
+  return out;
+}
+/** Post recurring costs that are due this month (and last month, if missed). */
+async function postDueRecurring(home) {
+  const today = todayStr(), months = [addMonths(`${thisMonth()}-01`, -1).slice(0, 7), thisMonth()];
+  const due = [];
+  for (const r of home.recurring.filter((x) => x.active)) for (const p of months) {
+    const date = `${p}-${pad2(Math.min(28, int(r.day) || 1))}`;
+    if (p < (r.start || p) || date > today || home.entries.some((e) => e.id === `rec_${r.id}_${p}`)) continue;
+    due.push({ r, p, date });
+  }
+  if (!due.length) return;
+  await saveHome(home.id, (data) => {
+    let added = 0;
+    for (const { r, p, date } of due) {
+      if (data.entries.some((e) => e.id === `rec_${r.id}_${p}`)) continue;
+      const users = activeMembers(data, date).map((m) => m.user);
+      data.entries.push({ id: `rec_${r.id}_${p}`, date, desc: r.name, amount: r.amount, category: r.category, payer: r.payer, shares: flatShares(data, r.amount, r.split, users, r.exact), kind: 'expense', by: 'auto', at: new Date().toISOString(), recurringId: r.id, period: p });
+      added++;
+    }
+    return added ? data : null;
+  }, `KOSH: recurring costs for ${home.name}`).catch(() => {});
+}
+/** Home entries in the shape the personal-ledger mirror understands (see applyShared). */
+function flatRecords() {
+  const out = [];
+  for (const h of flats.list) {
+    const home = flats.homes[h.id]; if (!home) continue;
+    for (const e of home.entries) out.push(e.kind === 'settle'
+      ? { id: `flat_${home.id}_${e.id}`, type: 'settle', by: e.by, mirrorSelf: true, flat: home.name, date: e.date, amount: e.amount, note: `${home.name}`, payer: e.payer, payee: e.payee, deleted: e.deleted }
+      : { id: `flat_${home.id}_${e.id}`, type: 'split', by: e.by, mirrorSelf: true, flat: home.name, date: e.date, desc: `${home.name}: ${e.desc}`, total: e.amount, category: e.category === 'Internet' ? 'Utilities' : e.category === 'Electricity' || e.category === 'Water' || e.category === 'Gas' ? 'Utilities' : e.category, group: home.name, payer: e.payer, shares: e.shares, deleted: e.deleted });
+  }
+  return out;
+}
+
+/* ----- The page ----- */
+function renderFlat() {
+  if (sharedOn() && !shared.busy && Date.now() - shared.last > 60000) setTimeout(() => syncShared(true), 0);
+  if (!sharedOn()) return `<section class="panel">${emptyState('fa-house-user', 'Shared flat needs your KOSH username and the shared repository (Settings → GitHub storage). Everyone in the flat needs KOSH too.')}</section>`;
+  const home = flats.homes[flats.current];
+  const top = `<div class="page-top"><p class="page-intro">Split rent, bills and groceries with flatmates. Everyone sees the same list, and their shares go into their own transactions.</p>
+    <button class="btn btn-primary" data-action="flat-new"><i class="fa-solid fa-plus"></i> New home</button></div>
+    ${flats.list.length > 1 ? `<div class="chip-row mb-4">${flats.list.map((h) => `<button class="chip ${h.id === flats.current ? 'on' : ''}" data-action="flat-switch" data-id="${h.id}"><i class="fa-solid fa-house-user mr-1"></i>${esc(h.name)}</button>`).join('')}</div>` : ''}`;
+  if (!home) return top + `<section class="panel">${emptyState('fa-house-user', shared.busy ? 'Loading your homes…' : 'No shared home yet. Create one, add your flatmates by their KOSH username, and add the rent.', '<button class="btn btn-primary" data-action="flat-new">Create a home</button>')}</section>`;
+  const me = myUser(), net = flatBalances(home), plan = simplifyDebts(net);
+  const month = flats.month || thisMonth();
+  const monthEntries = home.entries.filter((e) => e.date.startsWith(month)).sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at));
+  const live = monthEntries.filter((e) => !e.deleted && e.kind !== 'settle');
+  const total = live.reduce((s, e) => s + e.amount, 0), mine = live.reduce((s, e) => s + (e.shares.find((x) => x.user === me)?.amount || 0), 0);
+  const name = (u) => home.members.find((m) => m.user === u)?.name || userName(u);
+  const months = [...new Set([thisMonth(), ...home.entries.map((e) => e.date.slice(0, 7))])].sort().reverse().slice(0, 12);
+  return top + `
+    <section class="hero p-5 sm:p-7">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div><div class="hero-dim text-sm">Shared home</div><div class="display text-3xl font-semibold">${esc(home.name)}</div>${home.address ? `<div class="hero-dim text-sm">${esc(home.address)}</div>` : ''}
+          <div class="flex -space-x-2 mt-3">${activeMembers(home).map((m) => `<span title="${esc(m.name)}">${avatar(m.name)}</span>`).join('')}</div></div>
+        <button class="btn btn-sm hero-btn" data-action="flat-edit"><i class="fa-solid fa-gear"></i> Home settings</button>
+      </div>
+      <div class="grid grid-cols-3 gap-4 mt-5">
+        <div><div class="hero-dim text-xs">${fmtMonth(month)} total</div><div class="display text-2xl font-semibold num">${money(Math.round(total))}</div></div>
+        <div><div class="hero-dim text-xs">Your share</div><div class="display text-2xl font-semibold num">${money(Math.round(mine))}</div></div>
+        <div><div class="hero-dim text-xs">You ${net[me] >= 0 ? 'get back' : 'owe'}</div><div class="display text-2xl font-semibold num" style="color:${net[me] >= 0 ? '#86EFAC' : '#FDA4AF'}">${money(Math.abs(Math.round(net[me] || 0)))}</div></div>
+      </div>
+    </section>
+    <div class="quick-actions"><button class="qa" data-action="flat-add"><i class="fa-solid fa-plus"></i><span>Add expense</span></button>
+      <button class="qa" data-action="flat-settle"><i class="fa-solid fa-handshake"></i><span>Record payment</span></button>
+      <button class="qa" data-action="flat-rec"><i class="fa-solid fa-rotate"></i><span>Add recurring</span></button>
+      <button class="qa" data-action="flat-export"><i class="fa-solid fa-file-csv"></i><span>Export</span></button></div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-6">
+      <section class="panel p-5"><div class="panel-head"><h2 class="panel-title">Balances</h2></div>
+        <div class="divider">${home.members.map((m) => `<div class="row">${avatar(m.name)}<div class="flex-1 min-w-0"><div class="font-medium">${esc(m.name)}${m.user === me ? ' <span class="pill">You</span>' : ''}${m.left ? ' <span class="pill">Moved out</span>' : ''}</div></div>
+          <div class="num font-semibold ${net[m.user] > 0.5 ? 'text-gain' : net[m.user] < -0.5 ? 'text-loss' : 'text-ink-3'}">${Math.abs(net[m.user] || 0) < 0.5 ? 'Settled' : `${net[m.user] > 0 ? 'gets' : 'owes'} ${money(Math.abs(Math.round(net[m.user])))}`}</div></div>`).join('')}</div>
+        ${plan.length ? `<h3 class="font-semibold text-sm mt-4 mb-2">Fewest payments to settle up</h3><div class="space-y-2">${plan.map((x) => `<div class="flex items-center gap-2 text-sm"><span class="flex-1"><b>${esc(name(x.from))}</b> pays <b>${esc(name(x.to))}</b> <span class="num">${money(x.amount)}</span></span>
+          <button class="btn btn-sm" data-action="flat-settle" data-from="${esc(x.from)}" data-to="${esc(x.to)}" data-amt="${x.amount}">Record</button></div>`).join('')}</div>` : '<p class="text-sm text-gain mt-3"><i class="fa-solid fa-circle-check mr-1"></i>Everyone is settled up.</p>'}
+      </section>
+      <section class="panel p-5"><div class="panel-head"><h2 class="panel-title">Every month</h2><button class="btn btn-sm" data-action="flat-rec"><i class="fa-solid fa-plus"></i> Add</button></div>
+        ${home.recurring.length ? `<div class="divider">${home.recurring.map((r) => { const posted = home.entries.some((e) => e.id === `rec_${r.id}_${thisMonth()}`); return `<div class="row"><span class="row-icon"><i class="fa-solid ${FLAT_ICON[r.category] || 'fa-receipt'}"></i></span>
+          <div class="flex-1 min-w-0"><div class="font-medium">${esc(r.name)}${r.active ? '' : ' <span class="pill">Paused</span>'}</div><div class="text-xs text-ink-3">Day ${r.day} · ${esc(name(r.payer))} pays · ${r.split === 'weights' ? 'by room share' : r.split === 'exact' ? 'fixed amounts' : 'equally'}</div></div>
+          <div class="text-right"><div class="num font-semibold">${money(r.amount)}</div><span class="pill ${posted ? 'in' : 'due'}">${posted ? 'Added this month' : `Due ${pad2(Math.min(28, r.day))} ${fmtMonth(thisMonth()).split(' ')[0]}`}</span></div>
+          <div class="row-actions"><button class="icon-btn sm" data-action="flat-rec" data-id="${r.id}" title="Edit" aria-label="Edit"><i class="fa-regular fa-pen-to-square"></i></button></div></div>`; }).join('')}</div>`
+          : '<p class="text-sm text-ink-3">Add rent, Wi-Fi, maid or cook once; they are added every month by themselves on their day.</p>'}
+      </section>
+    </div>
+
+    <section class="panel p-5 mt-6">
+      <div class="panel-head"><h2 class="panel-title">Activity</h2><select class="inp !w-auto !py-1.5 text-sm" data-flat-month aria-label="Month">${months.map((m) => `<option value="${m}" ${m === month ? 'selected' : ''}>${fmtMonth(m)}</option>`).join('')}</select></div>
+      ${monthEntries.length ? `<div class="divider">${monthEntries.map((e) => {
+        const myS = e.shares?.find((x) => x.user === me)?.amount;
+        return `<div class="row ${e.deleted ? 'opacity-50' : ''}"><span class="row-icon ${e.kind === 'settle' ? 'move' : ''}"><i class="fa-solid ${e.kind === 'settle' ? FLAT_ICON.Settle : FLAT_ICON[e.category] || 'fa-receipt'}"></i></span>
+          <div class="flex-1 min-w-0"><div class="font-medium ${e.deleted ? 'line-through' : ''}">${e.kind === 'settle' ? `${esc(name(e.payer))} paid ${esc(name(e.payee))}` : esc(e.desc)}</div>
+            <div class="text-xs text-ink-3">${fmtDate(e.date)}${e.kind === 'settle' ? '' : ` · ${esc(name(e.payer))} paid · ${esc(e.category)}`}${e.by === 'auto' ? ' · added every month' : ` · added by ${esc(name(e.by))}`}${e.deleted ? ` · removed by ${esc(name(e.deletedBy))}` : ''}</div></div>
+          <div class="text-right"><div class="num font-semibold">${money(e.amount)}</div>${myS !== undefined && e.kind !== 'settle' ? `<div class="text-xs num text-ink-3">your share ${money(myS)}</div>` : ''}</div>
+          ${!e.deleted && (e.by === me || e.payer === me || e.by === 'auto') ? `<div class="row-actions"><button class="icon-btn sm" data-action="flat-del" data-id="${e.id}" title="Remove" aria-label="Remove entry"><i class="fa-regular fa-trash-can"></i></button></div>` : ''}</div>`;
+      }).join('')}</div>` : emptyState('fa-receipt', 'Nothing this month yet.')}
+      ${live.length ? `<details class="mt-4"><summary class="text-sm link cursor-pointer">${fmtMonth(month)} by person</summary><div class="overflow-x-auto mt-2"><table class="sched"><thead><tr><th>Person</th><th>Paid</th><th>Share</th><th>Difference</th></tr></thead><tbody>
+        ${home.members.map((m) => { const paid = live.filter((e) => e.payer === m.user).reduce((s, e) => s + e.amount, 0), sh = live.reduce((s, e) => s + (e.shares.find((x) => x.user === m.user)?.amount || 0), 0); return `<tr><td>${esc(m.name)}</td><td>${money(Math.round(paid))}</td><td>${money(Math.round(sh))}</td><td class="${paid - sh >= 0 ? 'text-gain' : 'text-loss'}">${paid - sh >= 0 ? '+' : '−'}${money(Math.abs(Math.round(paid - sh)))}</td></tr>`; }).join('')}</tbody></table></div></details>` : ''}
+    </section>`;
+}
+
+/* ----- Forms ----- */
+function memberPicker(name, users, checkedUsers) {
+  return `<div class="filter-picks">${users.map((u) => `<label class="check-chip"><input type="checkbox" name="${name}_${esc(u.username)}" ${checkedUsers.includes(u.username) ? 'checked' : ''}> ${esc(u.name)}</label>`).join('')}</div>`;
+}
+function openHomeForm(existing) {
+  if (!flatGuard()) return;
+  const isNew = !existing;
+  const h = existing || { name: '', address: '', members: [{ user: myUser(), name: db.settings.ownerName || myUser(), weight: 1, joined: todayStr() }] };
+  const people = [...shared.users.filter((u) => u.username === myUser()), ...shared.users.filter((u) => u.username !== myUser())];
+  const inHome = h.members.filter((m) => !m.left).map((m) => m.user);
+  openModal({
+    title: isNew ? 'New shared home' : 'Home settings',
+    body: `${twoCol(field('Home name', input('name', h.name, 'required maxlength="40" placeholder="e.g. Flat 302, Koregaon Park"')), field('Address (optional)', input('address', h.address || '', 'maxlength="80"')))}
+      <div><span class="lbl">Who lives here</span>${memberPicker('m', people, inHome)}
+        <p class="hint">Flatmates need KOSH with their own username. Don't see someone? Ask them to sign in once, then reopen this.</p></div>
+      <div><span class="lbl">Room shares (for rent split "by room share")</span><div class="grid grid-cols-2 sm:grid-cols-3 gap-2">${people.map((u) => `<label class="text-sm flex items-center gap-2">${esc(u.name)}<input class="inp !w-20" type="number" min="0" step="0.1" name="w_${esc(u.username)}" value="${h.members.find((m) => m.user === u.username)?.weight ?? 1}"></label>`).join('')}</div>
+        <p class="hint">Example: a bigger room 1.5, others 1. Leave all at 1 for equal.</p></div>`,
+    submitLabel: isNew ? 'Create home' : 'Save',
+    onSubmit: async (d) => {
+      const chosen = people.filter((u) => d[`m_${u.username}`]).map((u) => u.username);
+      if (!chosen.includes(myUser())) chosen.unshift(myUser());
+      if (chosen.length < 2) { toast('Add at least one flatmate.', 'error'); return false; }
+      const id = existing?.id || uid('home');
+      try {
+        await saveHome(id, (data) => {
+          const base = data || { id, createdBy: myUser(), createdAt: new Date().toISOString(), members: [], recurring: [], entries: [] };
+          base.name = d.name.trim(); base.address = d.address || '';
+          for (const u of chosen) { const m = base.members.find((x) => x.user === u); if (m) { delete m.left; m.weight = num(d[`w_${u}`] ?? 1) || 1; } else base.members.push({ user: u, name: userName(u), weight: num(d[`w_${u}`] ?? 1) || 1, joined: todayStr() }); }
+          for (const m of base.members) if (!chosen.includes(m.user) && !m.left) m.left = todayStr();
+          return base;
+        }, `KOSH: ${isNew ? 'create' : 'update'} home ${d.name}`);
+        flats.current = id; toast(isNew ? 'Home created. Add the rent next.' : 'Saved', 'success');
+      } catch (e) { toast(`Couldn't save: ${e.message}`, 'error'); return false; }
+    },
+  });
+}
+function openFlatExpense(home) {
+  if (!flatGuard()) return;
+  const act = activeMembers(home);
+  openModal({
+    title: `Add expense · ${home.name}`,
+    body: `${twoCol(field('What for', input('desc', '', 'required maxlength="80" placeholder="e.g. Electricity bill, groceries"')), field('Amount', moneyInput('amount', '', 'required min="1" data-big')))}
+      ${twoCol(field('Date', input('date', todayStr(), 'type="date" required')), field('Category', select('category', FLAT_CATS, 'Groceries')))}
+      ${field('Paid by', select('payer', act.map((m) => [m.user, m.user === myUser() ? `${m.name} (you)` : m.name]), myUser()))}
+      <div><span class="lbl">Split between</span>${memberPicker('s', act.map((m) => ({ username: m.user, name: m.name })), act.map((m) => m.user))}</div>
+      <div class="seg">${[['equal', 'Equally'], ['weights', 'By room share'], ['exact', 'Exact amounts']].map(([v, l], i) => `<input type="radio" name="mode" id="fm_${v}" value="${v}" ${i === 0 ? 'checked' : ''}><label for="fm_${v}">${l}</label>`).join('')}</div>
+      <div data-exact class="space-y-2" hidden>${act.map((m) => `<div class="flex items-center gap-3"><span class="flex-1">${esc(m.name)}</span><input class="inp !w-32" type="number" step="0.01" min="0" inputmode="decimal" name="x_${esc(m.user)}"></div>`).join('')}</div>
+      <p class="callout" data-flat-preview></p>`,
+    submitLabel: 'Add',
+    onOpen: (form) => {
+      const sig = { signal: modalSignal() };
+      const upd = () => { const d = readForm(form); $('[data-exact]', form).hidden = d.mode !== 'exact'; const r = flatFormShares(home, d); $('[data-flat-preview]', form).innerHTML = r.error ? `<span class="text-loss">${esc(r.error)}</span>` : r.shares.map((x) => `${esc(home.members.find((m) => m.user === x.user)?.name)}: <b class="num">${money(x.amount)}</b>`).join(' · '); };
+      form.addEventListener('input', upd, sig); form.addEventListener('change', upd, sig); upd();
+    },
+    onSubmit: async (d) => {
+      const r = flatFormShares(home, d);
+      if (r.error) { toast(r.error, 'error'); return false; }
+      const entry = { id: uid('fe'), date: d.date, desc: d.desc.trim(), amount: round2(num(d.amount)), category: d.category, payer: d.payer, shares: r.shares, kind: 'expense', by: myUser(), at: new Date().toISOString() };
+      try { await saveHome(home.id, (data) => { data.entries.push(entry); return data; }, `KOSH: ${home.name} expense`); toast('Added for everyone in the home.', 'success'); }
+      catch (e) { toast(`Couldn't save: ${e.message}`, 'error'); return false; }
+    },
+  });
+}
+function flatFormShares(home, d) {
+  const amount = round2(num(d.amount));
+  if (!amount) return { error: 'Enter the amount.' };
+  const users = activeMembers(home, d.date || todayStr()).map((m) => m.user).filter((u) => d[`s_${u}`]);
+  if (!users.length) return { error: 'Pick who shares it.' };
+  const exact = Object.fromEntries(users.map((u) => [u, num(d[`x_${u}`])]));
+  const shares = flatShares(home, amount, d.mode, users, exact);
+  const sum = round2(shares.reduce((s, x) => s + x.amount, 0));
+  if (Math.abs(sum - amount) > 0.01) return { error: `Shares add up to ${money(sum)}, not ${money(amount)}.` };
+  return { shares };
+}
+function openFlatSettle(home, preset = {}) {
+  if (!flatGuard()) return;
+  const opts = home.members.map((m) => [m.user, m.user === myUser() ? `${m.name} (you)` : m.name]);
+  openModal({
+    title: 'Record a payment between flatmates',
+    body: `${twoCol(field('Who paid', select('payer', opts, preset.from || myUser())), field('To whom', select('payee', opts, preset.to || opts.find(([u]) => u !== (preset.from || myUser()))?.[0])))}
+      ${twoCol(field('Amount', moneyInput('amount', preset.amt || '', 'required min="1"')), field('Date', input('date', todayStr(), 'type="date" required')))}`,
+    submitLabel: 'Record',
+    onSubmit: async (d) => {
+      if (d.payer === d.payee) { toast('Choose two different people.', 'error'); return false; }
+      const entry = { id: uid('fs'), date: d.date, desc: 'Payment', amount: round2(num(d.amount)), category: 'Settle', payer: d.payer, payee: d.payee, kind: 'settle', by: myUser(), at: new Date().toISOString() };
+      try { await saveHome(home.id, (data) => { data.entries.push(entry); return data; }, `KOSH: ${home.name} payment`); toast('Payment recorded.', 'success'); }
+      catch (e) { toast(`Couldn't save: ${e.message}`, 'error'); return false; }
+    },
+  });
+}
+function openFlatRecurring(home, id) {
+  if (!flatGuard()) return;
+  const r = home.recurring.find((x) => x.id === id) || { name: 'Rent', category: 'Rent', day: 1, payer: myUser(), split: 'equal', active: true };
+  const act = activeMembers(home);
+  openModal({
+    title: id ? `Edit ${r.name}` : 'Add a monthly cost',
+    body: `${twoCol(field('Name', input('name', r.name, 'required maxlength="40" placeholder="e.g. Rent, Wi-Fi, Maid"')), field('Amount each month', moneyInput('amount', r.amount || '', 'required min="1"')))}
+      ${twoCol(field('Category', select('category', FLAT_CATS, r.category)), field('Day of the month', input('day', r.day, 'type="number" min="1" max="28" required')))}
+      ${twoCol(field('Who pays it (landlord, provider)', select('payer', act.map((m) => [m.user, m.name]), r.payer)), field('Split', select('split', [['equal', 'Equally'], ['weights', 'By room share']], r.split)))}
+      ${id ? checkbox('active', r.active, 'Active', 'Untick to pause (e.g. maid on leave).') : ''}
+      <p class="hint">It is added for everyone on that day each month, once, even if several phones open the app.</p>`,
+    submitLabel: id ? 'Save' : 'Add',
+    onSubmit: async (d) => {
+      const rec = { ...r, id: id || uid('fr'), name: d.name.trim(), amount: round2(num(d.amount)), category: d.category, day: Math.min(28, Math.max(1, int(d.day))), payer: d.payer, split: d.split, active: id ? !!d.active : true, start: r.start || thisMonth() };
+      try {
+        await saveHome(home.id, (data) => { const i = data.recurring.findIndex((x) => x.id === rec.id); if (i >= 0) data.recurring[i] = rec; else data.recurring.push(rec); return data; }, `KOSH: ${home.name} recurring ${rec.name}`);
+        await postDueRecurring(flats.homes[home.id]);
+        toast('Saved', 'success');
+      } catch (e) { toast(`Couldn't save: ${e.message}`, 'error'); return false; }
+    },
+    onDelete: id ? async () => { if (!confirm(`Stop and remove ${r.name}? Past months stay.`)) return false; await saveHome(home.id, (data) => { data.recurring = data.recurring.filter((x) => x.id !== id); return data; }, 'KOSH: remove recurring'); } : null,
+  });
+}
+async function deleteFlatEntry(home, id) {
+  if (!flatGuard() || !confirm('Remove this entry for everyone in the home?')) return;
+  await saveHome(home.id, (data) => { const e = data.entries.find((x) => x.id === id); if (!e || e.deleted) return null; e.deleted = true; e.deletedBy = myUser(); e.deletedAt = new Date().toISOString(); return data; }, 'KOSH: remove entry').catch((e) => toast(`Couldn't remove: ${e.message}`, 'error'));
+}
+function exportFlat(home) {
+  const rows = [['date', 'kind', 'description', 'category', 'amount', 'paid_by', 'paid_to', ...home.members.map((m) => `share_${m.user}`), 'added_by', 'removed']];
+  for (const e of home.entries.slice().sort((a, b) => a.date.localeCompare(b.date))) rows.push([e.date, e.kind, e.desc, e.category, e.amount, e.payer, e.payee || '', ...home.members.map((m) => e.shares?.find((x) => x.user === m.user)?.amount ?? ''), e.by, e.deleted ? 'yes' : '']);
+  download(`${home.name.replace(/[^a-z0-9]+/gi, '-')}.csv`, rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
+}
+/** Dashboard suggestion: a monthly cost you pay is due in the next 3 days. */
+function flatNudges() {
+  const out = [], today = todayStr(), soon = addDays(today, 3);
+  for (const h of flats.list) {
+    const home = flats.homes[h.id]; if (!home) continue;
+    for (const r of home.recurring.filter((x) => x.active && x.payer === myUser())) {
+      const date = `${thisMonth()}-${pad2(Math.min(28, r.day))}`;
+      if (date >= today && date <= soon) out.push({ id: `flat-${r.id}-${thisMonth()}`, text: `${r.name} for ${home.name} (${money(r.amount)}) is due ${fmtDate(date)}. You pay it; flatmates' shares are added for them.` });
+    }
+  }
+  return out;
 }
 
 /* ---------------------------------------------------------------------
@@ -7170,6 +8001,7 @@ function openTxnForm(existing, preset = {}) {
       }
       const remembered = rememberDescription(rec);
       if (remembered) extraOps.push(remembered);
+      if (isNew && rec.forHome && typeof shareHomeClaim === 'function') shareHomeClaim(rec);
       commit([...extraOps, opUpsert('transactions', rec)], `${isNew ? 'Add' : 'Edit'} ${rec.forHome ? 'home expense' : rec.type} ${money(amount)}${rec.description ? ` (${rec.description})` : ''}`);
       toast(isNew ? (rec.forHome ? `Home expense added. ${accountName(claimTo)} owes you ${money(amount)} more.` : `${cap(rec.type)} added`) : 'Transaction saved', 'success');
     },
@@ -7840,8 +8672,11 @@ function openSettings() {
       </div>
       ${twoCol(field('GitHub username', input('owner', config.owner, 'autocomplete="off" spellcheck="false" placeholder="your-username"')),
         field('Data repository name', input('repo', config.repo, 'autocomplete="off" spellcheck="false" placeholder="kosh-data"')))}
-      ${twoCol(field('Branch', input('branch', config.branch || 'main', 'spellcheck="false"')),
-        field('File path', input('path', config.path || 'data.json', 'spellcheck="false"'), 'Folders work too, e.g. finance/data.json'))}
+      ${twoCol(field('Your KOSH username', input('user', config.user || '', 'autocomplete="off" spellcheck="false" placeholder="e.g. kundan" pattern="[a-z0-9_-]{2,30}" title="2 to 30 lowercase letters, numbers, - or _"'), 'Lets several people use this same repository, each with their own data file, and share splits and portfolios.'),
+        field('File path', input('path', config.path || 'data.json', 'spellcheck="false"'), 'Your own data file. For a second person: users/their-username/data.json'))}
+      ${twoCol(field('Branch', input('branch', config.branch || 'main', 'spellcheck="false"')), field('Shared repository (optional)', input('sharedRepo', config.sharedRepo || '', 'spellcheck="false" placeholder="kosh-shared"'), 'When each person has their own repository, family features use this one.'))}
+      <div class="flex gap-2 flex-wrap"><button type="button" class="btn btn-sm" data-action="make-login"><i class="fa-solid fa-key"></i> Create a login for someone</button>${isConfigured() ? '<button type="button" class="btn btn-sm" data-action="sign-out"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>' : ''}</div>
+      ${sharedUsersList()}
       ${field('Personal access token', `<div class="flex gap-2">${input('token', config.token, 'type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"')}<button type="button" class="btn" id="toggleToken">Show</button></div>`,
         'Kept only in this browser. Needs "Contents: Read and write" on the data repository.')}
       <div class="flex items-center gap-3 flex-wrap">
@@ -7862,6 +8697,7 @@ function openSettings() {
       ${twoCol(field('Units are allotted at the NAV of', select('navLagDays', [['0', 'The same day'], ['1', '1 working day later'], ['2', '2 working days later'], ['3', '3 working days later']], String(s.navLagDays ?? 1)), 'Default for lump sums and new SIPs. Each SIP can have its own.'),
         '<div class="pt-6">' + checkbox('stampDuty', s.stampDuty !== false, 'Deduct 0.005% stamp duty', 'Mutual fund purchases in India lose 0.005% to stamp duty, so a few fewer units are allotted.') + '</div>')}
       ${field('Year of birth (optional)', input('birthYear', s.birthYear || '', 'type="number" min="1940" max="2015" placeholder="e.g. 2001"'), 'Used by the financial freedom planner and the cool-off list to show ages.')}
+      ${checkbox('sharePortfolio', !!s.sharePortfolio, 'Share my portfolio with family on this KOSH', 'Others using this repository can add you to their family portfolio and see your holdings\' values.')}
       ${checkbox('showNwToggles', s.showNwToggles !== false, 'Show the net worth switches on the dashboard', 'Small switches on the net worth card to leave out investments or credit card dues.')}
       ${checkbox('sipAsSpending', s.sipAsSpending, 'Count SIPs as money going out', 'Shows SIPs and other money you invest in the spending chart and monthly totals. Net worth is not affected, because the money is still yours in the fund.')}
       ${field('Expense categories', textarea('expenseCategories', s.expenseCategories.join('\n'), 'rows="6"'), 'One per line. Renaming a category here does not change past transactions.')}
@@ -7882,6 +8718,10 @@ function openSettings() {
     body,
     submitLabel: 'Save settings',
     onOpen: (form) => {
+      form.elements.user?.addEventListener('input', (e) => {
+        const u = e.target.value.trim().toLowerCase(), p = form.elements.path;
+        if (u && (p.value === 'data.json' || /^users\/[^/]*\/data\.json$/.test(p.value)) && !(p.value === 'data.json' && db.transactions.length)) p.value = `users/${u}/data.json`;
+      }, { signal: modalSignal() });
       $('#toggleToken', form).addEventListener('click', (ev) => {
         const t = form.elements.token;
         t.type = t.type === 'password' ? 'text' : 'password';
@@ -7921,7 +8761,9 @@ function openSettings() {
     },
     onSubmit: (d) => {
       const { owner, repo } = parseRepoInput(d.owner, d.repo);
-      const next = { owner, repo, branch: d.branch || 'main', path: (d.path || 'data.json').replace(/^\/+/, ''), token: d.token };
+      const user = String(d.user || '').trim().toLowerCase();
+      if (user && !/^[a-z0-9_-]{2,30}$/.test(user)) { toast('Username: 2 to 30 lowercase letters, numbers, - or _.', 'error'); return false; }
+      const next = { owner, repo, branch: d.branch || 'main', path: (d.path || 'data.json').replace(/^\/+/, ''), token: d.token, user, sharedRepo: String(d.sharedRepo || '').trim() };
       const anyGit = next.owner || next.repo || next.token;
       if (anyGit && !(next.owner && next.repo && next.token)) {
         toast('To connect GitHub, fill in username, repository and token (or clear all three).', 'error');
@@ -7937,6 +8779,7 @@ function openSettings() {
         sipAsSpending: !!d.sipAsSpending,
         autoPrices: !!d.autoPrices,
         showNwToggles: !!d.showNwToggles,
+        sharePortfolio: !!d.sharePortfolio,
         birthYear: d.birthYear ? int(d.birthYear) : '',
         navLagDays: int(d.navLagDays),
         stampDuty: !!d.stampDuty,
@@ -8040,6 +8883,22 @@ const ACTIONS = {
   'split-filter': (d) => { splitFilter = d.g; render(); },
   'split-settle': (d) => openPersonMoney(d.id, d.dir, d.amt),
   'dash-customize': () => openDashCustomize(),
+  'make-login': () => openMakeLogin(),
+  'gold-add': () => openGoldForm(null),
+  'flat-new': () => openHomeForm(null),
+  'flat-edit': () => openHomeForm(flats.homes[flats.current]),
+  'flat-switch': (d) => { flats.current = d.id; flats.month = ''; render(); },
+  'flat-add': () => flats.homes[flats.current] && openFlatExpense(flats.homes[flats.current]),
+  'flat-settle': (d) => flats.homes[flats.current] && openFlatSettle(flats.homes[flats.current], { from: d.from, to: d.to, amt: d.amt }),
+  'flat-rec': (d) => flats.homes[flats.current] && openFlatRecurring(flats.homes[flats.current], d.id),
+  'flat-del': (d) => flats.homes[flats.current] && deleteFlatEntry(flats.homes[flats.current], d.id),
+  'flat-export': () => flats.homes[flats.current] && exportFlat(flats.homes[flats.current]),
+  'gold-rates': () => openGoldRates(),
+  'pf-group': (d) => togglePfGroup(d.g),
+  'sign-out': () => signOut(),
+  'family-add': () => openFamilyAdd(),
+  'family-remove': (d) => { commit([opSettings({ familyMembers: (db.settings.familyMembers || []).filter((u) => u !== d.u) })], 'Remove family member'); },
+  'family-share': () => { commit([opSettings({ sharePortfolio: !db.settings.sharePortfolio })], db.settings.sharePortfolio ? 'Stop sharing portfolio' : 'Share portfolio'); localStorage.removeItem('kosh.pfSig'); syncShared(true); toast(db.settings.sharePortfolio ? 'Your portfolio is shared with family on this KOSH.' : 'Stopped sharing. Family members keep the last copy until it is replaced.'); },
   'cool-new': () => openCoolOff(),
   'cool-decide': (d) => openCoolDecide(d.id),
   'cool-skip': (d) => coolSkip(d.id),
@@ -8076,7 +8935,7 @@ const ACTIONS = {
   'delete-txn': (d) => deleteTxn(d.id),
   'txn-more': () => { txFilter.limit += 100; $('#txnResults').innerHTML = txnResults(); },
   'add-account': (d) => openAccountForm(null, d.type || 'bank'),
-  'edit-account': (d) => openAccountForm(accountById(d.id)),
+  'edit-account': (d) => { const a = accountById(d.id); if (a && isGoldItem(a)) openGoldForm(a); else openAccountForm(a); },
   'adjust-balance': (d) => openAdjust(accountById(d.id)),
   'pay-card': (d) => payCard(d.id),
   'add-emi': () => openEmiForm(null),
@@ -8136,6 +8995,9 @@ function init() {
   };
   document.addEventListener('input', plannerListen);
   document.addEventListener('change', plannerListen);
+
+  // Shared flat: month picker
+  document.addEventListener('change', (e) => { if (e.target.matches?.('[data-flat-month]')) { flats.month = e.target.value; render(); } });
 
   // Calendar: Both / Spent / Income
   document.addEventListener('change', (e) => { if (e.target.name === 'calView' && location.hash === '#calendar') { calView = e.target.value; render(); } });

@@ -781,3 +781,9 @@ body { background: var(--paper); }
 .cyc-foot { display: flex; justify-content: space-between; align-items: center; gap: .75rem; flex-wrap: wrap; font-size: .75rem; color: var(--ink-3); margin-top: .7rem; padding-top: .6rem; border-top: 1px dashed #E2E7EF; }
 .cyc.done .cyc-foot { margin: 0; padding: 0; border: 0; }
 @media (max-width: 639px) { .cyc-head b { font-size: 1rem; } .cyc-grid b { font-size: .92rem; } }
+.signin-card { border: 1px solid #CFE3F3; background: linear-gradient(135deg, #F3F9FE, #fff); }
+.signin-card .inp { min-width: 0; }
+@media (min-width: 640px) { .signin-card form .inp { width: 11rem; } }
+.hero-btn { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.25); color: #fff; }
+.hero-btn:hover { background: rgba(255,255,255,.2); }
+.hero .avatar { box-shadow: 0 0 0 2px #0B2540; }
