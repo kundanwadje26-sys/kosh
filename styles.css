@@ -787,3 +787,5 @@ body { background: var(--paper); }
 .hero-btn { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.25); color: #fff; }
 .hero-btn:hover { background: rgba(255,255,255,.2); }
 .hero .avatar { box-shadow: 0 0 0 2px #0B2540; }
+.ins-grid { grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); }
+.ins-grid label { font-size: .78rem; }

@@ -37,7 +37,7 @@ const STORAGE_KEYS = {
 };
 const APP_NAME = "Kundan's Finance";
 const SCHEMA_VERSION = 3; // v2 added `sips`, v3 goals/wishlist/rules/taxItems; older files load unchanged
-const COLLECTIONS = ['accounts', 'transactions', 'emis', 'subscriptions', 'budgets', 'sips', 'charts', 'goals', 'wishlist', 'rules', 'taxItems', 'notifications', 'creditScores'];
+const COLLECTIONS = ['accounts', 'transactions', 'emis', 'subscriptions', 'budgets', 'sips', 'charts', 'goals', 'wishlist', 'rules', 'taxItems', 'notifications', 'creditScores', 'insurance'];
 
 const ACCOUNT_TYPES = {
   cash:        { label: 'Cash & wallets',        single: 'Cash or wallet', icon: 'fa-wallet' },
@@ -75,12 +75,23 @@ const CURRENCIES = {
   INR: 'en-IN', USD: 'en-US', EUR: 'en-IE', GBP: 'en-GB', AED: 'en-AE',
   SGD: 'en-SG', AUD: 'en-AU', CAD: 'en-CA', JPY: 'ja-JP',
 };
+/* Built-in API keys, used when a person hasn't entered their own in Settings.
+   Note: this file is published on the public website, so these keys are visible to
+   anyone who looks. They are free keys with daily/monthly limits (no billing); if one is
+   misused or its limit runs out, create a new one and replace it here, or enter a
+   personal key in Settings. */
+const BUILTIN_KEYS = {
+  gold: 'goldapi-0dd3595b9626aeb56272d1c347e321e2-io', // GoldAPI.io
+  stock: 'ACV67JWNZIK7TRTK',                            // Alpha Vantage
+};
+const stockKey = () => String(db.settings.stockApiKey || '').trim() || BUILTIN_KEYS.stock;
+const goldKey = () => String(db.settings.goldApiKey || '').trim() || BUILTIN_KEYS.gold;
 const DEFAULT_SETTINGS = {
   ownerName: 'Kundan',       // shown in the app heading: "Kundan's Finance"
   currency: 'INR',
   sipAsSpending: true,       // show SIPs / money invested in monthly spending charts
   autoPrices: true,          // refresh mutual fund NAVs / stock prices when the app opens
-  stockApiKey: '',           // optional Alpha Vantage key for live stock prices
+  stockApiKey: '',           // your own Alpha Vantage key (optional; the built-in one is used otherwise)
   showNwToggles: true,       // small switches on the net worth card
   navLagDays: 1,             // SIP/lump sum units use the NAV this many working days after payment
   remindInApp: true,         // dashboard nudge when nothing is logged today (after 7 pm)
@@ -214,7 +225,7 @@ function emptyDB() {
     meta: { app: 'kosh-expense-tracker', updatedAt: null },
     settings: clone(DEFAULT_SETTINGS),
     accounts: [], transactions: [], emis: [], subscriptions: [], budgets: [], sips: [], charts: [],
-    goals: [], wishlist: [], rules: [], taxItems: [], notifications: [], creditScores: [],
+    goals: [], wishlist: [], rules: [], taxItems: [], notifications: [], creditScores: [], insurance: [],
   };
 }
 /** Makes sure any loaded JSON has every expected key (safe against old/partial files).
@@ -803,6 +814,9 @@ function upcomingItems(days = 30) {
   const today = todayStr();
   const limit = addDays(today, days);
   const items = [];
+  for (const p of typeof insUpcoming === 'function' ? insUpcoming(days) : []) {
+    items.push({ date: p.nextDue, kind: 'insurance', id: p.id, title: `${p.name} premium`, sub: `${INS_TYPES[p.type]?.label || 'Insurance'}${p.vehicle ? ` · ${p.vehicle}` : ''}${p.insurer ? ` · ${p.insurer}` : ''}`, amount: num(p.premium) });
+  }
   for (const { e, c } of M.emis) {
     if (c.status === 'active' && c.nextDue && c.nextDue <= limit) {
       items.push({ date: c.nextDue, kind: 'emi', id: e.id, title: e.name, sub: `EMI ${c.paid + 1} of ${c.n}, from ${accountName(e.accountId)}`, amount: c.emi });
@@ -847,7 +861,8 @@ function subscriptionTxn(s, date) {
   const income = recurKind(s) === 'income';
   return {
     id: `txn_sub_${s.id}_${date}`, date, type: income ? 'income' : 'expense', amount: round2(num(s.amount)),
-    category: s.category || (income ? 'Salary' : 'Subscriptions'), description: s.name,
+    category: recurKind(s) === 'tax' ? 'Taxes' : s.category || (income ? 'Salary' : 'Subscriptions'), description: s.name,
+    ...(recurKind(s) === 'tax' ? { taxKind: s.taxKind || 'Other tax', taxFy: fyOf(date) } : {}),
     fromAccountId: income ? '' : s.accountId || '', toAccountId: income ? s.accountId || '' : '', relatedType: 'subscription', relatedId: s.id,
     notes: `${FREQUENCIES[s.frequency]?.label || ''} ${income ? 'income' : recurKind(s) === 'bill' ? 'bill' : 'subscription renewal'}`,
   };
@@ -1088,6 +1103,7 @@ const PAGES = {
   subscriptions: { title: 'Recurring',        icon: 'fa-rotate',          group: 'Money' },
   emis:          { title: 'EMIs & loans',     icon: 'fa-calendar-check',  group: 'Money' },
   budgets:       { title: 'Budgets',          icon: 'fa-bullseye',        group: 'Money' },
+  insurance:     { title: 'Insurance',        icon: 'fa-shield-halved',   group: 'Money' },
   portfolio:     { title: 'Portfolio',        icon: 'fa-chart-line',      group: 'Grow' },
   goals:         { title: 'Goals & wishlist', short: 'Goals', icon: 'fa-flag-checkered', group: 'Grow' },
   planner:       { title: 'Planners',         icon: 'fa-compass',         group: 'Grow' },
@@ -1125,7 +1141,7 @@ function render() {
   $$('[data-brand]').forEach((el) => { el.textContent = brand; });
   const view = $('#view');
   const fn = {
-    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, health: renderHealth, planner: renderPlanner, split: renderSplit, flat: renderFlat, notifications: renderNotifications, transactions: renderTransactions,
+    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, health: renderHealth, planner: renderPlanner, split: renderSplit, flat: renderFlat, insurance: renderInsurance, notifications: renderNotifications, transactions: renderTransactions,
     emis: renderEmis, subscriptions: renderSubscriptions, budgets: renderBudgets, data: renderData,
   }[page];
   view.innerHTML = fn();
@@ -1319,15 +1335,16 @@ function greeting() {
 function netWorthPanel(T) {
   // The two switches (Settings can hide them) leave investments or card dues out of the figure.
   const incInv = db.settings.nwInvestments !== false, incCard = db.settings.nwCardDues !== false;
-  const shown = round2(T.netWorth - (incInv ? 0 : T.investment) + (incCard ? 0 : T.cardDebt));
+  // "Card dues" off leaves out everything on credit cards: dues, card EMIs still to pay, and any card credit.
+  const shown = round2(T.netWorth - (incInv ? 0 : T.investment) + (incCard ? 0 : T.cardDebt + T.cardEmis - T.cardCredit));
   const left = [!incInv && 'investments', !incCard && 'card dues'].filter(Boolean);
   const assets = [['Cash', T.cash, '#FBBF24'], ['Bank', T.bank, '#38BDF8']];
   if (incInv) assets.push(['Investments', T.investment, '#4ADE80']);
-  if (T.cardCredit > 0) assets.push(['Card credit', T.cardCredit, '#E2E8F0']);
+  if (incCard && T.cardCredit > 0) assets.push(['Card credit', T.cardCredit, '#E2E8F0']);
   if (T.owedToMe > 0) assets.push(['Owed to me', T.owedToMe, '#C4B5FD']);
   const liabs = incCard ? [['Card dues', T.cardDebt, '#FB7185']] : [];
   if (T.loans > 0) liabs.push(['Loans', T.loans, '#F472B6']);
-  if (T.cardEmis > 0) liabs.push(['Card EMIs', T.cardEmis, '#FDBA74']);
+  if (incCard && T.cardEmis > 0) liabs.push(['Card EMIs', T.cardEmis, '#FDBA74']);
   if (T.iOwe > 0) liabs.push(['I owe', T.iOwe, '#F9A8D4']);
   const assetSum = assets.reduce((a, [, v]) => a + Math.max(0, v), 0);
   const liabSum = liabs.reduce((a, [, v]) => a + v, 0);
@@ -1340,7 +1357,7 @@ function netWorthPanel(T) {
       <div>
         <p class="hero-hello">${esc(greeting())}</p>
         <div class="text-sm hero-dim mt-4 mb-1">Net worth${left.length ? ` <span class="nw-note">without ${left.join(' and ')}</span>` : ''}</div>
-        <div class="display nw-figure num ${shown < 0 ? 'neg' : ''}">${money(shown)}</div>
+        <div class="display nw-figure num ${shown < 0 ? 'neg' : ''}">${money(Math.round(shown))}</div>
       </div>
       <div class="flex flex-col items-end gap-2">
         ${db.settings.showNwToggles !== false ? `<div class="nw-toggles" role="group" aria-label="What net worth includes">
@@ -1396,8 +1413,8 @@ function upcomingRow(it) {
   const d = parseDate(it.date);
   const days = daysUntil(it.date);
   const pill = days < 0 ? 'out' : days <= 3 ? 'due' : '';
-  const action = { emi: 'pay-emi', subscription: 'pay-sub', income: 'pay-sub', card: 'pay-card', sip: 'pay-sip', fd: 'adjust-balance', review: 'review-units', goal: 'goal-add', wish: 'wish-buy' }[it.kind];
-  const label = { card: 'Pay bill', sip: 'Invest now', fd: 'Update value', review: 'Enter units', income: 'Record income', goal: 'Add money', wish: 'Mark bought' }[it.kind] || 'Record payment';
+  const action = { emi: 'pay-emi', subscription: 'pay-sub', income: 'pay-sub', card: 'pay-card', sip: 'pay-sip', fd: 'adjust-balance', review: 'review-units', goal: 'goal-add', wish: 'wish-buy', insurance: 'ins-pay' }[it.kind];
+  const label = { card: 'Pay bill', sip: 'Invest now', fd: 'Update value', review: 'Enter units', income: 'Record income', goal: 'Add money', wish: 'Mark bought', insurance: 'Pay premium' }[it.kind] || 'Record payment';
   const icon = { emi: 'fa-calendar-check', subscription: 'fa-rotate', card: 'fa-credit-card', sip: 'fa-seedling', fd: 'fa-piggy-bank', review: 'fa-clipboard-check' }[it.kind];
   return `<div class="row">
     <div class="date-chip kind-bg-${it.kind}">
@@ -1726,6 +1743,7 @@ function renderSubscriptions() {
   const groups = [
     ['subscription', 'Subscriptions', 'Streaming, apps, gym, cloud storage…', 'fa-rotate'],
     ['bill', 'Bills', 'Rent, electricity, maid, society charges…', 'fa-house'],
+    ['tax', 'Taxes', 'Advance tax, property tax, professional tax, road tax…', 'fa-landmark'],
     ['income', 'Income', 'Salary, rent you receive, pocket money…', 'fa-briefcase'],
   ];
   const outMonthly = perMonth(sorted.filter((s) => recurKind(s) !== 'income'));
@@ -2351,7 +2369,7 @@ async function refreshPrices({ auto = false, onlyId = null } = {}) {
   const goldDone = onlyId && !isGoldItem(accountById(onlyId) || {}) ? 0 : await refreshGold({ auto, onlyId }).catch(() => 0);
   if (onlyId && isGoldItem(accountById(onlyId) || {})) return goldDone;
   const runs = priceRuns();
-  const key = String(db.settings.stockApiKey || '').trim();
+  const key = stockKey();
   const doMF = !auto || hoursSince(runs.mf) >= MF_REFRESH_HOURS;
   const doStock = !!key && (!auto || hoursSince(runs.stock) >= STOCK_REFRESH_HOURS);
   const targets = db.accounts.filter((a) => a.type === 'investment' && !a.archived && (!onlyId || a.id === onlyId)
@@ -2469,7 +2487,7 @@ function bindInstrumentPicker(form, { onPick } = {}) {
     const text = q.value.trim();
     const k = kind();
     if (text.length < 3) { results.hidden = false; results.innerHTML = '<p class="hint">Type at least 3 letters.</p>'; return; }
-    const key = String(db.settings.stockApiKey || '').trim();
+    const key = stockKey();
     if (k === 'stock' && !key) {
       results.hidden = false;
       results.innerHTML = '<p class="hint">Company search and live stock prices need the free stock price key (Settings). You can still type the company name and enter units and cost yourself.</p>';
@@ -2498,7 +2516,7 @@ function bindInstrumentPicker(form, { onPick } = {}) {
     linked.hidden = false;
     linked.innerHTML = `<i class="fa-solid fa-bolt"></i> Linked to <b>${esc(name)}</b>. Getting the latest ${k === 'mf' ? 'NAV' : 'price'}…`;
     try {
-      const live = k === 'mf' ? await mfLatest(code) : await stockLatest(code, String(db.settings.stockApiKey || '').trim());
+      const live = k === 'mf' ? await mfLatest(code) : await stockLatest(code, stockKey());
       h('latestPrice').value = live.price; h('latestDate').value = live.date;
       linked.innerHTML = `<i class="fa-solid fa-bolt"></i> Linked to <b>${esc(name)}</b>. Latest ${k === 'mf' ? 'NAV' : 'price'} <b class="num">${money(live.price)}</b> on ${fmtDate(live.date)}.`;
     } catch (e) {
@@ -4999,6 +5017,12 @@ function taxData(fy) {
       if (k) { auto[k] += num(t.amount); autoRows.push({ k, name: to.name, amount: num(t.amount), date: t.date }); }
     }
   }
+  // Insurance premiums: health counts in Section 126 (old 80D), term / life in Section 123 (old 80C).
+  for (const t of db.transactions) {
+    if (!inFy(t) || t.type !== 'expense' || t.relatedType !== 'insurance') continue;
+    const k = t.insType === 'health' ? '126' : t.insType === 'term' || t.insType === 'life' ? '123' : null;
+    if (k) { auto[k] += num(t.amount); autoRows.push({ k, name: t.description, amount: num(t.amount), date: t.date }); }
+  }
   const manual = db.taxItems.filter((x) => x.fy === fy);
   const claimed = Object.fromEntries(DEDUCTIONS.map((d) => [d.key, (auto[d.key] || 0) + manual.filter((m) => m.section === d.key).reduce((s, m) => s + num(m.amount), 0)]));
   const allowed = DEDUCTIONS.reduce((s, d) => s + (d.limit ? Math.min(d.limit, claimed[d.key]) : claimed[d.key]), 0);
@@ -5029,6 +5053,16 @@ function renderTax() {
         </div>
         <p class="text-sm text-ink-2 mt-4">${D.gross <= 1275000 && D.salaried ? 'Under the new regime, salary up to ₹12.75 lakh a year (₹12 lakh taxable income) has no income tax.' : D.gross <= 1200000 ? 'Under the new regime, taxable income up to ₹12 lakh has no income tax.' : `The ${better} regime looks cheaper for you by about ${money(Math.abs(D.taxNew - D.taxOld))}.`}</p></section>
     </div>
+    ${(() => { const P = taxesPaid(taxFy), est = Math.min(D.taxNew, D.taxOld); return `<section class="panel p-5 mt-6">
+      <div class="panel-head"><h2 class="panel-title">Taxes paid in FY ${taxFy}</h2><button class="btn btn-sm" data-action="add-txn" data-type="tax"><i class="fa-solid fa-plus"></i> Add tax payment</button></div>
+      <div class="grid grid-cols-3 gap-3">
+        <div class="stat-tile"><div class="stat-label">Income tax paid</div><div class="stat-value num">${money(Math.round(P.incomeTax))}</div><div class="text-xs text-ink-3">advance, self-assessment, TDS</div></div>
+        <div class="stat-tile"><div class="stat-label">Estimated tax</div><div class="stat-value num">${money(est)}</div><div class="text-xs text-ink-3">lower regime</div></div>
+        <div class="stat-tile ${est - P.incomeTax > 0 ? 'out' : 'in'}"><div class="stat-label">${est - P.incomeTax > 0 ? 'Still to pay (estimate)' : 'Possible refund'}</div><div class="stat-value num">${money(Math.abs(Math.round(est - P.incomeTax)))}</div></div>
+      </div>
+      ${P.list.length ? `<div class="divider mt-4">${P.list.sort((a, b) => b.date.localeCompare(a.date)).map((t) => `<div class="row text-sm"><div class="flex-1"><b>${esc(t.taxKind)}</b> <span class="text-ink-3">${fmtDate(t.date)}${t.taxRef ? ` · ${esc(t.taxRef)}` : ''}</span></div><div class="num">${money(t.amount)}</div></div>`).join('')}</div>` : '<p class="text-sm text-ink-3 mt-3">Log tax payments from Add transaction → Tax, or add property and road tax under Recurring → Taxes.</p>'}
+      ${P.other ? `<p class="text-xs text-ink-3 mt-2">Other taxes this year (property, professional, road, GST): ${money(Math.round(P.other))}.</p>` : ''}
+    </section>`; })()}
     <section class="panel p-5 mt-6">
       <div class="panel-head"><div><h2 class="panel-title">Deductions (old regime only)</h2><div class="text-xs text-ink-3 mt-0.5">Money into PPF/EPF, NPS and funds named ELSS or tax saver is counted by itself. Add the rest here.</div></div>
         <button class="btn btn-sm" data-action="tax-add"><i class="fa-solid fa-plus"></i> Add deduction</button></div>
@@ -5336,6 +5370,7 @@ function koshNotifyEngine(db, at, n) {
       const days = Math.max(0, num(n.days ?? 1)), end = addDays(today, days), items = [], b = balances(today);
       for (const s of db.subscriptions || []) if (s.active && s.nextRenewal >= today && s.nextRenewal <= end) items.push([s.nextRenewal, `${s.name} ${fmt(s.amount)}${s.kind === 'income' ? ' (coming in)' : ''}`]);
       for (const x of db.sips || []) if (x.active && x.nextDate >= today && x.nextDate <= end) items.push([x.nextDate, `${x.name} SIP ${fmt(x.amount)}`]);
+      for (const p of db.insurance || []) if (p.active !== false && p.frequency !== 'single' && p.nextDue >= today && p.nextDue <= end) items.push([p.nextDue, `${p.name} premium ${fmt(p.premium)}`]);
       for (const e of db.emis || []) { const i = emiInfo(e); if (i.next && i.next >= today && i.next <= end) items.push([i.next, `${e.name} EMI ${fmt(i.emi)}`]); }
       for (const a of acc) if (a.type === 'credit_card' && !a.archived) { const d = cardDue(a, b); if (d && d.date <= end) items.push([d.date, `${a.name} bill ${fmt(d.amount)}`]); }
       if (!items.length) return null;
@@ -5959,6 +5994,10 @@ function calendarSchedule(mk) {
     let d = c.nextDue, k = 0;
     while (d <= to && k < c.n - c.paid) { push(d, 'emi', `${e.name} EMI`, c.emi, 'fa-calendar-check'); d = addMonths(c.nextDue, ++k); }
   }
+  for (const p of db.insurance.filter((x) => x.active !== false && x.nextDue && x.frequency !== 'single')) {
+    let d = p.nextDue, g = 0;
+    while (d <= to && g++ < 12 && !(p.endDate && d > p.endDate)) { push(d, 'bill', `${p.name} premium`, num(p.premium), 'fa-shield-halved'); d = insNextDue(p, d); }
+  }
   for (const a of db.accounts) {
     if (a.type !== 'credit_card' || a.archived) continue;
     const m = cardMetrics(a);
@@ -6274,6 +6313,7 @@ function computeNudges() {
   for (const x of idleCash().slice(0, 1)) add(`idle-${x.a.id}-${thisMonth()}`, 'neutral', 'fa-sack-dollar', `${money(x.extra)} has sat in ${x.a.name} for a month, beyond ${db.settings.idleMonths ?? 3} months of your spending. It could work harder in a goal, an FD or a liquid fund.`, '<a class="btn btn-sm" href="#goals">Put it in a goal</a>');
   for (const g of db.goals.filter((x) => !x.done)) { const lag = goalLag(g); if (lag && lag.behind > 500) add(`goal-${g.id}-${thisMonth()}`, 'neutral', 'fa-flag', `${g.name} is ${money(lag.behind)} behind plan.${lag.reason ? ` ${lag.reason}` : ''}`, `<button class="btn btn-sm" data-action="goal-add" data-id="${g.id}">Add money</button>`); }
   for (const w of db.wishlist.filter((x) => x.status === 'cooling' && x.coolUntil && x.coolUntil <= new Date().toISOString())) add(`cool-${w.id}`, 'good', 'fa-hourglass-end', `Your cool-off for "${w.name}" is over. Still want it?`, `<button class="btn btn-sm" data-action="cool-decide" data-id="${w.id}">Decide</button>`);
+  for (const p of insUpcoming(15)) add(`ins-${p.id}-${p.nextDue}`, insDaysLeft(p) < 0 ? 'bad' : 'neutral', 'fa-shield-halved', `${p.name} (${INS_TYPES[p.type]?.label || 'insurance'}${p.vehicle ? `, ${p.vehicle}` : ''}) premium of ${money(p.premium)} is ${insDaysLeft(p) < 0 ? 'overdue' : `due ${fmtDate(p.nextDue)}`}. Renew on time to stay covered.`, `<button class="btn btn-sm" data-action="ins-pay" data-id="${p.id}">Pay premium</button>`);
   if (typeof flatNudges === 'function') for (const n of flatNudges()) add(n.id, 'neutral', 'fa-house-user', n.text, '<a class="btn btn-sm" href="#flat">Open</a>');
   const salary = salaryToday();
   if (salary && (db.settings.salaryPlan || []).length && db.settings.salaryPlanApplied !== thisMonth()) add(`salary-${thisMonth()}`, 'good', 'fa-briefcase', `Salary of ${money(salary.amount)} arrived. Apply your salary-day plan?`, '<button class="btn btn-sm btn-primary" data-action="salary-apply">Apply plan</button>');
@@ -7387,14 +7427,21 @@ async function goldSpot(date) {
   const today = todayStr(), isToday = date >= today;
   const cache = readLS(GOLD_CACHE, {});
   const hit = cache[isToday ? today : date];
-  if (hit && (!isToday || Date.now() - hit.at < 6 * 3600e3)) return hit;
+  if (hit && (!isToday || Date.now() - hit.at < 12 * 3600e3)) return hit;
   let r = null;
-  const key = db.settings.goldApiKey;
+  const key = goldKey();
   if (key) {
-    try {
-      const res = await fetch(`https://www.goldapi.io/api/XAU/INR${isToday ? '' : `/${date.replace(/-/g, '')}`}`, { headers: { 'x-access-token': key } });
-      if (res.ok) { const j = await res.json(); if (num(j.price_gram_24k) > 0) r = { date: isToday ? today : date, g24: num(j.price_gram_24k), src: 'GoldAPI' }; }
-    } catch { /* fall through */ }
+    const d = date.replace(/-/g, '');
+    const urls = isToday ? ['https://www.goldapi.io/api/price/XAU/INR', 'https://www.goldapi.io/api/XAU/INR'] : [`https://www.goldapi.io/api/price/XAU/INR/${d}`, `https://www.goldapi.io/api/XAU/INR/${d}`];
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, { headers: { 'x-access-token': key, 'Content-Type': 'application/json' } });
+        if (!res.ok) continue;
+        const j = await res.json();
+        const g24 = num(j.price_gram_24k) || (num(j.price) > 0 ? num(j.price) / OZ : 0);
+        if (g24 > 0) { r = { date: isToday ? today : date, g24, src: 'GoldAPI' }; break; }
+      } catch { /* try the next */ }
+    }
   }
   if (!r) {
     try {
@@ -7416,7 +7463,7 @@ const goldDeduct = () => num(db.settings.goldDeduction ?? 0) / 100;
 async function refreshGold({ auto = false, onlyId = null } = {}) {
   const items = db.accounts.filter((a) => isGoldItem(a) && !a.archived && (!onlyId || a.id === onlyId));
   if (!items.length) return 0;
-  if (auto && !onlyId && (Date.now() - readLS(GOLD_RUN, 0)) / 3600e3 < 6) return 0;
+  if (auto && !onlyId && (Date.now() - readLS(GOLD_RUN, 0)) / 3600e3 < 12) return 0; // saves the free monthly quota
   const spot = await goldSpot(todayStr());
   if (!spot) { if (!auto) toast("Couldn't get today's gold rate. Add a free GoldAPI key in Portfolio → Gold → Rates, or set your city's rate.", 'error'); return 0; }
   const ops = [];
@@ -7514,7 +7561,7 @@ function openGoldRates() {
       ${field('That rate is for', select('purity', [['22K', '22K'], ['24K', '24K']], '22K'))}
       <hr class="border-line">
       ${twoCol(field('India premium when no city rate is set (%)', input('premium', s.goldPremium ?? 6, 'type="number" step="0.1" min="0" max="30"')), field('Buy-back deduction (%)', input('deduct', s.goldDeduction ?? 0, 'type="number" step="0.5" min="0" max="30"'), 'Jewellers often deduct a few % when buying back.'))}
-      ${field('GoldAPI key (optional, free)', input('key', s.goldApiKey || '', 'autocomplete="off" spellcheck="false" placeholder="goldapi-…"'), 'Sign up free at goldapi.io for past-date rates in rupees. Without it a free feed is tried, or type rates yourself.')}`,
+      ${field('Your own GoldAPI key (optional)', input('key', s.goldApiKey || '', 'autocomplete="off" spellcheck="false" placeholder="Built-in key in use"'), 'A built-in key is used by default. Its free monthly limit is shared by everyone using this app; add your own free key from goldapi.io if rates stop loading.')}`,
     submitLabel: 'Save',
     onSubmit: async (d) => {
       const ops = [opSettings({ goldPremium: num(d.premium), goldDeduction: num(d.deduct), goldApiKey: (d.key || '').trim() })];
@@ -7863,6 +7910,175 @@ function flatNudges() {
   return out;
 }
 
+/* ===== Insurance =====
+   Every policy in one place: health, term and life, car, bike, home, travel and others.
+   For each: insurer, policy number, who or what is covered (vehicle number for motor),
+   sum insured / cover, premium and how often, next due date, end date, nominee, contact,
+   and claims. "Pay premium" records the expense (category Insurance) and moves the due
+   date on; "Record it automatically" does that on the due date. Renewals show in Due soon,
+   the calendar and suggestions. Health premiums count towards Section 126 (old 80D) and
+   life / term premiums towards Section 123 (old 80C) in the tax estimate. */
+const INS_TYPES = {
+  health: { label: 'Health', icon: 'fa-heart-pulse', color: '#E0306E' },
+  term:   { label: 'Term life', icon: 'fa-umbrella', color: '#0A6FB0' },
+  life:   { label: 'Life / endowment', icon: 'fa-shield-heart', color: '#6D28D9' },
+  car:    { label: 'Car', icon: 'fa-car', color: '#0F766E' },
+  bike:   { label: 'Bike', icon: 'fa-motorcycle', color: '#B45309' },
+  home:   { label: 'Home', icon: 'fa-house-chimney', color: '#7C3AED' },
+  travel: { label: 'Travel', icon: 'fa-plane', color: '#0284C7' },
+  other:  { label: 'Other', icon: 'fa-file-shield', color: '#475569' },
+};
+const INS_FREQ = [['yearly', 'Every year'], ['half_yearly', 'Every 6 months'], ['quarterly', 'Every 3 months'], ['monthly', 'Every month'], ['single', 'One time']];
+const insPerYear = (p) => ({ yearly: 1, half_yearly: 2, quarterly: 4, monthly: 12, single: 0 }[p.frequency] ?? 1) * num(p.premium);
+const insDaysLeft = (p) => (p.nextDue ? Math.round((parseDate(p.nextDue) - parseDate(todayStr())) / 864e5) : null);
+function insStatus(p) {
+  if (p.endDate && p.endDate < todayStr()) return { cls: 'out', text: 'Expired' };
+  const d = insDaysLeft(p);
+  if (d === null || p.frequency === 'single') return { cls: 'in', text: 'Active' };
+  if (d < 0) return { cls: 'out', text: `Overdue ${-d} day${d === -1 ? '' : 's'}` };
+  if (d <= 30) return { cls: 'due', text: d === 0 ? 'Due today' : `Due in ${d} day${d === 1 ? '' : 's'}` };
+  return { cls: 'in', text: 'Active' };
+}
+function insSummary() {
+  const live = db.insurance.filter((p) => p.active !== false && !(p.endDate && p.endDate < todayStr()));
+  const health = live.filter((p) => p.type === 'health').reduce((s, p) => s + num(p.cover), 0);
+  const life = live.filter((p) => p.type === 'term' || p.type === 'life').reduce((s, p) => s + num(p.cover), 0);
+  const yearly = live.reduce((s, p) => s + insPerYear(p), 0);
+  const income = monthlyAverages(6).income * 12;
+  const next = live.filter((p) => p.nextDue && p.frequency !== 'single').sort((a, b) => a.nextDue.localeCompare(b.nextDue))[0];
+  return { live, health, life, yearly, income, next };
+}
+function renderInsurance() {
+  const S = insSummary();
+  const types = Object.keys(INS_TYPES).filter((t) => db.insurance.some((p) => p.type === t));
+  const tips = [];
+  if (!S.live.some((p) => p.type === 'health')) tips.push('No health insurance yet. A hospital stay can cost lakhs; even a basic family floater helps.');
+  if (S.income > 0 && S.life < S.income * 10) tips.push(`Life cover is ${money(S.life)}. A common rule of thumb is 10 to 15 times yearly income (about ${money(Math.round(S.income * 10))}+), if others depend on you.`);
+  return `
+    <div class="page-top"><p class="page-intro">All your policies, renewals and claims in one place. Premiums you pay are added to your spending and to the tax estimate.</p>
+      <button class="btn btn-primary" data-action="ins-add"><i class="fa-solid fa-plus"></i> Add policy</button></div>
+    <section class="hero p-5 sm:p-7">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-5">
+        <div><div class="hero-dim text-sm">Health cover</div><div class="display text-3xl font-semibold num">${money(S.health)}</div></div>
+        <div><div class="hero-dim text-sm">Life cover</div><div class="display text-3xl font-semibold num">${money(S.life)}</div></div>
+        <div><div class="hero-dim text-sm">Premiums a year</div><div class="display text-3xl font-semibold num">${money(Math.round(S.yearly))}</div><div class="hero-dim text-xs">${S.live.length} active polic${S.live.length === 1 ? 'y' : 'ies'}</div></div>
+        <div><div class="hero-dim text-sm">Next renewal</div><div class="display text-xl font-semibold">${S.next ? esc(S.next.name) : '–'}</div><div class="hero-dim text-xs">${S.next ? `${fmtDate(S.next.nextDue)} · ${money(S.next.premium)}` : ''}</div></div>
+      </div>
+    </section>
+    ${tips.length ? `<div class="mt-5 space-y-2">${tips.map((t) => `<div class="nudge-card neutral"><i class="fa-solid fa-lightbulb"></i><div class="text-sm flex-1">${esc(t)}</div></div>`).join('')}</div>` : ''}
+    ${types.length ? types.map((t) => `<section class="panel p-5 mt-6"><div class="panel-head"><h2 class="panel-title"><i class="fa-solid ${INS_TYPES[t].icon} mr-1.5" style="color:${INS_TYPES[t].color}"></i>${INS_TYPES[t].label}</h2></div>
+        <div class="divider">${db.insurance.filter((p) => p.type === t).sort((a, b) => (a.nextDue || '9').localeCompare(b.nextDue || '9')).map(insRow).join('')}</div></section>`).join('')
+      : `<section class="panel mt-6">${emptyState('fa-shield-halved', 'No policies yet. Add your health, term, car or bike insurance to get renewal reminders.', '<button class="btn btn-primary" data-action="ins-add">Add your first policy</button>')}</section>`}`;
+}
+function insRow(p) {
+  const st = insStatus(p), T = INS_TYPES[p.type] || INS_TYPES.other;
+  return `<div class="row ${p.active === false ? 'opacity-60' : ''}"><span class="goal-icon sm" style="background:${T.color}"><i class="fa-solid ${T.icon}"></i></span>
+    <div class="flex-1 min-w-0"><div class="font-medium">${esc(p.name)} ${p.vehicle ? `<span class="pill">${esc(p.vehicle)}</span>` : ''}</div>
+      <div class="text-xs text-ink-3">${esc([p.insurer, p.policyNo && `No. ${p.policyNo}`, p.insured && `covers ${p.insured}`].filter(Boolean).join(' · '))}</div>
+      <div class="text-xs text-ink-2 mt-0.5">${num(p.cover) ? `Cover ${money(p.cover)} · ` : ''}${money(p.premium)} ${INS_FREQ.find(([k]) => k === p.frequency)?.[1].toLowerCase() || ''}${p.nextDue && p.frequency !== 'single' ? ` · next ${fmtDate(p.nextDue)}` : ''}${p.endDate ? ` · ends ${fmtDate(p.endDate)}` : ''}${(p.claims || []).length ? ` · ${p.claims.length} claim${p.claims.length === 1 ? '' : 's'}` : ''}</div></div>
+    <span class="pill ${st.cls}">${st.text}</span>
+    <div class="row-actions">${p.frequency !== 'single' ? `<button class="icon-btn sm" data-action="ins-pay" data-id="${p.id}" title="Pay premium" aria-label="Pay premium"><i class="fa-solid fa-check"></i></button>` : ''}
+      <button class="icon-btn sm" data-action="ins-claim" data-id="${p.id}" title="Claims" aria-label="Claims"><i class="fa-solid fa-file-medical"></i></button>
+      <button class="icon-btn sm" data-action="ins-edit" data-id="${p.id}" title="Edit" aria-label="Edit"><i class="fa-regular fa-pen-to-square"></i></button></div></div>`;
+}
+function openInsForm(existing) {
+  const isNew = !existing;
+  const p = existing ? { ...existing } : { type: 'health', frequency: 'yearly', nextDue: addMonths(todayStr(), 12), active: true, autoLog: false };
+  openModal({
+    title: isNew ? 'Add a policy' : `Edit ${p.name}`,
+    wide: true,
+    body: `<div><span class="lbl">Type</span><div class="type-grid ins-grid">${Object.entries(INS_TYPES).map(([k, t]) => `<input type="radio" name="type" id="it_${k}" value="${k}" ${p.type === k ? 'checked' : ''}><label for="it_${k}"><i class="fa-solid ${t.icon}"></i><span>${t.label}</span></label>`).join('')}</div></div>
+      ${twoCol(field('Policy name', input('name', p.name, 'required maxlength="60" placeholder="e.g. Family health floater, Activa insurance"')), field('Insurer', input('insurer', p.insurer, 'maxlength="60" placeholder="e.g. Star Health, HDFC Ergo, LIC"')))}
+      ${twoCol(field('Policy number (optional)', input('policyNo', p.policyNo, 'maxlength="40"')), field('Who is covered (optional)', input('insured', p.insured, 'maxlength="80" placeholder="e.g. Me, Mom, Dad"')))}
+      <div data-vehicle>${field('Vehicle number', input('vehicle', p.vehicle, 'maxlength="15" placeholder="e.g. MH12AB1234" autocapitalize="characters"'))}</div>
+      ${twoCol(field('Sum insured / cover (₹)', moneyInput('cover', p.cover ?? '', 'min="0"'), 'For a car or bike, the IDV.'), field('Premium (₹)', moneyInput('premium', p.premium ?? '', 'required min="0"')))}
+      ${twoCol(field('How often', select('frequency', INS_FREQ, p.frequency)), field('Next premium due', input('nextDue', p.nextDue || '', 'type="date"')))}
+      ${twoCol(field('Policy start (optional)', input('startDate', p.startDate || '', 'type="date"')), field('Policy ends (optional)', input('endDate', p.endDate || '', 'type="date"'), 'Maturity, or the end of the term.'))}
+      ${twoCol(field('Pay premium from', accountSelect('accountId', p.accountId || firstAccountOf(['bank', 'credit_card']), { types: MONEY_TYPES })), field('Nominee (optional)', input('nominee', p.nominee, 'maxlength="60"')))}
+      ${field('Agent / helpline (optional)', input('contact', p.contact, 'maxlength="80" placeholder="Name and phone, or the claims helpline"'))}
+      ${checkbox('autoLog', !!p.autoLog, 'Record the premium automatically on the due date', 'Adds it as an Insurance expense and moves the due date on.')}
+      ${isNew ? '' : checkbox('active', p.active !== false, 'Policy is active', 'Untick if you stopped or sold it; it stays in the list.')}
+      ${field('Notes (optional)', textarea('notes', p.notes, 'rows="2" placeholder="Room rent limit, waiting periods, add-ons…"'))}`,
+    submitLabel: isNew ? 'Add policy' : 'Save',
+    onOpen: (form) => {
+      const upd = () => { $('[data-vehicle]', form).hidden = !['car', 'bike'].includes(form.elements.type.value); };
+      form.addEventListener('change', upd, { signal: modalSignal() }); upd();
+    },
+    onSubmit: (d) => {
+      const rec = { ...(existing || {}), id: existing?.id || uid('ins'), type: d.type, name: d.name.trim(), insurer: d.insurer || '', policyNo: d.policyNo || '', insured: d.insured || '', vehicle: ['car', 'bike'].includes(d.type) ? (d.vehicle || '').toUpperCase() : '',
+        cover: num(d.cover) || 0, premium: round2(num(d.premium)), frequency: d.frequency, nextDue: d.nextDue || '', startDate: d.startDate || '', endDate: d.endDate || '', accountId: d.accountId || '', nominee: d.nominee || '', contact: d.contact || '',
+        autoLog: !!d.autoLog, active: isNew ? true : !!d.active, notes: d.notes || '', claims: existing?.claims || [] };
+      commit([opUpsert('insurance', rec)], `${isNew ? 'Add' : 'Edit'} policy ${rec.name}`);
+      toast(isNew ? 'Policy added. You will be reminded before it is due.' : 'Saved', 'success');
+    },
+    onDelete: existing ? () => { if (!confirm(`Delete ${p.name}? Premiums already recorded stay in your transactions.`)) return false; commit([opDelete('insurance', p.id)], `Delete policy ${p.name}`); } : null,
+  });
+}
+const insPremiumTxn = (p, date, amount, accountId) => ({ id: uid('txn'), date, type: 'expense', amount: round2(amount), category: 'Insurance', description: `${p.name} premium`, fromAccountId: accountId, toAccountId: '', relatedType: 'insurance', relatedId: p.id, insType: p.type, notes: p.insurer ? `${p.insurer}${p.policyNo ? `, policy ${p.policyNo}` : ''}` : '' });
+const insNextDue = (p, from) => (p.frequency === 'single' ? '' : advanceDate(from || p.nextDue || todayStr(), p.frequency === 'half_yearly' ? 'half_yearly' : p.frequency));
+function openInsPay(id) {
+  const p = db.insurance.find((x) => x.id === id); if (!p) return;
+  openModal({
+    title: `Pay premium · ${p.name}`,
+    body: `${twoCol(field('Amount', moneyInput('amount', p.premium, 'required min="1"')), field('Date paid', input('date', todayStr(), 'type="date" required')))}
+      ${field('Paid from', accountSelect('accountId', p.accountId || firstAccountOf(['bank', 'credit_card']), { types: MONEY_TYPES }))}
+      <p class="hint">Next due date moves to ${fmtDate(insNextDue(p))}.</p>`,
+    submitLabel: 'Record payment',
+    onSubmit: (d) => {
+      commit([opUpsert('transactions', insPremiumTxn(p, d.date, num(d.amount), d.accountId)), opUpsert('insurance', { ...p, nextDue: insNextDue(p), accountId: d.accountId, lastPaid: d.date })], `Premium ${p.name}`);
+      toast('Premium recorded.', 'success');
+    },
+  });
+}
+function openInsClaims(id) {
+  const p = db.insurance.find((x) => x.id === id); if (!p) return;
+  const list = (p.claims || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+  openModal({
+    title: `Claims · ${p.name}`,
+    body: `${list.length ? `<div class="divider">${list.map((c, i) => `<div class="row text-sm"><div class="flex-1 min-w-0"><b>${esc(c.note || 'Claim')}</b><div class="text-xs text-ink-3">${fmtDate(c.date)}${c.ref ? ` · ref ${esc(c.ref)}` : ''}</div></div>
+        <div class="text-right"><div class="num">${money(c.amount)}</div>${c.settled ? `<div class="text-xs num text-gain">settled ${money(c.settled)}</div>` : ''}</div><span class="pill ${c.status === 'Settled' ? 'in' : c.status === 'Rejected' ? 'out' : 'due'}">${esc(c.status)}</span>
+        <button type="button" class="icon-btn sm" data-action="ins-claim-del" data-id="${p.id}" data-i="${(p.claims || []).indexOf(c)}" aria-label="Remove claim"><i class="fa-regular fa-trash-can"></i></button></div>`).join('')}</div>` : '<p class="text-sm text-ink-3">No claims yet.</p>'}
+      <hr class="border-line"><h3 class="font-semibold">Add a claim</h3>
+      ${twoCol(field('What for', input('note', '', 'maxlength="80" placeholder="e.g. Hospital stay, accident repair"')), field('Date', input('date', todayStr(), 'type="date"')))}
+      ${twoCol(field('Amount claimed', moneyInput('amount', '', 'min="0"')), field('Status', select('status', ['Filed', 'In process', 'Settled', 'Rejected'], 'Filed')))}
+      ${twoCol(field('Amount settled (optional)', moneyInput('settled', '', 'min="0"')), field('Claim reference (optional)', input('ref', '', 'maxlength="40"')))}`,
+    submitLabel: 'Save claim',
+    onSubmit: (d) => {
+      if (!num(d.amount) && !d.note) return;
+      commit([opUpsert('insurance', { ...p, claims: [...(p.claims || []), { date: d.date, note: d.note || '', amount: num(d.amount), status: d.status, settled: num(d.settled) || 0, ref: d.ref || '' }] })], `Claim on ${p.name}`);
+      toast('Claim saved.', 'success');
+    },
+  });
+}
+/** On app start: record premiums that are due and set to record themselves. */
+function processInsuranceAuto() {
+  const ops = [], today = todayStr();
+  for (const p of db.insurance.filter((x) => x.autoLog && x.active !== false && x.nextDue && x.frequency !== 'single')) {
+    let due = p.nextDue, guard = 0, cur = p;
+    while (due && due <= today && guard++ < 24 && !(p.endDate && due > p.endDate)) {
+      ops.push(opUpsert('transactions', { ...insPremiumTxn(cur, due, cur.premium, cur.accountId), id: `txn_ins_${p.id}_${due}` }));
+      due = insNextDue(cur, due); cur = { ...cur, nextDue: due };
+    }
+    if (due !== p.nextDue) ops.push(opUpsert('insurance', { ...p, nextDue: due }));
+  }
+  if (ops.length) commit(ops, 'Insurance premiums due');
+}
+/** Renewals for Due soon, the calendar and suggestions. */
+function insUpcoming(days = 30) {
+  const end = addDays(todayStr(), days);
+  return db.insurance.filter((p) => p.active !== false && p.nextDue && p.frequency !== 'single' && p.nextDue <= end && !(p.endDate && p.endDate < todayStr()));
+}
+
+/* ===== Taxes in transactions and recurring ===== */
+const TAX_KINDS = ['Advance tax', 'Self-assessment tax', 'TDS', 'Property tax', 'Professional tax', 'Road tax', 'GST', 'Other tax'];
+const INCOME_TAX_KINDS = ['Advance tax', 'Self-assessment tax', 'TDS'];
+function taxesPaid(fy) {
+  const r = fyRange(fy);
+  const list = db.transactions.filter((t) => t.taxKind && (t.taxFy ? t.taxFy === fy : t.date >= r.from && t.date <= r.to));
+  const by = {}; for (const t of list) by[t.taxKind] = (by[t.taxKind] || 0) + num(t.amount);
+  return { list, by, incomeTax: INCOME_TAX_KINDS.reduce((s, k) => s + (by[k] || 0), 0), other: Object.entries(by).filter(([k]) => !INCOME_TAX_KINDS.includes(k)).reduce((s, [, v]) => s + v, 0) };
+}
+
 /* ---------------------------------------------------------------------
    9. FORMS & ACTIONS
    --------------------------------------------------------------------- */
@@ -7906,7 +8122,8 @@ function openTxnForm(existing, preset = {}) {
   const incCats = uniq([...db.settings.incomeCategories, t.type === 'income' ? t.category : '']);
   const defFrom = t.fromAccountId || (t.type === 'transfer' ? firstAccountOf(['bank']) : lastOk) || firstAccountOf(['cash', 'bank', 'credit_card']);
   const defTo = t.toAccountId || firstAccountOf(['bank', 'cash']);
-  const types = [['expense', 'Expense'], ['income', 'Income'], ['transfer', 'Transfer']];
+  const types = [['expense', 'Expense'], ['income', 'Income'], ['transfer', 'Transfer'], ['tax', 'Tax']];
+  if (t.taxKind || (preset.type === 'tax' && !existing)) t.type = 'tax';
 
   const body = `
     <div class="seg" role="radiogroup" aria-label="Transaction type">
@@ -7927,6 +8144,9 @@ function openTxnForm(existing, preset = {}) {
       field('From', accountSelect('fromAccountId', t.type === 'transfer' ? t.fromAccountId || defFrom : firstAccountOf(['bank']))),
       field('To', accountSelect('toAccountId', t.type === 'transfer' ? t.toAccountId : ''))) +
       '<p class="hint">Use a transfer for ATM withdrawals, paying a credit card bill, or moving money into an FD or SIP. Transfers are not counted as income or spending.</p>')}
+    ${showFor('tax', twoCol(field('Tax', select('taxKind', TAX_KINDS, t.taxKind || 'Advance tax')), field('Paid from', accountSelect('fromAccountId', t.fromAccountId || firstAccountOf(['bank']), { types: MONEY_TYPES })))
+      + twoCol(field('For financial year', select('taxFy', [fyOf(addMonths(todayStr(), -12)), fyOf(todayStr()), fyOf(addMonths(todayStr(), 12))].filter((v, i, a) => a.indexOf(v) === i).map((f) => [f, `FY ${f}`]), t.taxFy || fyOf(t.date || todayStr()))), field('Challan / reference (optional)', input('taxRef', t.taxRef || '', 'maxlength="40" placeholder="e.g. BSR code and challan no."')))
+      + '<p class="hint">Income tax payments (advance, self-assessment, TDS) are matched against your estimated tax in Planners → Tax estimate.</p>')}
     ${field('Description', input('description', t.description, 'placeholder="What was it for?" maxlength="140"'))}
     ${field('Notes (optional)', textarea('notes', t.notes, 'rows="2"'))}
     ${existing?.relatedType === 'emi' ? '<p class="callout">This payment belongs to an EMI. Deleting it does not change the EMI\'s paid count; edit the EMI for that.</p>' : ''}`;
@@ -7988,6 +8208,8 @@ function openTxnForm(existing, preset = {}) {
         notes: d.notes || '',
       };
       delete rec.claimPersonId;
+      if (d.type === 'tax') Object.assign(rec, { type: 'expense', category: 'Taxes', toAccountId: '', taxKind: d.taxKind, taxFy: d.taxFy, taxRef: d.taxRef || '', description: d.description || d.taxKind });
+      else { delete rec.taxKind; delete rec.taxFy; delete rec.taxRef; }
       if (claimTo) Object.assign(rec, { type: 'transfer', toAccountId: claimTo, forHome: true, homeSettled: existing?.homeSettled || false });
       else { delete rec.forHome; delete rec.homeSettled; }
       // Units bought/sold were worked out from the old amount or date; let the next price refresh redo them.
@@ -8320,13 +8542,14 @@ function openSubForm(existing) {
   const incCats = uniq([...db.settings.incomeCategories, recurKind(s) === 'income' ? s.category : '']);
   const body = `
     <div class="seg" role="radiogroup" aria-label="Kind">
-      ${[['subscription', 'Subscription'], ['bill', 'Bill (rent etc.)'], ['income', 'Income (salary etc.)']].map(([v, l]) => `<input type="radio" name="kind" id="rk_${v}" value="${v}" ${recurKind(s) === v ? 'checked' : ''}><label for="rk_${v}">${l}</label>`).join('')}
+      ${[['subscription', 'Subscription'], ['bill', 'Bill (rent etc.)'], ['tax', 'Tax'], ['income', 'Income (salary etc.)']].map(([v, l]) => `<input type="radio" name="kind" id="rk_${v}" value="${v}" ${recurKind(s) === v ? 'checked' : ''}><label for="rk_${v}">${l}</label>`).join('')}
     </div>
     ${field('Name', input('name', s.name, 'required maxlength="80" placeholder="e.g. Netflix, Flat rent, Salary"'))}
     ${twoCol(field('Amount', moneyInput('amount', s.amount, 'required min="0.01"')), field('How often', select('frequency', Object.entries(FREQUENCIES).map(([k, v]) => [k, v.label]), s.frequency)))}
     ${twoCol(field('Next date', input('nextRenewal', s.nextRenewal, 'type="date" required')),
       showFor('subscription bill', field('Category', select('category', expCats, recurKind(s) !== 'income' ? s.category : 'Rent'))) + showFor('income', field('Source', select('category', incCats, recurKind(s) === 'income' ? s.category : 'Salary'))))}
-    ${showFor('subscription bill', field('Paid from', accountSelect('accountId', s.accountId || firstAccountOf(['credit_card', 'bank']), { types: MONEY_TYPES })))}
+    ${showFor('tax', field('Tax', select('taxKind', TAX_KINDS, s.taxKind || 'Property tax'), 'Advance tax is due quarterly (15 Jun, 15 Sep, 15 Dec, 15 Mar); property and road tax usually yearly.'))}
+    ${showFor('subscription bill tax', field('Paid from', accountSelect('accountId', s.accountId || firstAccountOf(['credit_card', 'bank']), { types: MONEY_TYPES })))}
     ${showFor('income', field('Received in', accountSelect('accountId', s.accountId || firstAccountOf(['bank']), { types: ['bank', 'cash'] })))}
     ${checkbox('autoLog', s.autoLog, 'Record it automatically on the date', 'The app adds it to your transactions when you open the app on or after the date.')}
     ${isNew ? '' : checkbox('active', s.active, 'Active', 'Untick to pause without deleting.')}
@@ -8343,6 +8566,8 @@ function openSubForm(existing) {
         category: d.category, accountId: d.accountId, active: isNew ? true : !!d.active,
         autoLog: !!d.autoLog, notes: d.notes || '',
       };
+      if (d.kind === 'tax') Object.assign(rec, { category: 'Taxes', taxKind: d.taxKind });
+      else delete rec.taxKind;
       commit([opUpsert('subscriptions', rec)], `${isNew ? 'Add' : 'Edit'} subscription ${rec.name}`);
       toast(isNew ? `${rec.name} added` : 'Saved', 'success');
       if (rec.autoLog) setTimeout(processAutoPayments, 50);
@@ -8692,7 +8917,7 @@ function openSettings() {
       ${twoCol(field('Your name', input('ownerName', s.ownerName, 'maxlength="30" placeholder="Kundan"'), 'Shown in the app heading and greeting.'),
         field('Currency', select('currency', Object.keys(CURRENCIES), s.currency)))}
       ${checkbox('autoPrices', s.autoPrices !== false, 'Update fund and stock prices when the app opens', 'Mutual fund NAVs come from MFapi.in (free, AMFI data). Checked at most every 3 hours.')}
-      ${field('Stock price key (optional)', input('stockApiKey', s.stockApiKey, 'autocomplete="off" spellcheck="false" placeholder="Alpha Vantage free key"'), 'Only needed for live stock and ETF prices. Get a free key at alphavantage.co (25 price checks a day).')}
+      ${field('Stock price key (optional)', input('stockApiKey', s.stockApiKey, 'autocomplete="off" spellcheck="false" placeholder="Built-in key in use · optional own Alpha Vantage free key"'), 'Only needed for live stock and ETF prices. Get a free key at alphavantage.co (25 price checks a day).')}
       ${Object.keys(s.colors || {}).length ? `<p class="text-sm">You have picked your own colours for ${Object.keys(s.colors).length} chart item(s). <button type="button" class="link" data-action="reset-colors">Reset chart colours</button></p>` : ''}
       ${twoCol(field('Units are allotted at the NAV of', select('navLagDays', [['0', 'The same day'], ['1', '1 working day later'], ['2', '2 working days later'], ['3', '3 working days later']], String(s.navLagDays ?? 1)), 'Default for lump sums and new SIPs. Each SIP can have its own.'),
         '<div class="pt-6">' + checkbox('stampDuty', s.stampDuty !== false, 'Deduct 0.005% stamp duty', 'Mutual fund purchases in India lose 0.005% to stamp duty, so a few fewer units are allotted.') + '</div>')}
@@ -8885,6 +9110,11 @@ const ACTIONS = {
   'dash-customize': () => openDashCustomize(),
   'make-login': () => openMakeLogin(),
   'gold-add': () => openGoldForm(null),
+  'ins-add': () => openInsForm(null),
+  'ins-edit': (d) => openInsForm(db.insurance.find((x) => x.id === d.id)),
+  'ins-pay': (d) => openInsPay(d.id),
+  'ins-claim': (d) => openInsClaims(d.id),
+  'ins-claim-del': (d) => { const p = db.insurance.find((x) => x.id === d.id); if (!p) return; const c = (p.claims || []).slice(); c.splice(int(d.i), 1); commit([opUpsert('insurance', { ...p, claims: c })], 'Remove claim'); closeModal(); openInsClaims(p.id); },
   'flat-new': () => openHomeForm(null),
   'flat-edit': () => openHomeForm(flats.homes[flats.current]),
   'flat-switch': (d) => { flats.current = d.id; flats.month = ''; render(); },
@@ -9070,6 +9300,7 @@ function init() {
   const afterStart = () => {
     processAutoPayments();
     learnFromEntriesOnce(); // turn your existing entries into remembered import choices (first run only)
+    processInsuranceAuto(); // insurance premiums set to record themselves
     notifyOnStart(); // custom notifications: first-run setup and keeping the phone schedule up to date
     // Units for SIP instalments whose NAV is out, then (if due) fresh prices.
     setTimeout(async () => { await autoAllotUnits(); refreshPrices({ auto: true }); }, 300);

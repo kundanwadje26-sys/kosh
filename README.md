@@ -272,6 +272,27 @@ Family and friends can use the same app and the **same GitHub repository**, each
 
 **Privacy, honestly:** GitHub tokens can't be limited to one file, so anyone with a token for this repository could technically open every file in it, and you, as the account owner, can see everything. Use this for family and close friends you trust. The Play Store version will give each person truly private data.
 
+### Insurance (menu → Insurance)
+
+Every policy in one place: **health, term life, life/endowment, car, bike, home, travel** and others.
+
+- **Add policy:** type, name, insurer, policy number, who is covered (vehicle number for car or bike), sum insured / cover (IDV for vehicles), premium and how often, next due date, start and end dates, the account you pay from, nominee, agent or helpline, and notes.
+- **Pay premium** records it as an *Insurance* expense and moves the next due date on. Tick **Record the premium automatically** to have it done on the due date.
+- **Renewals** appear in Due soon, the Calendar, the phone notification "Payments coming up", and as a suggestion 15 days before. Status shows Active, Due in N days, Overdue or Expired.
+- **Claims:** log each claim with amount, status (filed, in process, settled, rejected), settled amount and reference.
+- **Summary:** total health cover, total life cover, premiums a year, next renewal; plus a nudge if there's no health cover, or if life cover is below the 10–15× yearly income rule of thumb.
+- **Tax:** health premiums you pay count towards Section 126 (old 80D) and term or life premiums towards Section 123 (old 80C) in the tax estimate automatically.
+
+### Taxes
+
+- **Add transaction → Tax:** pick the tax (advance tax, self-assessment tax, TDS, property tax, professional tax, road tax, GST, other), the financial year it's for, the account and an optional challan reference. It's saved as an expense in the *Taxes* category.
+- **Recurring → Taxes:** add repeating taxes like quarterly advance tax (15 Jun, 15 Sep, 15 Dec, 15 Mar), yearly property tax or road tax; they can record themselves on the date.
+- **Planners → Tax estimate** now shows income tax paid this year (advance, self-assessment, TDS) against the estimate, and what may still be due or come back as a refund.
+
+### Net worth switches
+
+With **Card dues** switched off, net worth now leaves out everything on credit cards: the bill outstanding, **card EMIs still to pay**, and any credit balance on a card. (Before, card EMIs were still subtracted.) The big figure shows whole rupees.
+
 ### Gold ornaments (Portfolio → Add gold)
 
 Record each ornament: name, purity (24K, 22K, 18K or 14K), weight in grams, date bought, and optionally the city, the rate you paid per gram, making charges, the total bill, and whether 3% GST was included.
@@ -279,7 +300,7 @@ Record each ornament: name, purity (24K, 22K, 18K or 14K), weight in grams, date
 - **Invested amount:** the bill if you enter it; otherwise weight × the rate for that purity on the purchase date (your rate, or looked up), plus making charges, plus 3% GST if ticked.
 - **Value today:** weight × today's rate for that purity in that city, updated with **Refresh prices** (and when the app opens). Making charges and GST aren't recovered when you sell, so value is the gold itself; set a buy-back deduction in **Gold → Rates** if your jeweller deducts some %.
 - **Gold summary:** total weight by purity, pure-gold (24K) equivalent, invested, value today and profit.
-- **Where rates come from:** with a free **GoldAPI.io** key (Gold → Rates) the app gets today's and past-date gold prices in rupees; without one it tries a free exchange-rate feed; you can always type the rate. These are world prices, so an India premium is added (6% by default, for import duty and local premium). For the best accuracy, enter **today's rate from a jeweller in your city** once (Gold → Rates): the app works out that city's premium and uses it for ornaments bought there.
+- **Where rates come from:** a GoldAPI.io key is built in (you can add your own in Gold → Rates if its free monthly limit runs out). With it the app gets today's and past-date gold prices in rupees; without one it tries a free exchange-rate feed; you can always type the rate. These are world prices, so an India premium is added (6% by default, for import duty and local premium). For the best accuracy, enter **today's rate from a jeweller in your city** once (Gold → Rates): the app works out that city's premium and uses it for ornaments bought there.
 - **Show only…:** chips above the portfolio totals (All, Mutual funds, Stocks & ETFs, Gold, Deposits…) pick what the totals and the holdings list include; pick several to combine them.
 
 ### Shared flat (menu → Shared flat)
@@ -567,7 +588,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 
 ## Part 10 — What changed in this version
 
-**Newest:** gold ornaments with automatic rates and city prices, portfolio toggles, and the Shared flat tracker for flatmates. Before that: private logins (own repository per person, sign in with username and password). Before that: several people on one repository (own data files, linked splits and settle-ups, family portfolio). Before that: investments shown as money out, a better investing score, Coin-style instalment cards with XIRR, editable allotment dates. Before that: a calmer layout (grouped menu, customisable dashboard), Split bills as its own page, a single total cash-flow forecast, bank colour tiles. Before that: Money health (score, runway, cash-flow forecast, fun money, credit health, idle cash, lifestyle creep, suggestions), Planners (financial freedom, loan prepayment, capital gains, Regular vs Direct, salary-day plan, year in review), bill splitting and the cool-off list. Before that: a phone-friendly layout (bottom bar, quick add, day-grouped transactions, labelled buttons, cards instead of wide tables). Before that: a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
+**Newest:** Insurance page, tax payments and recurring taxes, a net-worth fix for card EMIs, and built-in GoldAPI and Alpha Vantage keys. Before that: gold ornaments with automatic rates and city prices, portfolio toggles, and the Shared flat tracker for flatmates. Before that: private logins (own repository per person, sign in with username and password). Before that: several people on one repository (own data files, linked splits and settle-ups, family portfolio). Before that: investments shown as money out, a better investing score, Coin-style instalment cards with XIRR, editable allotment dates. Before that: a calmer layout (grouped menu, customisable dashboard), Split bills as its own page, a single total cash-flow forecast, bank colour tiles. Before that: Money health (score, runway, cash-flow forecast, fun money, credit health, idle cash, lifestyle creep, suggestions), Planners (financial freedom, loan prepayment, capital gains, Regular vs Direct, salary-day plan, year in review), bill splitting and the cool-off list. Before that: a phone-friendly layout (bottom bar, quick add, day-grouped transactions, labelled buttons, cards instead of wide tables). Before that: a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
 
 **Before that:** statement import reads account and card numbers (including short `xx50` card numbers), has a *Read it from the statement* option, turns payments to your own account numbers into self transfers, matches payments across PhonePe and bank statements by UTR (and can correct the account), and remembers your categories and account numbers permanently, including after you delete transactions or edit a category.
 
