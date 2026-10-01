@@ -1168,6 +1168,7 @@ function txnRow(t, withActions = true) {
   if (t.type === 'expense') { amountHtml = `<span class="text-loss">−${money(amt)}</span>`; flow = accountName(t.fromAccountId); }
   else if (t.type === 'income') { amountHtml = `<span class="text-gain">+${money(amt)}</span>`; flow = accountName(t.toAccountId); }
   else if (t.forHome) { amountHtml = `<span style="color:var(--violet)">−${money(amt)}</span>`; flow = `${accountName(t.fromAccountId)}, ${t.homeSettled ? 'taken back from' : 'to take back from'} ${accountName(t.toAccountId)}`; }
+  else if (t.type === 'transfer' && isInvestmentOutflow(t)) { amountHtml = `<span class="inv-amt">−${money(amt)}</span>`; flow = `${accountName(t.fromAccountId)} to ${accountName(t.toAccountId)}`; }
   else if (t.type === 'transfer') { amountHtml = money(amt); flow = `${accountName(t.fromAccountId)} to ${accountName(t.toAccountId)}`; }
   else { const up = !!t.toAccountId; amountHtml = `<span class="${up ? 'text-gain' : 'text-loss'}">${up ? '+' : '−'}${money(amt)}</span>`; flow = accountName(t.toAccountId || t.fromAccountId); }
   return `<div class="row txn-row" data-action="edit-txn" data-id="${t.id}" role="button" tabindex="0" aria-label="Edit ${esc(t.description || t.category || kind.label)}">
@@ -1588,7 +1589,7 @@ function filteredTxns() {
   const q = txFilter.q.toLowerCase();
   return sortTxns(db.transactions).filter((t) =>
     (!txFilter.month || (t.date || '').startsWith(txFilter.month)) &&
-    (!txFilter.type || t.type === txFilter.type) &&
+    (!txFilter.type || (txFilter.type === 'invest' ? isInvestmentOutflow(t) : t.type === txFilter.type)) &&
     (!txFilter.account || t.fromAccountId === txFilter.account || t.toAccountId === txFilter.account) &&
     (!txFilter.category || t.category === txFilter.category) &&
     (!q || [t.description, t.category, t.notes, accountName(t.fromAccountId), accountName(t.toAccountId), t.amount]
@@ -1615,7 +1616,7 @@ function renderTransactions() {
       <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-5">
         <input type="search" class="inp text-sm col-span-2 md:col-span-1" placeholder="Search" data-filter="q" value="${esc(txFilter.q)}" aria-label="Search transactions">
         ${monthSelect('month', txFilter.month, true).replace('!w-auto !py-1.5 ', '')}
-        ${filterSel('type', [['', 'All types'], ['expense', 'Expenses'], ['income', 'Income'], ['transfer', 'Transfers'], ['adjustment', 'Balance updates']], txFilter.type, 'Type')}
+        ${filterSel('type', [['', 'All types'], ['expense', 'Expenses'], ['income', 'Income'], ['invest', 'Investments'], ['transfer', 'Transfers'], ['adjustment', 'Balance updates']], txFilter.type, 'Type')}
         ${filterSel('account', [['', 'All accounts'], ...db.accounts.map((a) => [a.id, a.name])], txFilter.account, 'Account')}
         ${filterSel('category', [['', 'All categories'], ...allCategories().map((c) => [c, c])], txFilter.category, 'Category')}
       </div>
@@ -1629,7 +1630,7 @@ function groupedByDay(list) {
   const days = [];
   for (const t of list) { const last = days[days.length - 1]; if (last && last.date === t.date) last.items.push(t); else days.push({ date: t.date, items: [t] }); }
   return days.map((d) => {
-    const out = d.items.filter((t) => t.type === 'expense').reduce((s, t) => s + num(t.amount), 0);
+    const out = d.items.filter((t) => t.type === 'expense' || isInvestmentOutflow(t)).reduce((s, t) => s + num(t.amount), 0);
     const inn = d.items.filter((t) => t.type === 'income').reduce((s, t) => s + num(t.amount), 0);
     const label = d.date === today ? 'Today' : d.date === yest ? 'Yesterday' : parseDate(d.date).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', ...(d.date.slice(0, 4) !== today.slice(0, 4) ? { year: 'numeric' } : {}) });
     return `<div class="day-group"><div class="day-head"><span>${esc(label)}</span><span class="num">${out ? `<span class="text-loss">−${money(out)}</span>` : ''}${inn ? ` <span class="text-gain">+${money(inn)}</span>` : ''}</span></div>
@@ -1640,13 +1641,14 @@ function txnResults() {
   const list = filteredTxns();
   const inc = list.filter((t) => t.type === 'income').reduce((s, t) => s + num(t.amount), 0);
   const exp = list.filter((t) => t.type === 'expense').reduce((s, t) => s + num(t.amount), 0);
+  const inv = list.filter(isInvestmentOutflow).reduce((s, t) => s + num(t.amount), 0);
   const shown = list.slice(0, txFilter.limit);
   return `
     <div class="flex flex-wrap gap-x-6 gap-y-1 text-sm mb-3 pb-3 border-b border-line">
       <span class="text-ink-3">${list.length} transaction${list.length === 1 ? '' : 's'}</span>
       <span>In <b class="num text-gain">${money(inc)}</b></span>
-      <span>Out <b class="num text-loss">${money(exp)}</b></span>
-      <span>Net <b class="num">${money(inc - exp)}</b></span>
+      <span>Out <b class="num text-loss">${money(exp + inv)}</b>${inv ? ` <span class="text-ink-3">(spent ${money(exp)} + invested <b class="inv-amt num">${money(inv)}</b>)</span>` : ''}</span>
+      <span>Net <b class="num">${money(inc - exp - inv)}</b></span>
     </div>
     ${shown.length ? groupedByDay(shown)
       : emptyState('fa-magnifying-glass', db.transactions.length ? 'No transactions match these filters.' : 'No transactions yet. Add an expense or income to get started.')}
@@ -2041,7 +2043,7 @@ function holdingRow(h) {
     <td class="num ${h.gain >= 0 ? 'text-gain' : 'text-loss'}" data-label="Profit / loss">${h.invested > 0 ? `${money(Math.round(h.gain), { sign: true })}<div class="text-xs">${pct(h.gainPct)}</div>` : dash}</td>
     <td class="act-cell"><div class="row-actions justify-end">
       <button class="icon-btn sm" data-action="invest-more" data-id="${a.id}" title="Add money" aria-label="Add money to ${esc(a.name)}"><i class="fa-solid fa-plus"></i></button>
-      ${tracked ? `<button class="icon-btn sm" data-action="units-history" data-id="${a.id}" title="Units" aria-label="Units history"><i class="fa-solid fa-list-ol"></i></button>` : ''}
+      ${tracked ? `<button class="icon-btn sm" data-action="units-history" data-id="${a.id}" title="Instalments" aria-label="Instalments and units"><i class="fa-solid fa-list-ol"></i></button>` : ''}
       ${live ? '' : `<button class="icon-btn sm" data-action="adjust-balance" data-id="${a.id}" title="Update value" aria-label="Update value"><i class="fa-solid fa-scale-balanced"></i></button>`}
       <button class="icon-btn sm" data-action="edit-account" data-id="${a.id}" title="Edit" aria-label="Edit holding"><i class="fa-regular fa-pen-to-square"></i></button>
     </div></td>
@@ -2533,7 +2535,8 @@ function navLagFor(t) {
   const sip = t.relatedType === 'sip' ? db.sips.find((x) => x.id === t.relatedId) : null;
   return int(sip?.navLagDays ?? db.settings.navLagDays ?? 1);
 }
-const allotDateFor = (t) => addWorkingDays(t.date, navLagFor(t));
+// The day whose NAV gives the units: your own date if you set one, else working days after payment.
+const allotDateFor = (t) => t.allotDate || addWorkingDays(t.date, navLagFor(t));
 
 function unitReviews() {
   const today = todayStr();
@@ -2625,8 +2628,9 @@ function openReview(txnId) {
     body: `<p class="callout">${money(amt)} ${what} on <b>${fmtDate(t.date)}</b>${sell ? ' from' : ' into'} <b>${esc(a.name)}</b>.
       ${has ? (t.unitsSource === 'auto' ? `Worked out automatically from the NAV of ${fmtDate(t.navDate || target)}${!sell && db.settings.stampDuty !== false ? ', after 0.005% stamp duty' : ''}. Change it if your statement shows different figures.` : 'You entered these figures.')
         : `Enter the ${sell ? 'units sold' : 'units allotted'} and the ${isMF(a) ? 'NAV' : 'price'} from your statement or fund app.`}</p>
+      ${field('Allotment date (NAV date)', input('allotDate', target, `type="date" min="${t.date}"`), `Usually ${navLagFor(t)} working day${navLagFor(t) === 1 ? '' : 's'} after the ${t.relatedType === 'sip' ? 'SIP date' : 'payment'}. Change it to match your statement; the NAV of this date is used.`)}
       ${twoCol(field(sell ? 'Units sold' : 'Units allotted', input('units', has ? t.units : '', 'type="number" step="any" min="0.0001" required placeholder="e.g. 58.914"')),
-        field(`${isMF(a) ? 'NAV' : 'Price'} per unit`, moneyInput('nav', t.unitNav ?? '', 'min="0" placeholder="e.g. 84.60"'), 'Fill either box; the other is worked out from the amount.'))}
+        field(`${isMF(a) ? 'NAV' : 'Price'} per unit`, input('nav', t.unitNav ?? '', 'type="number" step="any" min="0" inputmode="decimal" placeholder="e.g. 84.6012"'), 'Fill either box; the other is worked out from the amount.'))}
       <div data-suggest class="text-sm text-ink-2"></div>`,
     submitLabel: 'Save units',
     deleteLabel: 'Clear units',
@@ -2636,7 +2640,8 @@ function openReview(txnId) {
       const stamp = !sell && db.settings.stampDuty !== false ? STAMP_DUTY : 0;
       u.addEventListener('input', () => { if (num(u.value) > 0) n.value = Math.round(((amt * (1 - stamp)) / num(u.value)) * 10000) / 10000; }, sig);
       n.addEventListener('input', () => { if (num(n.value) > 0) u.value = unitsFor(t, a, num(n.value)); }, sig);
-      if (isMF(a) && navigator.onLine) {
+      const lookup = (target) => {
+        if (!(isMF(a) && navigator.onLine)) return;
         const box = $('[data-suggest]', form);
         box.textContent = 'Looking up the NAV…';
         mfHistory(a.schemeCode, target, addDays(target, 10)).then((hist) => {
@@ -2644,17 +2649,21 @@ function openReview(txnId) {
           if (!box.isConnected) return;
           if (!row) { box.textContent = `The NAV for ${fmtDate(target)} isn't published yet.`; return; }
           const est = unitsFor(t, a, row.nav);
-          box.innerHTML = `NAV on ${fmtDate(row.date)} (${navLagFor(t)} working day${navLagFor(t) === 1 ? '' : 's'} after the ${t.relatedType === 'sip' ? 'SIP date' : 'payment'}) was <b class="num">${money(row.nav)}</b>, so about <b class="num">${est}</b> units. <button type="button" class="btn btn-sm ml-1" data-use>Use this</button>`;
+          box.innerHTML = `NAV on ${fmtDate(row.date)} was <b class="num">${money(row.nav)}</b>, so about <b class="num">${est}</b> units. <button type="button" class="btn btn-sm ml-1" data-use>Use this</button>`;
           $('[data-use]', box).addEventListener('click', () => { n.value = row.nav; u.value = est; form.dataset.auto = row.date; }, sig);
+          if (form.dataset.dateChanged) { n.value = row.nav; u.value = est; form.dataset.auto = row.date; }
         }).catch(() => { if (box.isConnected) box.textContent = ''; });
-      }
+      };
+      lookup(target);
+      form.elements.allotDate.addEventListener('change', (e) => { if (e.target.value) { form.dataset.dateChanged = '1'; lookup(e.target.value); } }, sig);
     },
     onSubmit: (d, form) => {
       const units = num(d.units);
       if (units <= 0) { toast('Enter the units.', 'error'); return false; }
       const nav = num(d.nav) || round2(amt / units);
       const auto = form.dataset.auto && Math.abs(nav - num(form.elements.nav.value)) < 1e-9;
-      const ops = [opUpsert('transactions', { ...t, units, unitNav: nav, navDate: auto ? form.dataset.auto : t.navDate || '', unitsSource: auto ? 'auto' : 'you', reviewedAt: new Date().toISOString() })];
+      const chosen = d.allotDate && d.allotDate !== addWorkingDays(t.date, navLagFor(t)) ? d.allotDate : '';
+      const ops = [opUpsert('transactions', { ...t, units, unitNav: nav, navDate: auto ? form.dataset.auto : t.navDate || '', unitsSource: auto ? 'auto' : 'you', allotDate: chosen, reviewedAt: new Date().toISOString() })];
       ops.push(...revalueOps(a, { [t.id]: units }));
       commit(ops, `Units for ${a.name} on ${t.date}`);
       toast('Units saved. The live value now includes them.', 'success');
@@ -2668,33 +2677,78 @@ function openReview(txnId) {
   });
 }
 
-/** Every purchase and withdrawal of a holding, with its units and NAV. */
+/** Annualised return (XIRR) of dated cash flows: money in negative, money out positive. */
+function xirr(flows) {
+  if (flows.length < 2 || !flows.some((f) => f.amount < 0) || !flows.some((f) => f.amount > 0)) return null;
+  const t0 = parseDate(flows[0].date);
+  const yrs = flows.map((f) => (parseDate(f.date) - t0) / (365 * 864e5));
+  const f = (r) => flows.reduce((s, x, k) => s + x.amount / (1 + r) ** yrs[k], 0);
+  let lo = -0.99, hi = 10;
+  if (f(lo) * f(hi) > 0) return null;
+  for (let k = 0; k < 200; k++) { const mid = (lo + hi) / 2; if (f(lo) * f(mid) <= 0) hi = mid; else lo = mid; if (hi - lo < 1e-7) break; }
+  return (lo + hi) / 2;
+}
+/** Every instalment of a holding, Coin-style: date, days held, amount, NAV, units and profit or loss. */
 function openUnitsHistory(accountId) {
   const a = accountById(accountId);
   if (!a) return;
   const since = a.unitsDate || '';
-  const list = db.transactions.filter((t) => t.type !== 'adjustment' && (t.toAccountId === a.id || t.fromAccountId === a.id)
+  const list = db.transactions.filter((t) => t.type !== 'adjustment' && t.relatedType !== 'market' && (t.toAccountId === a.id || t.fromAccountId === a.id)
     && (since ? t.date > since : t.date >= (a.openingDate || ''))).sort((x, y) => y.date.localeCompare(x.date));
   const U = holdingUnits(a);
-  const status = (t) => {
-    if (t.units !== undefined && t.units !== null && t.units !== '') return t.unitsSource === 'auto' ? '<span class="pill blue">Auto</span>' : '<span class="pill">You</span>';
-    return isMF(a) && addDays(allotDateFor(t), AUTO_GRACE_DAYS) > todayStr() ? `<span class="pill due" title="Units come from the NAV of ${fmtDate(allotDateFor(t))}">Waiting for NAV</span>` : '<span class="pill out">To confirm</span>';
+  const nav = num(a.unitPrice);
+  const today = todayStr();
+  const has = (t) => t.units !== undefined && t.units !== null && t.units !== '';
+  const fmtU = (u) => num(u).toLocaleString('en-IN', { maximumFractionDigits: 3 });
+  const fmt2 = (v) => num(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Summary and XIRR
+  const flows = [];
+  if (num(a.units) > 0) flows.push({ date: a.unitsDate || a.openingDate, amount: -num(a.investedAmount ?? a.openingBalance) });
+  for (const t of list.slice().reverse()) flows.push({ date: t.date, amount: t.fromAccountId === a.id ? num(t.amount) : -num(t.amount) });
+  // Instalments still waiting for their NAV count at what you paid until their units are known.
+  const waitingAmt = [...(U.pendingBuys || []), ...(U.missing || [])].reduce((t, x) => t + (x.fromAccountId === a.id ? -num(x.amount) : num(x.amount)), 0);
+  const value = nav && (U.units || waitingAmt) ? U.units * nav + waitingAmt : M.balances.get(a.id) || 0;
+  if (value > 0) flows.push({ date: today, amount: value });
+  const rate = xirr(flows.sort((x, y) => x.date.localeCompare(y.date)));
+  const invested = num(a.investedAmount ?? 0) || -flows.filter((f) => f.amount < 0).reduce((s, f) => s + f.amount, 0);
+  const pl = value - invested;
+  const card = (t) => {
+    const sell = t.fromAccountId === a.id, done = has(t);
+    const date = t.navDate || allotDateFor(t);
+    const net = done && t.unitNav ? num(t.units) * num(t.unitNav) : num(t.amount) * (sell || db.settings.stampDuty === false ? 1 : 1 - STAMP_DUTY);
+    const days = Math.max(0, Math.round((parseDate(today) - parseDate(date)) / 864e5));
+    const p = done && nav && !sell ? num(t.units) * nav - net : null;
+    const waiting = !done && isMF(a) && addDays(allotDateFor(t), AUTO_GRACE_DAYS) > today;
+    return `<div class="cyc ${sell ? 'sell' : ''}">
+      <div class="cyc-grid">
+        <div><span>Date</span><b>${fmtDate(t.date)}</b></div>
+        <div><span>Days</span><b>${days}</b></div>
+        <div><span>Amount</span><b class="num">${fmt2(net)}</b></div>
+        <div><span>${isMF(a) ? 'NAV' : 'Price'}</span><b class="num">${done && t.unitNav ? num(t.unitNav).toFixed(4) : '—'}</b></div>
+        <div><span>Units</span><b class="num">${done ? `${sell ? '−' : ''}${fmtU(t.units)}` : '—'}</b></div>
+        <div><span>${sell ? 'Sold' : 'P&L'}</span><b class="num ${p === null ? '' : p >= 0 ? 'text-gain' : 'text-loss'}">${sell ? money(t.amount) : p === null ? '—' : `${p >= 0 ? '' : '−'}${fmt2(Math.abs(p))}`}</b></div>
+      </div>
+      <div class="cyc-foot">
+        <span>${t.relatedType === 'sip' ? 'SIP' : sell ? 'Withdrawal' : 'Purchase'} of ${money(t.amount)}${!sell && db.settings.stampDuty !== false ? ' (after 0.005% stamp duty)' : ''} · allotted ${fmtDate(allotDateFor(t))}${t.allotDate ? ' (your date)' : ''}
+          ${done ? (t.unitsSource === 'auto' ? '<span class="pill blue">Auto</span>' : '<span class="pill">You</span>') : waiting ? '<span class="pill due">Waiting for NAV</span>' : '<span class="pill out">To confirm</span>'}</span>
+        <button type="button" class="link text-sm" data-action="review-units" data-id="${t.id}">${done ? 'Edit' : 'Enter units'}</button>
+      </div></div>`;
   };
   openModal({
-    title: `Units: ${a.name}`,
+    title: a.name,
     wide: true,
-    body: `<div class="kv"><div><dt>Units held now</dt><dd>${U.units.toLocaleString('en-IN', { maximumFractionDigits: 3 })}</dd></div>
-        <div><dt>Latest ${isMF(a) ? 'NAV' : 'price'}</dt><dd>${num(a.unitPrice) ? `${money(a.unitPrice)} <span class="text-ink-3 font-normal text-xs">${a.priceDate ? fmtDate(a.priceDate) : ''}</span>` : '—'}</dd></div>
-        ${num(a.expenseRatio) ? `<div><dt>Expense ratio</dt><dd>${num(a.expenseRatio)}% a year</dd></div>` : ''}</div>
-      <div class="overflow-x-auto mt-4"><table class="sched">
-        <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>${isMF(a) ? 'NAV' : 'Price'} (date)</th><th>Units</th><th>Source</th><th></th></tr></thead>
-        <tbody>
-          ${list.map((t) => `<tr><td>${fmtDate(t.date)}</td><td>${t.relatedType === 'sip' ? 'SIP' : t.fromAccountId === a.id ? 'Withdrawal' : 'Purchase'}</td><td>${money(t.amount)}</td>
-            <td>${t.unitNav ? `${money(t.unitNav)}${t.navDate ? ` <span class="text-ink-3">(${parseDate(t.navDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })})</span>` : ''}` : '—'}</td>
-            <td>${t.units !== undefined && t.units !== null && t.units !== '' ? `${t.fromAccountId === a.id ? '−' : '+'}${num(t.units).toLocaleString('en-IN', { maximumFractionDigits: 3 })}` : '—'}</td>
-            <td>${status(t)}</td><td><button type="button" class="link text-sm" data-action="review-units" data-id="${t.id}">${t.units !== undefined && t.units !== null && t.units !== '' ? 'Change' : 'Enter'}</button></td></tr>`).join('')}
-          <tr class="done"><td>${fmtDate(a.unitsDate || a.openingDate)}</td><td colspan="3">Units you entered for the holding</td><td>${num(a.units).toLocaleString('en-IN', { maximumFractionDigits: 3 })}</td><td><span class="pill">You</span></td><td><button type="button" class="link text-sm" data-action="edit-account" data-id="${a.id}">Change</button></td></tr>
-        </tbody></table></div>`,
+    body: `<div class="cyc-head">
+        <div><span>Invested</span><b class="num">${money(Math.round(invested))}</b></div>
+        <div><span>Current value</span><b class="num">${money(Math.round(value))}</b></div>
+        <div><span>Profit / loss</span><b class="num ${pl >= 0 ? 'text-gain' : 'text-loss'}">${pl >= 0 ? '+' : '−'}${money(Math.abs(Math.round(pl)))}</b></div>
+        <div><span>XIRR</span><b class="num ${rate === null ? '' : rate >= 0 ? 'text-gain' : 'text-loss'}">${rate === null || list.length + (num(a.units) > 0 ? 1 : 0) < 1 ? '—' : `${(rate * 100).toFixed(1)}%`}</b></div>
+        <div><span>Units</span><b class="num">${fmtU(U.units)}</b></div>
+        <div><span>Latest ${isMF(a) ? 'NAV' : 'price'}</span><b class="num">${nav ? nav.toFixed(4) : '—'}</b></div>
+      </div>
+      <p class="text-xs text-ink-3">${num(a.expenseRatio) ? `Expense ratio ${num(a.expenseRatio)}% a year. ` : ''}The fund's expense ratio is taken out of the NAV every day, so it is already in the price above and isn't deducted again at allotment. At purchase only stamp duty (0.005%) is deducted${a.priceDate ? `. NAV as on ${fmtDate(a.priceDate)}` : ''}.</p>
+      <div class="space-y-3">${list.map(card).join('')}
+        ${num(a.units) > 0 ? `<div class="cyc done"><div class="cyc-foot"><span>Units you entered when adding the holding: <b class="num">${fmtU(a.units)}</b> on ${fmtDate(a.unitsDate || a.openingDate)}</span><button type="button" class="link text-sm" data-action="edit-account" data-id="${a.id}">Change</button></div></div>` : ''}
+        ${!list.length && !num(a.units) ? '<p class="text-sm text-ink-3">No instalments yet.</p>' : ''}</div>`,
     submitLabel: 'Done',
     cancelLabel: 'Close',
     onSubmit: () => {},
@@ -6166,13 +6220,21 @@ function healthScore() {
   const parts = [];
   parts.push({ key: 'runway', label: 'Emergency runway', v: rw.months === null ? null : clamp((rw.months / 6) * 20), note: rw.months === null ? 'Add expenses to measure' : `${rw.whole} months ${rw.days} days (aim: 6 months)` });
   const kept = avg.income > 0 ? (avg.income - avg.spent) / avg.income : null;
-  parts.push({ key: 'savings', label: 'Savings rate', v: kept === null ? null : clamp((kept / 0.3) * 20), note: kept === null ? 'Log income to measure' : `${Math.round(kept * 100)}% of income kept (aim: 30%)` });
+  parts.push({ key: 'savings', label: 'Savings rate', v: kept === null ? null : clamp((kept / 0.3) * 20), note: kept === null ? 'Log income to measure' : `${Math.round(kept * 100)}% of income not spent, investments included (aim: 30%)` });
   parts.push({ key: 'credit', label: 'Card usage', v: !ch.limit ? 20 : clamp(ch.util <= 0.1 ? 20 : ch.util <= 0.3 ? 20 - ((ch.util - 0.1) / 0.2) * 8 : 12 - ((ch.util - 0.3) / 0.45) * 12), note: ch.limit ? `${Math.round(ch.util * 100)}% of limits used (aim: under 30%)` : 'No credit cards' });
   const emi = M.emis.filter(({ c }) => c.status === 'active').reduce((s, { c }) => s + c.emi, 0);
   const debt = avg.income > 0 ? emi / avg.income : null;
   parts.push({ key: 'debt', label: 'EMIs vs income', v: debt === null ? (emi ? null : 20) : clamp(20 - (debt / 0.5) * 20), note: debt === null ? (emi ? 'Log income to measure' : 'No EMIs') : `${Math.round(debt * 100)}% of income goes to EMIs (aim: under 30%)` });
-  const inv = avg.income > 0 ? avg.invested / avg.income : null;
-  parts.push({ key: 'invest', label: 'Investing', v: inv === null ? null : clamp((inv / 0.2) * 20), note: inv === null ? 'Log income to measure' : `${Math.round(inv * 100)}% of income invested (aim: 20%)` });
+  // Investing: what you actually put in over the last 90 days (this month included), or your
+  // active SIPs a month, whichever is higher, against your monthly income.
+  const since = addDays(todayStr(), -90);
+  const inc90 = db.transactions.filter((t) => t.type === 'income' && t.date >= since).reduce((s, t) => s + num(t.amount), 0);
+  const inv90 = db.transactions.filter((t) => isInvestmentOutflow(t) && t.date >= since).reduce((s, t) => s + num(t.amount), 0);
+  const monthlyIncome = inc90 > 0 ? inc90 / 3 : avg.income;
+  const sipMonthly = M.P.totals.sipMonthly || 0;
+  const invMonthly = Math.max(inv90 / 3, sipMonthly);
+  const inv = monthlyIncome > 0 ? invMonthly / monthlyIncome : null;
+  parts.push({ key: 'invest', label: 'Investing', v: inv === null ? null : clamp((inv / 0.2) * 20), note: inv === null ? 'Log income to measure' : `${Math.round(inv * 100)}% of income invested${sipMonthly ? ` (SIPs ${money(Math.round(sipMonthly))}/month)` : ''} (aim: 20%)` });
   const known = parts.filter((p) => p.v !== null);
   const score = known.length ? Math.round((known.reduce((s, p) => s + p.v, 0) / (known.length * 20)) * 100) : null;
   const label = score === null ? 'Not enough data yet' : score >= 80 ? 'Excellent' : score >= 60 ? 'Good' : score >= 40 ? 'Fair' : 'Needs care';

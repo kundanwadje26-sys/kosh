@@ -238,6 +238,14 @@ By default SIPs also count as *money going out* in the "Where the money went" ch
 
 ---
 
+### SIPs, instalments and units
+
+- **Investments are money going out.** SIP instalments and other money moved into investments show as **−₹ amounts** (in amber) on Transactions, the Calendar and day totals. The Transactions summary shows **Out** as spent plus invested, and the type filter has **Investments**.
+- **Investing score** (Money health) uses what you actually invested in the last 90 days (this month included) or your active SIPs a month, whichever is higher, against your income. The savings rate counts money not spent, so investments are part of it.
+- **Instalments, Coin-style:** in Portfolio, the **Instalments** button on a fund (list icon) shows every instalment as a card: date, days held, amount invested (after the 0.005% stamp duty), NAV, units and profit or loss, plus totals for the fund (invested, current value, profit or loss, **XIRR**, units, latest NAV). Instalments still waiting for their NAV count at what you paid.
+- **Allotment date:** open any instalment (**Edit**) to change the date whose NAV is used, for example to match your statement; the app then uses that date's NAV (and keeps using it if the units are worked out again).
+- **Expense ratio:** a fund's expense ratio is taken out of its NAV every day, so it is already in the price and is not deducted again at allotment. At purchase only stamp duty is deducted; that's why a ₹4,020 SIP shows ₹4,019.80 invested. Enter the expense ratio on the holding to see its yearly cost.
+
 ### A calmer layout
 
 - The menu is grouped: **Overview** (Dashboard, Insights, Money health, Calendar), **Money** (Transactions, Accounts, Split bills, People, Recurring, EMIs & loans, Budgets), **Grow** (Portfolio, Goals & wishlist, Planners) and **Tools** (Import statement, Charts, Notifications, Export & backup). The tax helper is a tab inside Planners.
@@ -473,7 +481,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 
 ## Part 10 — What changed in this version
 
-**Newest:** a calmer layout (grouped menu, customisable dashboard), Split bills as its own page, a single total cash-flow forecast, bank colour tiles. Before that: Money health (score, runway, cash-flow forecast, fun money, credit health, idle cash, lifestyle creep, suggestions), Planners (financial freedom, loan prepayment, capital gains, Regular vs Direct, salary-day plan, year in review), bill splitting and the cool-off list. Before that: a phone-friendly layout (bottom bar, quick add, day-grouped transactions, labelled buttons, cards instead of wide tables). Before that: a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
+**Newest:** investments shown as money out, a better investing score, Coin-style instalment cards with XIRR, editable allotment dates. Before that: a calmer layout (grouped menu, customisable dashboard), Split bills as its own page, a single total cash-flow forecast, bank colour tiles. Before that: Money health (score, runway, cash-flow forecast, fun money, credit health, idle cash, lifestyle creep, suggestions), Planners (financial freedom, loan prepayment, capital gains, Regular vs Direct, salary-day plan, year in review), bill splitting and the cool-off list. Before that: a phone-friendly layout (bottom bar, quick add, day-grouped transactions, labelled buttons, cards instead of wide tables). Before that: a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
 
 **Before that:** statement import reads account and card numbers (including short `xx50` card numbers), has a *Read it from the statement* option, turns payments to your own account numbers into self transfers, matches payments across PhonePe and bank statements by UTR (and can correct the account), and remembers your categories and account numbers permanently, including after you delete transactions or edit a category.
 

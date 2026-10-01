@@ -767,3 +767,17 @@ body { background: var(--paper); }
   .row > .row-actions:has(> :nth-child(3)) .icon-btn[title] { width: auto; height: 2.3rem; padding: 0 .75rem; border: 1px solid var(--line); background: #fff; }
   .row > .row-actions:has(> :nth-child(3)) .icon-btn[title]::after { content: attr(title); }
 }
+
+/* ---------- Investments shown as money out; Coin-style instalments ---------- */
+.inv-amt { color: var(--marigold-ink); }
+.cyc-head { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .9rem 1rem; background: #F6F8FC; border-radius: 14px; padding: 1rem; }
+.cyc-head span, .cyc-grid span { display: block; font-size: .75rem; color: var(--ink-3); }
+.cyc-head b { font-family: 'Bricolage Grotesque', sans-serif; font-size: 1.15rem; font-weight: 700; }
+.cyc { background: #F7F8FA; border: 1px solid #EEF1F6; border-radius: 14px; padding: .9rem 1rem; }
+.cyc.sell { background: #FFF7FA; }
+.cyc.done { background: #fff; }
+.cyc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem 1rem; }
+.cyc-grid b { font-size: 1rem; font-weight: 600; }
+.cyc-foot { display: flex; justify-content: space-between; align-items: center; gap: .75rem; flex-wrap: wrap; font-size: .75rem; color: var(--ink-3); margin-top: .7rem; padding-top: .6rem; border-top: 1px dashed #E2E7EF; }
+.cyc.done .cyc-foot { margin: 0; padding: 0; border: 0; }
+@media (max-width: 639px) { .cyc-head b { font-size: 1rem; } .cyc-grid b { font-size: .92rem; } }
