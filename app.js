@@ -668,7 +668,9 @@ function buildModel() {
     if (e.kind === 'loan') T.loans += c.remaining; else T.cardEmis += c.remaining;
   }
   T.assets = T.cash + T.bank + T.investment + T.cardCredit + T.owedToMe;
-  T.liabilities = T.cardDebt + T.loans + T.cardEmis + T.iOwe;
+  // Card dues = the current outstanding on cards only. Card EMIs still to pay are not deducted:
+  // each instalment becomes part of the outstanding when it is billed. (They stay on the EMIs page.)
+  T.liabilities = T.cardDebt + T.loans + T.iOwe;
   T.netWorth = T.assets - T.liabilities;
   return { balances, emis, emiBlocked, T, P: buildPortfolio(balances), reviews: unitReviews() };
 }
@@ -1339,7 +1341,8 @@ function netWorthPanel(T) {
   // The two switches (Settings can hide them) leave investments or card dues out of the figure.
   const incInv = db.settings.nwInvestments !== false, incCard = db.settings.nwCardDues !== false;
   // "Card dues" off leaves out everything on credit cards: dues, card EMIs still to pay, and any card credit.
-  const shown = round2(T.netWorth - (incInv ? 0 : T.investment) + (incCard ? 0 : T.cardDebt + T.cardEmis - T.cardCredit));
+  // "Card dues" switch: the outstanding on your cards today (and any credit balance on a card); not card EMIs still to pay.
+  const shown = round2(T.netWorth - (incInv ? 0 : T.investment) + (incCard ? 0 : T.cardDebt - T.cardCredit));
   const left = [!incInv && 'investments', !incCard && 'card dues'].filter(Boolean);
   const assets = [['Cash', T.cash, '#FBBF24'], ['Bank', T.bank, '#38BDF8']];
   if (incInv) assets.push(['Investments', T.investment, '#4ADE80']);
@@ -1347,7 +1350,7 @@ function netWorthPanel(T) {
   if (T.owedToMe > 0) assets.push(['Owed to me', T.owedToMe, '#C4B5FD']);
   const liabs = incCard ? [['Card dues', T.cardDebt, '#FB7185']] : [];
   if (T.loans > 0) liabs.push(['Loans', T.loans, '#F472B6']);
-  if (incCard && T.cardEmis > 0) liabs.push(['Card EMIs', T.cardEmis, '#FDBA74']);
+  const emiNote = T.cardEmis > 0 ? `<p class="hero-dim text-xs mt-3">Card EMIs still to pay (${money(Math.round(T.cardEmis))}) are not deducted; each instalment counts once it is billed to the card.</p>` : '';
   if (T.iOwe > 0) liabs.push(['I owe', T.iOwe, '#F9A8D4']);
   const assetSum = assets.reduce((a, [, v]) => a + Math.max(0, v), 0);
   const liabSum = liabs.reduce((a, [, v]) => a + v, 0);
@@ -1379,7 +1382,7 @@ function netWorthPanel(T) {
       ${assets.map(term).join('<span class="op">+</span>')}
       ${liabs.map((l) => `<span class="op">−</span>${term(l)}`).join('')}
       <span class="op">=</span><span class="t-val num font-semibold">${money(shown)}</span>
-    </div></details>
+    </div>${incCard ? emiNote : ''}</details>
   </section>`;
 }
 
@@ -3786,12 +3789,17 @@ function openPersonForm(existing) {
       <div><span class="lbl">Right now</span>
         <div class="seg">${[['none', 'We are settled'], ['they', 'They owe me'], ['me', 'I owe them']].map(([v, l]) => `<input type="radio" name="dir" id="pd_${v}" value="${v}" ${(ob > 0 ? 'they' : ob < 0 ? 'me' : 'none') === v ? 'checked' : ''}><label for="pd_${v}">${l}</label>`).join('')}</div></div>
       ${showFor('they me', twoCol(field('How much', moneyInput('amount', Math.abs(ob) || '', 'min="0"')), field('As on', input('openingDate', p.openingDate, 'type="date"'))))}
-      ${sharedOn() ? field('Their KOSH username (optional)', select('linkedUser', [['', 'Not linked'], ...shared.users.filter((u) => u.username !== myUser()).map((u) => [u.username, `${u.name} (@${u.username})`])], p.linkedUser || ''), 'Linked people see the splits and money you record with them in their own app.') : ''}
+      ${sharedOn() ? usernameField('linkedUser', 'Their KOSH username (optional)', p.linkedUser || '') + '<p class="hint">Linked people see the splits and money you record with them in their own app. Ask them for their username.</p>' : ''}
       ${isNew ? '' : checkbox('archived', p.archived, 'Hide (archive)', 'Keeps their history but hides them from lists.')}
       ${field('Notes (optional)', textarea('notes', p.notes, 'rows="2"'))}`,
     submitLabel: isNew ? 'Add person' : 'Save',
-    onOpen: (form) => bindShowHide(form, 'dir'),
-    onSubmit: (d) => {
+    onOpen: (form) => { bindShowHide(form, 'dir'); if (form.elements.linkedUser) bindUsernameField(form, 'linkedUser'); },
+    onSubmit: async (d) => {
+      if (d.linkedUser && d.linkedUser.trim()) {
+        const r = await checkUsername(d.linkedUser);
+        if (!r.ok) { toast(r.msg, 'error'); return false; }
+        d.linkedUser = r.user;
+      }
       const amt = d.dir === 'none' ? 0 : round2(num(d.amount)) * (d.dir === 'me' ? -1 : 1);
       const rec = existing ? { ...existing, name: d.name.trim(), openingBalance: amt, openingDate: d.openingDate || existing.openingDate || todayStr(), archived: !!d.archived, notes: d.notes || '' }
         : { ...newPersonRecord(d.name.trim(), amt, d.openingDate || todayStr()), notes: d.notes || '' };
@@ -7164,7 +7172,17 @@ async function flushShared() {
   writeLS(SHARED_QUEUE, []);
 }
 const linkedOf = (personId) => accountById(personId)?.linkedUser || '';
-const userName = (u) => shared.users.find((x) => x.username === u)?.name || u;
+/** A person's display name: from their profile (looked up by username), or from shared records that mention them. */
+function userName(u) {
+  if (!u) return '';
+  if (u === myUser()) return db.settings.ownerName || u;
+  if (shared.known[u]?.name) return shared.known[u].name;
+  const iv = shared.invites.find((x) => (x.from === u && x.fromName) || (x.to === u && x.toName));
+  if (iv) return iv.from === u ? iv.fromName : iv.toName;
+  for (const h of Object.values(typeof flats !== 'undefined' ? flats.homes : {})) { const m = h && h.members.find((x) => x.user === u); if (m?.name) return m.name; }
+  const r = shared.records.find((x) => x.by === u && x.byName); if (r) return r.byName;
+  return u;
+}
 
 /** Called after a split is saved (see openSplitForm). */
 function shareSplit({ splitId, payer, shares, d }) {
@@ -7173,20 +7191,20 @@ function shareSplit({ splitId, payer, shares, d }) {
   const payerUser = userOf(payer);
   const linkedShares = shares.map((x) => ({ user: userOf(x.realId || x.id), amount: x.amount })).filter((x) => x.user);
   if (!payerUser || !linkedShares.some((x) => x.user !== myUser())) return 0;
-  queueShared({ kind: 'post', rec: { id: splitId, type: 'split', by: myUser(), date: d.date, desc: d.description, total: round2(num(d.total)), category: d.category, group: (d.group || '').trim(), payer: payerUser, shares: linkedShares } });
+  queueShared({ kind: 'post', rec: { id: splitId, type: 'split', by: myUser(), byName: db.settings.ownerName || myUser(), date: d.date, desc: d.description, total: round2(num(d.total)), category: d.category, group: (d.group || '').trim(), payer: payerUser, shares: linkedShares } });
   return linkedShares.filter((x) => x.user !== myUser()).length;
 }
 /** Called after money is recorded with a linked person, and for home expenses they'll pay back. */
 function shareSettle(rec, personId, dir) {
   const other = linkedOf(personId);
   if (!sharedOn() || !other) return false;
-  queueShared({ kind: 'post', rec: { id: rec.id, type: 'settle', by: myUser(), date: rec.date, amount: rec.amount, note: rec.description, payer: dir === 'out' ? myUser() : other, payee: dir === 'out' ? other : myUser() } });
+  queueShared({ kind: 'post', rec: { id: rec.id, type: 'settle', by: myUser(), byName: db.settings.ownerName || myUser(), date: rec.date, amount: rec.amount, note: rec.description, payer: dir === 'out' ? myUser() : other, payee: dir === 'out' ? other : myUser() } });
   return true;
 }
 function shareHomeClaim(rec) {
   const other = linkedOf(rec.toAccountId);
   if (!sharedOn() || !other) return false;
-  queueShared({ kind: 'post', rec: { id: rec.id, type: 'split', by: myUser(), date: rec.date, desc: `For home: ${rec.description || rec.category}`, total: rec.amount, category: rec.category, group: 'Home', payer: myUser(), shares: [{ user: other, amount: rec.amount }] } });
+  queueShared({ kind: 'post', rec: { id: rec.id, type: 'split', by: myUser(), byName: db.settings.ownerName || myUser(), date: rec.date, desc: `For home: ${rec.description || rec.category}`, total: rec.amount, category: rec.category, group: 'Home', payer: myUser(), shares: [{ user: other, amount: rec.amount }] } });
   return true;
 }
 function unshare(id) { if (sharedOn()) queueShared({ kind: 'delete', id }); }
@@ -7251,16 +7269,8 @@ async function syncShared(force = false) {
   shared.busy = true;
   try {
     await flushShared();
-    const meRec = { username: myUser(), name: db.settings.ownerName || myUser(), path: config.path, sharesPortfolio: !!db.settings.sharePortfolio };
-    const users = await updateJsonFile(USERS_FILE, (data) => {
-      const list = (data && data.users) || [];
-      const i = list.findIndex((u) => u.username === meRec.username);
-      const rec = { ...meRec, joined: i >= 0 ? list[i].joined : todayStr() };
-      if (i >= 0 && JSON.stringify(list[i]) === JSON.stringify(rec)) return null;
-      if (i >= 0) list[i] = rec; else list.push(rec);
-      return { users: list };
-    }, `KOSH: ${myUser()} joined or updated their profile`);
-    shared.users = (users && users.users) || [];
+    await publishProfile();      // your locked profile card (found only by someone who types your username)
+    await leaveOldUsersList();   // the old public list of people is no longer used
     shared.records = (await readJsonFile(LEDGER_FILE)).data?.records || [];
     try { await loadHomes(); } catch (e) { console.warn('Homes', e); }
     try { await loadPriceStore(); await registerWatch(); } catch (e) { console.warn('Prices', e); }
@@ -7273,6 +7283,7 @@ async function syncShared(force = false) {
       }
     }
     shared.invites = (await readJsonFile(INVITES_FILE)).data?.invites || [];
+    await resolveConnectedNames();
     syncFamilyFromInvites();
     for (const u of (db.settings.familyMembers || []).filter((x) => familyStatus(x) === 'accepted')) {
       try { shared.portfolios[u] = (await readJsonFile(pfFile(u))).data; } catch { /* keep the last copy */ }
@@ -7320,14 +7331,16 @@ function familySection() {
   </section>`;
 }
 function openFamilyAdd() {
-  const others = shared.users.filter((u) => u.username !== myUser() && !(db.settings.familyMembers || []).includes(u.username));
   openModal({
     title: 'Add a family member',
-    body: others.length ? `${field('Who', select('u', others.map((u) => [u.username, `${u.name} (@${u.username})`])))}<p class="hint">They get an invitation to accept or decline. Once they accept, you each see the other's portfolio, if the other person shares it.</p>`
-      : '<p class="text-sm text-ink-2">Nobody else uses this KOSH yet. When family members connect with their own username, they appear here.</p>',
-    submitLabel: others.length ? 'Send invitation' : 'OK',
+    body: `${usernameField('u', 'Their KOSH username')}<p class="hint">Ask them for their username. They get an invitation to accept or decline; once they accept, you each see the other's portfolio, if the other person shares it.</p>`,
+    submitLabel: 'Send invitation',
+    onOpen: (form) => bindUsernameField(form, 'u'),
     onSubmit: async (d) => {
-      if (!d.u) return;
+      const found = await checkUsername(d.u);
+      if (!found.ok) { toast(found.msg, 'error'); return false; }
+      d.u = found.user;
+      if ((db.settings.familyMembers || []).includes(d.u) && familyStatus(d.u) !== 'none') { toast(`${userName(d.u)} is already in your family list.`); return false; }
       try { await sendFamilyInvite(d.u); } catch (e) { toast(`Couldn't send: ${e.message}`, 'error'); return false; }
       commit([opSettings({ familyMembers: [...new Set([...(db.settings.familyMembers || []), d.u])] })], 'Invite family member');
       toast(`Invitation sent. ${userName(d.u)} will see it the next time they open KOSH.`, 'success');
@@ -7337,7 +7350,7 @@ function openFamilyAdd() {
 /** "People on this KOSH", for Settings. */
 function sharedUsersList() {
   if (!sharedOn()) return '<p class="hint">Set a KOSH username to share splits and portfolios with others who use this same repository.</p>';
-  return `<div class="text-sm"><b>People on this KOSH:</b> ${shared.users.length ? shared.users.map((u) => `${esc(u.name)} <span class="text-ink-3">@${esc(u.username)}</span>${u.username === myUser() ? ' (you)' : ''}`).join(', ') : 'loading…'}</div>`;
+  return `<div class="callout text-sm">Your KOSH username is <b>@${esc(myUser())}</b>. Family and flatmates add you by typing it. Nobody can see a list of who uses KOSH.</div>`;
 }
 
 /* ----- Family invitations (yes / no) ----- */
@@ -7352,7 +7365,7 @@ function familyStatus(u) {
 }
 const familyIncoming = () => shared.invites.filter((iv) => iv.type === 'family' && iv.to === myUser() && iv.status === 'pending' && pairInvites(iv.from).pop()?.id === iv.id);
 async function sendFamilyInvite(u) {
-  const iv = { id: uid('inv'), type: 'family', from: myUser(), to: u, status: 'pending', at: new Date().toISOString() };
+  const iv = { id: uid('inv'), type: 'family', from: myUser(), to: u, fromName: db.settings.ownerName || myUser(), toName: userName(u), status: 'pending', at: new Date().toISOString() };
   const next = await updateJsonFile(INVITES_FILE, (d) => {
     const list = (d && d.invites) || [];
     if (list.some((x) => x.type === 'family' && x.from === myUser() && x.to === u && x.status === 'pending')) return null;
@@ -7414,6 +7427,89 @@ function invitesCard() {
     ${fam.map((iv) => `<div class="flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[12rem] text-sm"><b>${esc(userName(iv.from))}</b> wants to add you as family (you'd see each other's shared portfolios).</div>
       <div class="flex gap-2"><button class="btn btn-sm btn-primary" data-action="inv-family" data-id="${iv.id}" data-yes="1">Accept</button><button class="btn btn-sm" data-action="inv-family" data-id="${iv.id}" data-yes="">Decline</button></div></div>`).join('')}
   </div></section>`;
+}
+
+/* ===== Private people directory =====
+   No list of people. Each person has a profile card at kosh/u/<code>.json, where <code> is a
+   one-way hash of their username, and their name inside is locked with a key made from the
+   username. So the shared repository shows only meaningless codes; only someone who types a
+   username can find that person (the app checks "found" or "not found"). */
+shared.known = shared.known || {};
+const DIR = `${SHARED_DIR}/u`;
+const enc = (s) => new TextEncoder().encode(s);
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+async function dirCode(username) { return hex(await crypto.subtle.digest('SHA-256', enc(`kosh-directory:${username}`))).slice(0, 40); }
+async function dirKey(username) {
+  const base = await crypto.subtle.importKey('raw', enc(username), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: enc('kosh-directory-v1'), iterations: 50000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function publishProfile() {
+  const me = myUser();
+  const card = { username: me, name: db.settings.ownerName || me, sharesPortfolio: !!db.settings.sharePortfolio };
+  const sig = JSON.stringify(card);
+  if (localStorage.getItem('kosh.profileSig') === sig) return;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await dirKey(me), enc(sig));
+  await updateJsonFile(`${DIR}/${await dirCode(me)}.json`, () => ({ v: 1, iv: b64(iv), data: b64(data), updated: todayStr() }), 'KOSH: profile card');
+  localStorage.setItem('kosh.profileSig', sig);
+}
+/** Find a person by username: their profile card, or null if no one has that username. */
+async function lookupUser(username) {
+  const u = String(username || '').trim().toLowerCase().replace(/^@/, '');
+  if (!/^[a-z0-9_-]{2,30}$/.test(u)) return null;
+  if (shared.known[u]) return shared.known[u];
+  const file = (await readJsonFile(`${DIR}/${await dirCode(u)}.json`)).data;
+  if (!file) return null;
+  try {
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(file.iv) }, await dirKey(u), unb64(file.data));
+    const card = JSON.parse(new TextDecoder().decode(plain));
+    shared.known[u] = card;
+    return card;
+  } catch { return null; }
+}
+async function checkUsername(value) {
+  const u = String(value || '').trim().toLowerCase().replace(/^@/, '');
+  if (!u) return { ok: false, msg: 'Type their KOSH username.' };
+  if (u === myUser()) return { ok: false, msg: 'That is your own username.' };
+  if (!navigator.onLine) return { ok: false, msg: 'You are offline. Checking a username needs the internet.' };
+  const card = await lookupUser(u).catch(() => null);
+  return card ? { ok: true, user: u, name: card.name, msg: `Found: ${card.name}` } : { ok: false, msg: `No one with the username "${u}". Check the spelling with them.` };
+}
+/** A username box with a Check button and a "found / not found" line. */
+function usernameField(name, label, value = '') {
+  return field(label, `<div class="flex gap-2"><input class="inp" name="${name}" value="${esc(value)}" placeholder="e.g. aarav" autocapitalize="none" autocomplete="off" spellcheck="false"><button type="button" class="btn" data-check-user="${name}">Check</button></div><div class="text-sm mt-1.5" data-user-result="${name}"></div>`);
+}
+function bindUsernameField(form, name, onFound) {
+  const out = $(`[data-user-result="${name}"]`, form);
+  const run = async () => {
+    out.textContent = 'Checking…'; out.className = 'text-sm mt-1.5 text-ink-3';
+    const r = await checkUsername(form.elements[name].value);
+    out.innerHTML = r.ok ? `<i class="fa-solid fa-circle-check mr-1"></i>${esc(r.msg)}` : `<i class="fa-solid fa-circle-xmark mr-1"></i>${esc(r.msg)}`;
+    out.className = `text-sm mt-1.5 ${r.ok ? 'text-gain' : 'text-loss'} font-semibold`;
+    if (r.ok && onFound) onFound(r);
+    return r;
+  };
+  $(`[data-check-user="${name}"]`, form).addEventListener('click', run, { signal: modalSignal() });
+  form.elements[name].addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } }, { signal: modalSignal() });
+  form.elements[name].addEventListener('input', () => { out.textContent = ''; }, { signal: modalSignal() });
+  return run;
+}
+/** Names of the people you are connected with (family, linked people, flatmates, invitations). */
+async function resolveConnectedNames() {
+  const me = myUser(), want = new Set([...(db.settings.familyMembers || []), ...db.accounts.map((a) => a.linkedUser).filter(Boolean),
+    ...shared.invites.filter((x) => x.from === me || x.to === me).flatMap((x) => [x.from, x.to])]);
+  want.delete(me);
+  for (const u of [...want].slice(0, 40)) if (!shared.known[u]) await lookupUser(u).catch(() => null);
+}
+/** Remove yourself from the old public list of people (kosh/users.json), once. */
+async function leaveOldUsersList() {
+  if (localStorage.getItem('kosh.leftUsersList') === myUser()) return;
+  await updateJsonFile(USERS_FILE, (d) => {
+    if (!d || !d.users) return null;
+    const list = d.users.filter((x) => x.username !== myUser());
+    return list.length === d.users.length ? null : { users: list };
+  }, 'KOSH: leave the old people list').catch(() => {});
+  localStorage.setItem('kosh.leftUsersList', myUser());
 }
 
 /* ===== Sign in with a KOSH username and password =====
@@ -7897,21 +7993,38 @@ function memberPicker(name, users, checkedUsers) {
 function openHomeForm(existing) {
   if (!flatGuard()) return;
   const isNew = !existing;
-  const h = existing || { name: '', address: '', members: [{ user: myUser(), name: db.settings.ownerName || myUser(), weight: 1, joined: todayStr() }] };
-  const people = [...shared.users.filter((u) => u.username === myUser()), ...shared.users.filter((u) => u.username !== myUser())];
-  const inHome = h.members.filter((m) => !m.left).map((m) => m.user);
+  const h = existing || { name: '', address: '', members: [] };
+  // Rows: you, then everyone already in the home (not moved out); more are added by typing a username.
+  const rows = [{ user: myUser(), name: db.settings.ownerName || myUser(), weight: h.members.find((m) => m.user === myUser())?.weight ?? 1, keep: true, me: true },
+    ...h.members.filter((m) => m.user !== myUser() && !m.left).map((m) => ({ user: m.user, name: m.name || userName(m.user), weight: m.weight ?? 1, keep: true, status: m.status }))];
+  const rowHtml = () => rows.map((r) => `<div class="flex items-center gap-3 py-1.5 border-b border-line">
+      <label class="flex items-center gap-2 flex-1 min-w-0"><input type="checkbox" name="m_${esc(r.user)}" ${r.keep ? 'checked' : ''} ${r.me ? 'disabled' : ''}><span class="truncate">${esc(r.name)}${r.me ? ' (you)' : ''}${r.status === 'invited' ? ' <span class="pill due">invited</span>' : ''}</span></label>
+      <span class="text-xs text-ink-3">room share</span><input class="inp !w-20" type="number" min="0" step="0.1" name="w_${esc(r.user)}" value="${r.weight}" aria-label="Room share for ${esc(r.name)}"></div>`).join('');
   openModal({
     title: isNew ? 'New shared home' : 'Home settings',
     body: `${twoCol(field('Home name', input('name', h.name, 'required maxlength="40" placeholder="e.g. Flat 302, Koregaon Park"')), field('Address (optional)', input('address', h.address || '', 'maxlength="80"')))}
-      <div><span class="lbl">Who lives here</span>${memberPicker('m', people, inHome)}
-        <p class="hint">Flatmates need KOSH with their own username. Don't see someone? Ask them to sign in once, then reopen this.</p></div>
-      <div><span class="lbl">Room shares (for rent split "by room share")</span><div class="grid grid-cols-2 sm:grid-cols-3 gap-2">${people.map((u) => `<label class="text-sm flex items-center gap-2">${esc(u.name)}<input class="inp !w-20" type="number" min="0" step="0.1" name="w_${esc(u.username)}" value="${h.members.find((m) => m.user === u.username)?.weight ?? 1}"></label>`).join('')}</div>
-        <p class="hint">Example: a bigger room 1.5, others 1. Leave all at 1 for equal.</p></div>`,
+      <div><span class="lbl">Who lives here</span><div data-rows>${rowHtml()}</div>
+        <p class="hint">Untick someone to remove them (or cancel their invitation). Room share: a bigger room 1.5, others 1; leave all at 1 for equal.</p></div>
+      ${usernameField('addUser', 'Add a flatmate by their KOSH username')}
+      <button type="button" class="btn btn-sm" data-add-flatmate><i class="fa-solid fa-user-plus"></i> Add to this home</button>
+      <p class="hint">Ask flatmates for their username. They get an invitation and join when they tap Join.</p>`,
     submitLabel: isNew ? 'Create home' : 'Save',
+    onOpen: (form) => {
+      const sig = { signal: modalSignal() };
+      const redraw = () => { for (const r of rows) { r.keep = r.me || !!form.elements[`m_${r.user}`]?.checked; r.weight = num(form.elements[`w_${r.user}`]?.value) || 1; } $('[data-rows]', form).innerHTML = rowHtml(); };
+      const check = bindUsernameField(form, 'addUser');
+      $('[data-add-flatmate]', form).addEventListener('click', async () => {
+        const r = await check();
+        if (!r.ok) return;
+        if (rows.some((x) => x.user === r.user)) { toast(`${r.name} is already in the list.`); return; }
+        redraw(); rows.push({ user: r.user, name: r.name, weight: 1, keep: true }); $('[data-rows]', form).innerHTML = rowHtml();
+        form.elements.addUser.value = ''; $('[data-user-result="addUser"]', form).textContent = `${r.name} added. Save to send the invitation.`;
+      }, sig);
+    },
     onSubmit: async (d) => {
-      const chosen = people.filter((u) => d[`m_${u.username}`]).map((u) => u.username);
-      if (!chosen.includes(myUser())) chosen.unshift(myUser());
-      if (chosen.length < 2) { toast('Add at least one flatmate.', 'error'); return false; }
+      const chosen = rows.filter((r) => r.me || d[`m_${r.user}`]).map((r) => r.user);
+      if (chosen.length < 2) { toast('Add at least one flatmate by their username.', 'error'); return false; }
+      const nameOf = Object.fromEntries(rows.map((r) => [r.user, r.name]));
       const id = existing?.id || uid('home');
       try {
         await saveHome(id, (data) => {
@@ -7920,19 +8033,20 @@ function openHomeForm(existing) {
           const now = new Date().toISOString();
           for (const u of chosen) {
             const m = base.members.find((x) => x.user === u), weight = num(d[`w_${u}`] ?? 1) || 1;
-            if (u === myUser() && !m) { base.members.push({ user: u, name: userName(u), weight, joined: todayStr(), status: 'active' }); continue; }
-            if (!m) { base.members.push({ user: u, name: userName(u), weight, status: 'invited', invitedBy: myUser(), invitedAt: now }); continue; }
+            if (u === myUser() && !m) { base.members.push({ user: u, name: nameOf[u], weight, joined: todayStr(), status: 'active' }); continue; }
+            if (!m) { base.members.push({ user: u, name: nameOf[u], weight, status: 'invited', invitedBy: myUser(), invitedAt: now }); continue; }
             m.weight = weight;
-            if (m.left || m.status === 'declined' || m.status === 'cancelled') { delete m.left; delete m.joined; Object.assign(m, { status: 'invited', invitedBy: myUser(), invitedAt: now }); } // asked again
+            if (m.left || m.status === 'declined' || m.status === 'cancelled') { delete m.left; delete m.joined; Object.assign(m, { status: 'invited', invitedBy: myUser(), invitedAt: now }); }
           }
           for (const m of base.members) if (!chosen.includes(m.user) && !m.left) { if (m.status === 'invited') m.status = 'cancelled'; m.left = todayStr(); }
           return base;
         }, `KOSH: ${isNew ? 'create' : 'update'} home ${d.name}`);
-        flats.current = id; toast(isNew ? 'Home created. Add the rent next.' : 'Saved', 'success');
+        flats.current = id; toast(isNew ? 'Home created. Flatmates get an invitation; add the rent once they join.' : 'Saved', 'success');
       } catch (e) { toast(`Couldn't save: ${e.message}`, 'error'); return false; }
     },
   });
 }
+
 function openFlatExpense(home) {
   if (!flatGuard()) return;
   const act = activeMembers(home);
@@ -8646,7 +8760,7 @@ const HELP_TOPICS = [
   { id: 'dashboard', page: 'dashboard', group: 'Everyday', icon: 'fa-house', title: 'Dashboard',
     where: 'Bottom bar → Home',
     summary: 'Your money at a glance: net worth, a suggestion for you, quick actions, this month\'s money in and out, budgets, insights, what is due soon and recent transactions.',
-    steps: ['Net worth adds cash, bank, investments and money people owe you, minus card dues, loans and money you owe.', 'Switch off Investments or Card dues on the net worth card to see the figure without them.', 'Tap "What makes it up" to see the breakdown.', 'Quick actions: Add expense, Split a bill, I want to buy this, Money health.', 'Customize dashboard (bottom of the page) turns sections on or off: Money health, Portfolio, Subscriptions and Goals cards, and spending charts.'],
+    steps: ['Net worth adds cash, bank, investments and money people owe you, minus card dues, loans and money you owe.', 'Card dues means the bill outstanding on your cards today. Card EMIs still to pay are not deducted; each instalment counts once it is billed to the card (see them on the EMIs page).', 'Switch off Investments or Card dues on the net worth card to see the figure without them.', 'Tap "What makes it up" to see the breakdown.', 'Quick actions: Add expense, Split a bill, I want to buy this, Money health.', 'Customize dashboard (bottom of the page) turns sections on or off: Money health, Portfolio, Subscriptions and Goals cards, and spending charts.'],
     tips: ['Invitations from family or flatmates appear at the top of the dashboard.', 'Due soon lists the next payments; tap the button next to one to record it.'] },
   { id: 'add', page: 'transactions', group: 'Everyday', icon: 'fa-plus', title: 'Adding a transaction',
     where: 'The big + in the bottom bar (or Add transaction at the top on a computer)',
@@ -8711,12 +8825,12 @@ const HELP_TOPICS = [
   { id: 'flat', page: 'flat', group: 'Shared', icon: 'fa-house-user', title: 'Shared flat',
     where: 'More → Shared flat',
     summary: 'For flatmates who each use KOSH: rent, bills and groceries split fairly, with one shared list.',
-    steps: ['New home: name it, tick your flatmates and set room shares if rooms differ. Each flatmate gets an invitation and taps Join.', 'Add recurring for rent, Wi-Fi, maid or cook: amount, day of the month, who pays it and how it is split. It is added for everyone on that day each month.', 'Add expense for one-off costs: who paid, who shares it, and how.', 'Balances shows who gets back and who owes, with the fewest payments to settle up; tap Record after paying.', 'Activity lists the month\'s entries; Export downloads them.'],
+    steps: ['New home: name it, add each flatmate by typing their KOSH username (Check shows found or not found), and set room shares if rooms differ. Each flatmate gets an invitation and taps Join.', 'Add recurring for rent, Wi-Fi, maid or cook: amount, day of the month, who pays it and how it is split. It is added for everyone on that day each month.', 'Add expense for one-off costs: who paid, who shares it, and how.', 'Balances shows who gets back and who owes, with the fewest payments to settle up; tap Record after paying.', 'Activity lists the month\'s entries; Export downloads them.'],
     tips: ['Invite flatmates before adding rent; costs are split with them from the day they join.', 'Your share of each cost also appears in your own transactions.'] },
   { id: 'people', page: 'people', group: 'Shared', icon: 'fa-user-group', title: 'People',
     where: 'More → People',
     summary: 'Money you lend or borrow, and household spending someone will pay back.',
-    steps: ['Add person, then use I gave or I got to record money handed over.', 'Home expenses to take back lists expenses marked "Paid for home"; tick the ones repaid and tap Mark ticked as taken back.', 'Edit a person to link them to their KOSH username, so splits and payments with them show in their app too.'],
+    steps: ['Add person, then use I gave or I got to record money handed over.', 'Home expenses to take back lists expenses marked "Paid for home"; tick the ones repaid and tap Mark ticked as taken back.', 'Edit a person and type their KOSH username (Check confirms it) to link them, so splits and payments with them show in their app too.'],
     tips: ['Balances with people count in your net worth.'] },
   { id: 'recurring', page: 'subscriptions', group: 'Money', icon: 'fa-rotate', title: 'Recurring: subscriptions, bills, taxes and income',
     where: 'More → Recurring',
@@ -8766,8 +8880,8 @@ const HELP_TOPICS = [
   { id: 'family', page: 'portfolio', group: 'Shared', icon: 'fa-people-roof', title: 'Family and invitations',
     where: 'Portfolio → Family portfolio; Dashboard → Invitations',
     summary: 'See your family\'s investments together, and answer invitations from family and flatmates.',
-    steps: ['Share mine (in Family portfolio) lets family see your holdings\' values; never your transactions or bank balances.', 'Add member sends an invitation; nothing is shared until they tap Accept.', 'Invitations you receive appear on the dashboard: Accept or Decline.', 'Remove a member with ×; the link ends for both of you.'],
-    tips: ['Values update whenever each person opens the app.'] },
+    steps: ['Share mine (in Family portfolio) lets family see your holdings\' values; never your transactions or bank balances.', 'Add member: type their KOSH username and tap Check; Send invitation. Nothing is shared until they tap Accept.', 'Invitations you receive appear on the dashboard: Accept or Decline.', 'Remove a member with ×; the link ends for both of you.'],
+    tips: ['Values update whenever each person opens the app.', 'Nobody can see a list of who uses KOSH; you need someone\'s username to add them, and your username is shown in Settings.'] },
   { id: 'faq', page: 'dashboard', group: 'Help', icon: 'fa-circle-question', title: 'Common questions',
     where: 'Anywhere',
     summary: 'Quick answers when something looks wrong.',
