@@ -789,3 +789,19 @@ body { background: var(--paper); }
 .hero .avatar { box-shadow: 0 0 0 2px #0B2540; }
 .ins-grid { grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); }
 .ins-grid label { font-size: .78rem; }
+.invite-card { border: 1px solid #BFE0F5; background: linear-gradient(135deg, #F2F9FE, #fff); }
+
+/* ---------- Help ---------- */
+.help-topic { padding: 0; overflow: hidden; }
+.help-topic > summary { list-style: none; display: flex; align-items: center; gap: .8rem; padding: .9rem 1rem; cursor: pointer; }
+.help-topic > summary::-webkit-details-marker { display: none; }
+.help-ico { width: 2.2rem; height: 2.2rem; border-radius: 10px; display: grid; place-items: center; background: var(--royal-tint); color: var(--royal); flex: none; }
+.help-where { display: block; font-size: .78rem; color: var(--ink-3); margin-top: .1rem; }
+.help-chev { color: var(--ink-3); transition: transform .15s; }
+.help-topic[open] .help-chev { transform: rotate(180deg); }
+.help-body { padding: 0 1rem 1rem 4rem; font-size: .9rem; color: var(--ink-2); }
+.help-body ol { list-style: decimal; margin: .6rem 0 0 1.1rem; }
+.help-body ol li, .help-body ul li { margin: .3rem 0; }
+.help-tips { margin-top: .8rem; background: #F4F8FC; border-radius: 12px; padding: .7rem .9rem; }
+.help-tips ul { list-style: disc; margin: .3rem 0 0 1.1rem; }
+@media (max-width: 639px) { .help-body { padding: 0 1rem 1rem 1rem; } header .icon-btn[data-action="help"] { width: 2.5rem; } }

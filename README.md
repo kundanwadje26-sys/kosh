@@ -266,11 +266,48 @@ Family and friends can use the same app and the **same GitHub repository**, each
 - **Home expenses:** if the person who pays you back (e.g. Dad) is linked, he sees what he owes you.
 - Shared entries are added to your own ledger using your first bank account, with a note saying who shared them; edit them like any other entry.
 
-**Family portfolio (like Coin's family view):** in Portfolio → Family portfolio, each person taps **Share mine** (or the Settings option), and anyone can **Add member** to see a combined family total, profit, allocation, and each person's holdings. Values update whenever that person opens the app.
+**Family portfolio (like Coin's family view):** in Portfolio → Family portfolio, **Add member** sends an **invitation**. The other person sees it on their dashboard (and in their Family portfolio) and taps **Accept** or **Decline**; when accepting they can also choose to share their own portfolio. Only after they accept do you see each other's shared portfolios: a combined family total, profit, allocation, and each person's holdings. Removing someone ends the family link for both of you. Invitations are kept in `kosh/invites.json` in the shared repository.
 
 **Phone notifications** work per person: each data file gets its own scheduled job (`.github/workflows/kosh-<name>.yml`) and its own ntfy topic.
 
 **Privacy, honestly:** GitHub tokens can't be limited to one file, so anyone with a token for this repository could technically open every file in it, and you, as the account owner, can see everything. Use this for family and close friends you trust. The Play Store version will give each person truly private data.
+
+### Daily prices (gold and stocks), shared by everyone
+
+Gold (GoldAPI) and stock (Alpha Vantage) prices come from services with small free limits, so they're fetched **once a day for everyone** and saved in the shared repository, instead of each phone asking.
+
+- **Files** in `kosh-shared/kosh/prices/`: `gold.json` and `stocks.json` (written by the daily job), `gold-extra.json` and `stocks-extra.json` (prices the apps fetched themselves), and `watch.json` (which stock symbols people hold). The job and the apps never write the same file.
+- **The app reads these files first.** Only if a price is missing (e.g. the purchase date of a new ornament, or the job hasn't run today) does it ask the service directly, and then it saves the result so nobody has to ask again. Dates it couldn't get are added to a wanted list that the job fills the next evening.
+- **Mutual fund NAVs** still come straight from MFapi.in, which is free and unlimited.
+
+**Set up the daily job (once, owner):**
+
+1. Settings → GitHub storage → **Set up the daily price job**. This adds `.github/workflows/kosh-prices.yml` to `kosh-shared` (your token needs **Workflows: Read and write** on that repository; otherwise the app shows the file to add by hand).
+2. On GitHub: `kosh-shared` → Settings → **Secrets and variables → Actions** → **New repository secret**: `GOLDAPI_KEY` = your GoldAPI key; again `ALPHAVANTAGE_KEY` = your Alpha Vantage key.
+3. Actions tab → **KOSH daily prices** → **Run workflow** to fill today's prices now. After that it runs every evening at about 6:10 pm India time.
+
+It uses about **30 GoldAPI requests a month** in total, however many people use the app, and one Alpha Vantage request per held stock per day (up to 24 stocks a day, the longest-waiting first). Once the job is running you can blank the keys in `BUILTIN_KEYS` at the top of app.js so they're no longer public; the app then relies on the shared prices (and anyone's own keys in Settings).
+
+### Help inside the app
+
+- **? button** at the top of every page opens help for that page: where to find it, what it does, step-by-step use and tips.
+- **Help page** (menu → Tools → Help) lists every feature, grouped, with a search box (try "fuel", "SIP", "statement", "split").
+- The help text lives in `HELP_TOPICS` in app.js; the downloadable user guide is generated from the same text, so update it there when features change.
+
+### Vehicles, fuel and odometer
+
+- **My vehicles** (Insurance page): add each car, bike or scooter with its registration number, fuel type and current odometer reading.
+- **Logging fuel:** when an expense's category is fuel (or vehicle costs such as service, parking or tolls), the form shows **Vehicle** and **Odometer reading (km)**, plus **Litres** and **Filled the tank full** for fuel. It reminds you of the last reading and warns if the new one is lower. You can add a new vehicle right there with **+ Add a new vehicle…**.
+- **Mileage:** from your fill-ups with odometer readings, My vehicles shows distance covered, mileage (km per litre, or per kWh for electric) and fuel cost per km, plus fuel spent this month.
+- **Insurance:** a car or bike policy can be linked to a saved vehicle; its number fills in, and My vehicles shows the policy and renewal date.
+
+### Download a statement (Transactions → Download)
+
+Downloads exactly what the filters show (month, type, account, category, search), or pick a **date range**. Choose **Statement (PDF / print)**, which opens a clean statement with money in, money out and totals that you can print or save as PDF, or **Excel / CSV**, which opens in Excel or Google Sheets. With one account selected, both include its opening balance, a running balance and the closing balance, like a bank statement.
+
+### Notification timing fix
+
+On iPhone, ntfy's scheduled messages could arrive hours late (for example an 8 pm notification at 11 am the next day). The notification job now starts 10 minutes early, waits until the exact time, and sends a normal message, which phones receive immediately. Open the app once after updating so it rewrites the job. If GitHub starts a job late on a busy day, the message goes out as soon as it runs. On iPhone, allow notifications for the ntfy app and keep Background App Refresh on.
 
 ### Insurance (menu → Insurance)
 
@@ -307,7 +344,7 @@ Record each ornament: name, purity (24K, 22K, 18K or 14K), weight in grams, date
 
 For flatmates who each use KOSH (needs the shared repository from the private-logins setup).
 
-- **New home:** name it (e.g. "Flat 302"), add flatmates by their KOSH username, and set **room shares** if rooms differ (e.g. 1.5 for the bigger room).
+- **New home:** name it (e.g. "Flat 302"), pick flatmates by their KOSH username, and set **room shares** if rooms differ (e.g. 1.5 for the bigger room). Each flatmate gets an **invitation** on their dashboard and the Shared flat page: **Join** or **Decline**. Until they join they show as "Invited, waiting for yes" and share no costs; costs are split with them from the day they join. Invite everyone first, then add the rent once they've joined.
 - **Every month:** add rent, Wi-Fi, maid, cook and so on once, with the day, who pays it (e.g. the landlord is paid by you) and the split (equally or by room share). On that day it's added for everyone, exactly once, even if several phones open the app.
 - **Add expense:** electricity bill, groceries, repairs: who paid, who shares it, and equally, by room share or exact amounts.
 - **Balances and settling up:** each flatmate's net (gets back / owes) and the **fewest payments** to settle everyone, with **Record** buttons. **Record payment** for money handed over between flatmates.
@@ -588,7 +625,7 @@ To change the name in the heading ("Kundan's Finance"), open **Settings → Your
 
 ## Part 10 — What changed in this version
 
-**Newest:** Insurance page, tax payments and recurring taxes, a net-worth fix for card EMIs, and built-in GoldAPI and Alpha Vantage keys. Before that: gold ornaments with automatic rates and city prices, portfolio toggles, and the Shared flat tracker for flatmates. Before that: private logins (own repository per person, sign in with username and password). Before that: several people on one repository (own data files, linked splits and settle-ups, family portfolio). Before that: investments shown as money out, a better investing score, Coin-style instalment cards with XIRR, editable allotment dates. Before that: a calmer layout (grouped menu, customisable dashboard), Split bills as its own page, a single total cash-flow forecast, bank colour tiles. Before that: Money health (score, runway, cash-flow forecast, fun money, credit health, idle cash, lifestyle creep, suggestions), Planners (financial freedom, loan prepayment, capital gains, Regular vs Direct, salary-day plan, year in review), bill splitting and the cool-off list. Before that: a phone-friendly layout (bottom bar, quick add, day-grouped transactions, labelled buttons, cards instead of wide tables). Before that: a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
+**Newest:** in-app Help (the ? button and a searchable Help page) and a phone user guide in Word. Before that: vehicles with fuel, odometer and mileage, statement download from Transactions, and a fix for late notifications. Before that: invitations with yes / no for family and flatmates. Before that: daily shared prices for gold and stocks (one GitHub job for everyone), and a fix for "0 active SIPs" on Portfolio. Before that: Insurance page, tax payments and recurring taxes, a net-worth fix for card EMIs, and built-in GoldAPI and Alpha Vantage keys. Before that: gold ornaments with automatic rates and city prices, portfolio toggles, and the Shared flat tracker for flatmates. Before that: private logins (own repository per person, sign in with username and password). Before that: several people on one repository (own data files, linked splits and settle-ups, family portfolio). Before that: investments shown as money out, a better investing score, Coin-style instalment cards with XIRR, editable allotment dates. Before that: a calmer layout (grouped menu, customisable dashboard), Split bills as its own page, a single total cash-flow forecast, bank colour tiles. Before that: Money health (score, runway, cash-flow forecast, fun money, credit health, idle cash, lifestyle creep, suggestions), Planners (financial freedom, loan prepayment, capital gains, Regular vs Direct, salary-day plan, year in review), bill splitting and the cool-off list. Before that: a phone-friendly layout (bottom bar, quick add, day-grouped transactions, labelled buttons, cards instead of wide tables). Before that: a Calendar page with day-by-day spending and income. Before that: description suggestions as you type (remembered descriptions, with their usual category). Before that: custom phone notifications (18 kinds, each with its own time and repeat, previews, hide amounts) delivered at the exact India time; the import now keeps your categories even after you delete transactions.
 
 **Before that:** statement import reads account and card numbers (including short `xx50` card numbers), has a *Read it from the statement* option, turns payments to your own account numbers into self transfers, matches payments across PhonePe and bank statements by UTR (and can correct the account), and remembers your categories and account numbers permanently, including after you delete transactions or edit a category.
 

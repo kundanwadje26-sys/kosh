@@ -37,7 +37,7 @@ const STORAGE_KEYS = {
 };
 const APP_NAME = "Kundan's Finance";
 const SCHEMA_VERSION = 3; // v2 added `sips`, v3 goals/wishlist/rules/taxItems; older files load unchanged
-const COLLECTIONS = ['accounts', 'transactions', 'emis', 'subscriptions', 'budgets', 'sips', 'charts', 'goals', 'wishlist', 'rules', 'taxItems', 'notifications', 'creditScores', 'insurance'];
+const COLLECTIONS = ['accounts', 'transactions', 'emis', 'subscriptions', 'budgets', 'sips', 'charts', 'goals', 'wishlist', 'rules', 'taxItems', 'notifications', 'creditScores', 'insurance', 'vehicles'];
 
 const ACCOUNT_TYPES = {
   cash:        { label: 'Cash & wallets',        single: 'Cash or wallet', icon: 'fa-wallet' },
@@ -225,7 +225,7 @@ function emptyDB() {
     meta: { app: 'kosh-expense-tracker', updatedAt: null },
     settings: clone(DEFAULT_SETTINGS),
     accounts: [], transactions: [], emis: [], subscriptions: [], budgets: [], sips: [], charts: [],
-    goals: [], wishlist: [], rules: [], taxItems: [], notifications: [], creditScores: [], insurance: [],
+    goals: [], wishlist: [], rules: [], taxItems: [], notifications: [], creditScores: [], insurance: [], vehicles: [],
   };
 }
 /** Makes sure any loaded JSON has every expected key (safe against old/partial files).
@@ -1111,6 +1111,7 @@ const PAGES = {
   charts:        { title: 'Charts',           icon: 'fa-chart-simple',    group: 'Tools' },
   notifications: { title: 'Notifications',    icon: 'fa-bell',            group: 'Tools' },
   data:          { title: 'Export & backup',  short: 'Export', icon: 'fa-file-export', group: 'Tools' },
+  help:          { title: 'Help',             icon: 'fa-circle-question', group: 'Tools' },
   tax:           { title: 'Tax helper',       icon: 'fa-file-invoice',    hidden: true }, // now a tab in Planners
 };
 const currentPage = () => { const h = location.hash.replace(/^#\/?/, ''); return PAGES[h] ? h : 'dashboard'; };
@@ -1141,7 +1142,7 @@ function render() {
   $$('[data-brand]').forEach((el) => { el.textContent = brand; });
   const view = $('#view');
   const fn = {
-    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, health: renderHealth, planner: renderPlanner, split: renderSplit, flat: renderFlat, insurance: renderInsurance, notifications: renderNotifications, transactions: renderTransactions,
+    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, health: renderHealth, planner: renderPlanner, split: renderSplit, flat: renderFlat, insurance: renderInsurance, help: renderHelp, notifications: renderNotifications, transactions: renderTransactions,
     emis: renderEmis, subscriptions: renderSubscriptions, budgets: renderBudgets, data: renderData,
   }[page];
   view.innerHTML = fn();
@@ -1153,6 +1154,7 @@ function render() {
 
 /** "Kundan's Finance" (the name comes from Settings > Your name). */
 function brandName() {
+  if (!isConfigured() && !db.transactions.length && !db.accounts.some((a) => a.type !== 'cash')) return 'KOSH'; // a new, signed-out device
   const n = String(db.settings.ownerName || '').trim();
   if (!n) return 'My Finance';
   return `${n}${/s$/i.test(n) ? "'" : "'s"} Finance`;
@@ -1257,6 +1259,7 @@ function renderDashboard() {
     </section>`;
   return `
     ${signInCard()}
+    ${invitesCard()}
     ${installCard()}
     ${gettingStarted()}
     ${logNudge()}
@@ -1631,6 +1634,7 @@ function renderTransactions() {
       <button class="btn" data-action="add-txn" data-type="income"><i class="fa-solid fa-arrow-down"></i> Add income</button>
       <button class="btn" data-action="add-txn" data-type="transfer"><i class="fa-solid fa-right-left"></i> Transfer money</button>
       <a class="btn" href="#import"><i class="fa-solid fa-file-import"></i> Import statement</a>
+      <button class="btn" data-action="stmt-download"><i class="fa-solid fa-file-arrow-down"></i> Download</button>
     </div>
     <section class="panel p-5">
       <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-5">
@@ -2389,7 +2393,8 @@ async function refreshPrices({ auto = false, onlyId = null } = {}) {
   let updated = 0;
   for (const a of targets) {
     try {
-      const live = isMF(a) ? await mfLatest(a.schemeCode) : await stockLatest(a.ticker, key);
+      // Stocks: the shared daily prices first; only ask Alpha Vantage if they're missing or old.
+      const live = isMF(a) ? await mfLatest(a.schemeCode) : stockFromStore(a.ticker) || await stockLatest(a.ticker, key).then((x) => { saveStockPrice(a.ticker, x); return x; });
 
       const { units, pendingBuys, missing } = holdingUnits(a);
       if (missing.length) {
@@ -5187,13 +5192,13 @@ async function setupPhoneReminders(topic, time) {
     else toast(`Couldn't set it up: ${e.message}`, 'error');
   }
 }
-function showWorkflowManual(yml) {
+function showWorkflowManual(yml, path = workflowPath(), repo = config.repo) {
   openModal({
     title: 'One more permission needed',
     wide: true,
-    body: `<p class="text-sm">Your token can't create the reminder job. Either give it one more permission, or add the file yourself:</p>
+    body: `<p class="text-sm">Your token can't create this scheduled job. Either give it one more permission, or add the file yourself:</p>
       <p class="text-sm mt-3"><b>Option 1:</b> GitHub → Settings → Developer settings → Fine-grained tokens → your token → <b>Repository permissions → Workflows: Read and write</b> → Update. Then press "Turn on" again.</p>
-      <p class="text-sm mt-3"><b>Option 2:</b> In your data repository click <b>Add file → Create new file</b>, name it <code>${workflowPath()}</code>, paste the text below and commit.</p>
+      <p class="text-sm mt-3"><b>Option 2:</b> In the <b>${esc(repo)}</b> repository click <b>Add file → Create new file</b>, name it <code>${esc(path)}</code>, paste the text below and commit.</p>
       <textarea class="inp mt-3 font-mono text-xs" rows="12" readonly onclick="this.select()">${esc(yml)}</textarea>`,
     submitLabel: 'Done', cancelLabel: 'Close', onSubmit: () => {},
   });
@@ -5532,7 +5537,9 @@ const RECOMMENDED = [
   { type: 'month_report', time: '09:30', repeat: 'monthly', monthDay: 1 },
 ];
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const NOTIFY_LEAD_MIN = 20;
+// The job starts this many minutes early (GitHub often starts scheduled jobs a few minutes late),
+// then waits until the exact time and sends a normal message, which phones get instantly.
+const NOTIFY_LEAD_MIN = 10;
 function repeatText(n) {
   const at = `at ${fmtTime12(n.time)}`;
   switch (n.repeat || 'daily') {
@@ -5562,7 +5569,7 @@ async function sendNotificationNow(n) {
 }
 
 /* ----- The GitHub job ----- */
-/** Cron lines (UTC, 20 minutes early) mapped to the India times they serve. */
+/** Cron lines (UTC, a few minutes early) mapped to the India times they serve. */
 function notifySchedule() {
   const map = {};
   for (const n of db.notifications.filter((x) => x.enabled !== false)) {
@@ -5574,7 +5581,7 @@ function notifySchedule() {
   }
   return map;
 }
-const scheduleSignature = () => JSON.stringify({ v: 2, map: notifySchedule(), topic: db.settings.ntfyTopic, path: config.path, url: APP_URL() });
+const scheduleSignature = () => JSON.stringify({ v: 3, map: notifySchedule(), topic: db.settings.ntfyTopic, path: config.path, url: APP_URL() });
 function notifyWorkflow() {
   const map = notifySchedule();
   const crons = Object.keys(map);
@@ -5607,17 +5614,20 @@ function target(hhmm) {
     if (!manual && !onDay(n, at.toISOString().slice(0, 10))) { console.log('skip (not today)', n.type); continue; }
     const msg = engine(db, at, n);
     if (!msg) { console.log('nothing to say', n.type); continue; }
-    const deliverUtc = Math.round((at.getTime() - IST_MS) / 1000);
-    const early = !manual && deliverUtc - Date.now() / 1000 > 15;
+    const deliverMs = at.getTime() - IST_MS;
+    // Wait here until the exact time, then send a normal (instant) message. ntfy's own scheduled
+    // delivery is not used: on iPhone a scheduled message can arrive hours late.
+    const wait = manual ? 0 : deliverMs - Date.now();
+    if (wait > 0 && wait < 30 * 60000) { console.log('waiting', Math.round(wait / 1000), 's until', n.time, 'IST'); await new Promise((r) => setTimeout(r, wait)); }
+    const early = false;
     const body = { topic, title: msg.title, message: msg.message, tags: msg.tags, priority: msg.priority, click: process.env.APP_URL };
-    if (early) body.delay = String(deliverUtc); // ntfy delivers it at the exact time
     const r = await fetch('https://ntfy.sh/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    console.log(n.type, n.time, early ? 'scheduled for ' + n.time + ' IST' : 'sent now', r.status);
+    console.log(n.type, n.time, 'sent at', new Date(Date.now() + IST_MS).toISOString().slice(11, 19), 'IST', r.status);
   }
 })().catch((e) => { console.error(e); process.exit(1); });`;
   return `# Phone notifications for Kundan's Finance (KOSH). Created by the app; it rewrites
 # this file when you change your notifications. Times below are UTC (India minus 5:30),
-# ${NOTIFY_LEAD_MIN} minutes early; ntfy delivers each message at the exact India time.
+# ${NOTIFY_LEAD_MIN} minutes early, waits until the exact India time, then sends the message.
 name: KOSH notifications
 on:
   schedule:
@@ -5706,7 +5716,7 @@ function renderNotifications() {
           <div class="hint">Creates a small scheduled job in your private data repository. Your token needs <b>Workflows: Read and write</b> (GitHub → Developer settings → your token). After that, changes here update it by themselves.</div>
           ${notifyState.error === 'perm' ? '<p class="callout warn mt-2">GitHub refused: the token is missing the Workflows permission. Add it, or press the button again to see the file to paste by hand.</p>' : notifyState.error ? `<p class="callout warn mt-2">${esc(notifyState.error)}</p>` : ''}</li>
       </ol>
-      <p class="hint mt-3">Each message is prepared ${NOTIFY_LEAD_MIN} minutes early and ntfy delivers it at the exact time. Messages pass through ntfy.sh; anyone who knows the topic could read them, so keep it private, or tick <b>Hide amounts</b> on a notification.</p>
+      <p class="hint mt-3">The job starts ${NOTIFY_LEAD_MIN} minutes early and sends each message at the exact time (on a busy day GitHub can start it late; then it is sent as soon as it runs). On iPhone, allow notifications for the ntfy app and keep Background App Refresh on. Messages pass through ntfy.sh; anyone who knows the topic could read them, so keep it private, or tick <b>Hide amounts</b> on a notification.</p>
     </section>
 
     ${list.length ? `<section class="panel p-5"><div class="divider">${list.map(notifyRow).join('')}</div></section>`
@@ -7112,7 +7122,8 @@ const myUser = () => String(config.user || '').toLowerCase();
 // otherwise next to the data files in the same repository.
 const sharedRepo = () => config.sharedRepo || config.repo;
 const sharedOn = () => isConfigured() && !!myUser();
-const shared = { users: [], records: [], portfolios: {}, last: 0, busy: false, error: '' };
+const shared = { users: [], records: [], portfolios: {}, invites: [], last: 0, busy: false, error: '' };
+const INVITES_FILE = `${SHARED_DIR}/invites.json`;
 const SHARED_QUEUE = 'kosh.sharedQueue.v1';
 
 async function readJsonFile(path) {
@@ -7252,6 +7263,7 @@ async function syncShared(force = false) {
     shared.users = (users && users.users) || [];
     shared.records = (await readJsonFile(LEDGER_FILE)).data?.records || [];
     try { await loadHomes(); } catch (e) { console.warn('Homes', e); }
+    try { await loadPriceStore(); await registerWatch(); } catch (e) { console.warn('Prices', e); }
     applyShared();
     if (db.settings.sharePortfolio) {
       const sum = portfolioSummary(), sig = JSON.stringify([sum.totals, sum.holdings]);
@@ -7260,11 +7272,15 @@ async function syncShared(force = false) {
         localStorage.setItem('kosh.pfSig', sig);
       }
     }
-    for (const u of db.settings.familyMembers || []) {
+    shared.invites = (await readJsonFile(INVITES_FILE)).data?.invites || [];
+    syncFamilyFromInvites();
+    for (const u of (db.settings.familyMembers || []).filter((x) => familyStatus(x) === 'accepted')) {
       try { shared.portfolios[u] = (await readJsonFile(pfFile(u))).data; } catch { /* keep the last copy */ }
     }
     shared.error = ''; shared.last = Date.now();
-    if (['#people', '#split', '#portfolio', '#flat'].includes(location.hash)) render();
+    const invSig = `${(typeof flats !== 'undefined' ? flats.invites || [] : []).map((h) => h.id).join()}|${familyIncoming().map((x) => x.id).join()}`;
+    const invChanged = invSig !== shared.invSig; shared.invSig = invSig;
+    if (['#people', '#split', '#portfolio', '#flat'].includes(location.hash) || (invChanged && ['', '#dashboard'].includes(location.hash))) render();
   } catch (e) { shared.error = e.message; console.warn('Shared sync', e); }
   finally { shared.busy = false; }
 }
@@ -7273,7 +7289,9 @@ async function syncShared(force = false) {
 function familySection() {
   if (!sharedOn()) return `<section class="panel p-5 mt-6"><div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-people-roof mr-1.5 text-royal"></i>Family portfolio</h2></div>
     <p class="text-sm text-ink-2">See your family's investments together, like a family account. Set your KOSH username in Settings (GitHub storage) to start.</p></section>`;
-  const members = (db.settings.familyMembers || []).map((u) => ({ u, p: shared.portfolios[u] }));
+  const incoming = familyIncoming();
+  const members = (db.settings.familyMembers || []).filter((u) => familyStatus(u) === 'accepted').map((u) => ({ u, p: shared.portfolios[u] }));
+  const waiting = (db.settings.familyMembers || []).filter((u) => ['waiting', 'declined'].includes(familyStatus(u)));
   const mine = portfolioSummary();
   const all = [{ u: myUser(), p: mine, me: true }, ...members.filter((m) => m.p)];
   const tot = all.reduce((s, m) => ({ value: s.value + m.p.totals.value, invested: s.invested + m.p.totals.invested, sip: s.sip + (m.p.totals.sipMonthly || 0) }), { value: 0, invested: 0, sip: 0 });
@@ -7282,6 +7300,10 @@ function familySection() {
   return `<section class="panel p-5 mt-6">
     <div class="panel-head"><div><h2 class="panel-title"><i class="fa-solid fa-people-roof mr-1.5 text-royal"></i>Family portfolio</h2><div class="text-xs text-ink-3 mt-0.5">${db.settings.sharePortfolio ? 'You share your portfolio with family.' : 'You are not sharing your portfolio.'} <button class="link" data-action="family-share">${db.settings.sharePortfolio ? 'Stop sharing' : 'Share mine'}</button></div></div>
       <button class="btn btn-sm" data-action="family-add"><i class="fa-solid fa-user-plus"></i> Add member</button></div>
+    ${incoming.map((iv) => `<div class="nudge-card good mb-3"><i class="fa-solid fa-envelope-open-text"></i><div class="flex-1 text-sm"><b>${esc(userName(iv.from))}</b> wants to add you as family: you'd see each other's shared portfolios.</div>
+      <button class="btn btn-sm btn-primary" data-action="inv-family" data-id="${iv.id}" data-yes="1">Accept</button><button class="btn btn-sm" data-action="inv-family" data-id="${iv.id}" data-yes="">Decline</button></div>`).join('')}
+    ${waiting.map((u) => `<div class="row text-sm">${avatar(userName(u))}<div class="flex-1">${esc(userName(u))} <span class="pill ${familyStatus(u) === 'declined' ? 'out' : 'due'}">${familyStatus(u) === 'declined' ? 'Declined' : 'Invited, waiting for yes'}</span></div>
+      <button class="icon-btn sm" data-action="family-remove" data-u="${esc(u)}" title="Remove" aria-label="Remove"><i class="fa-solid fa-xmark"></i></button></div>`).join('')}
     <div class="grid grid-cols-3 gap-3 mb-4">
       <div><div class="stat-label">Family total</div><div class="display text-2xl font-semibold num">${money(tot.value)}</div></div>
       <div><div class="stat-label">Invested</div><div class="display text-2xl font-semibold num">${money(tot.invested)}</div></div>
@@ -7301,16 +7323,97 @@ function openFamilyAdd() {
   const others = shared.users.filter((u) => u.username !== myUser() && !(db.settings.familyMembers || []).includes(u.username));
   openModal({
     title: 'Add a family member',
-    body: others.length ? `${field('Who', select('u', others.map((u) => [u.username, `${u.name} (@${u.username})${u.sharesPortfolio ? '' : ' · not sharing yet'}`])))}<p class="hint">You'll see their portfolio once they share it from their Portfolio page.</p>`
+    body: others.length ? `${field('Who', select('u', others.map((u) => [u.username, `${u.name} (@${u.username})`])))}<p class="hint">They get an invitation to accept or decline. Once they accept, you each see the other's portfolio, if the other person shares it.</p>`
       : '<p class="text-sm text-ink-2">Nobody else uses this KOSH yet. When family members connect with their own username, they appear here.</p>',
-    submitLabel: others.length ? 'Add' : 'OK',
-    onSubmit: (d) => { if (!d.u) return; commit([opSettings({ familyMembers: [...(db.settings.familyMembers || []), d.u] })], 'Add family member'); syncShared(true); },
+    submitLabel: others.length ? 'Send invitation' : 'OK',
+    onSubmit: async (d) => {
+      if (!d.u) return;
+      try { await sendFamilyInvite(d.u); } catch (e) { toast(`Couldn't send: ${e.message}`, 'error'); return false; }
+      commit([opSettings({ familyMembers: [...new Set([...(db.settings.familyMembers || []), d.u])] })], 'Invite family member');
+      toast(`Invitation sent. ${userName(d.u)} will see it the next time they open KOSH.`, 'success');
+    },
   });
 }
 /** "People on this KOSH", for Settings. */
 function sharedUsersList() {
   if (!sharedOn()) return '<p class="hint">Set a KOSH username to share splits and portfolios with others who use this same repository.</p>';
   return `<div class="text-sm"><b>People on this KOSH:</b> ${shared.users.length ? shared.users.map((u) => `${esc(u.name)} <span class="text-ink-3">@${esc(u.username)}</span>${u.username === myUser() ? ' (you)' : ''}`).join(', ') : 'loading…'}</div>`;
+}
+
+/* ----- Family invitations (yes / no) ----- */
+const pairInvites = (u) => shared.invites.filter((iv) => iv.type === 'family' && ((iv.from === myUser() && iv.to === u) || (iv.from === u && iv.to === myUser()))).sort((a, b) => (a.at < b.at ? -1 : 1));
+/** accepted / waiting (you asked) / incoming (they asked) / declined / none */
+function familyStatus(u) {
+  const last = pairInvites(u).pop();
+  if (!last || last.status === 'ended') return 'none';
+  if (last.status === 'accepted') return 'accepted';
+  if (last.status === 'declined') return 'declined';
+  return last.from === myUser() ? 'waiting' : 'incoming';
+}
+const familyIncoming = () => shared.invites.filter((iv) => iv.type === 'family' && iv.to === myUser() && iv.status === 'pending' && pairInvites(iv.from).pop()?.id === iv.id);
+async function sendFamilyInvite(u) {
+  const iv = { id: uid('inv'), type: 'family', from: myUser(), to: u, status: 'pending', at: new Date().toISOString() };
+  const next = await updateJsonFile(INVITES_FILE, (d) => {
+    const list = (d && d.invites) || [];
+    if (list.some((x) => x.type === 'family' && x.from === myUser() && x.to === u && x.status === 'pending')) return null;
+    return { invites: [...list, iv] };
+  }, `KOSH: ${myUser()} invited ${u} as family`);
+  shared.invites = (next && next.invites) || shared.invites;
+}
+async function answerFamilyInvite(id, yes, share) {
+  const iv = shared.invites.find((x) => x.id === id);
+  if (!iv) return;
+  const next = await updateJsonFile(INVITES_FILE, (d) => {
+    const list = (d && d.invites) || [], x = list.find((y) => y.id === id);
+    if (!x || x.status !== 'pending') return null;
+    x.status = yes ? 'accepted' : 'declined'; x.answeredAt = new Date().toISOString();
+    return { invites: list };
+  }, `KOSH: ${myUser()} ${yes ? 'accepted' : 'declined'} a family invitation`);
+  shared.invites = (next && next.invites) || shared.invites;
+  const ops = [];
+  if (yes) ops.push(opSettings({ familyMembers: [...new Set([...(db.settings.familyMembers || []), iv.from])], ...(share ? { sharePortfolio: true } : {}) }));
+  if (ops.length) commit(ops, yes ? `Family with ${iv.from}` : 'Decline family invitation');
+  if (share) localStorage.removeItem('kosh.pfSig');
+  toast(yes ? `You and ${userName(iv.from)} are now family in KOSH.` : 'Declined.', yes ? 'success' : undefined);
+  syncShared(true);
+}
+async function endFamily(u) {
+  await updateJsonFile(INVITES_FILE, (d) => {
+    const list = (d && d.invites) || [];
+    let changed = false;
+    for (const x of list) if (x.type === 'family' && ((x.from === myUser() && x.to === u) || (x.from === u && x.to === myUser())) && x.status !== 'ended') { x.status = 'ended'; x.endedAt = new Date().toISOString(); changed = true; }
+    return changed ? { invites: list } : null;
+  }, `KOSH: ${myUser()} removed ${u} from family`).catch(() => {});
+}
+/** Keep your family list in step: add people whose invitation you accepted elsewhere, drop ended ones. */
+function syncFamilyFromInvites() {
+  const cur = db.settings.familyMembers || [];
+  const accepted = shared.invites.filter((iv) => iv.type === 'family' && iv.status === 'accepted' && (iv.from === myUser() || iv.to === myUser())).map((iv) => (iv.from === myUser() ? iv.to : iv.from));
+  const next = [...new Set([...cur.filter((u) => familyStatus(u) !== 'none'), ...accepted.filter((u) => familyStatus(u) === 'accepted')])];
+  if (JSON.stringify(next) !== JSON.stringify(cur)) commit([opSettings({ familyMembers: next })], 'Family list updated');
+}
+function openFamilyAnswer(id) {
+  const iv = shared.invites.find((x) => x.id === id);
+  if (!iv) return;
+  openModal({
+    title: `Family invitation from ${userName(iv.from)}`,
+    body: `<p class="text-sm">${esc(userName(iv.from))} (@${esc(iv.from)}) wants to add you as family. You'll each see the other's portfolio in Portfolio → Family portfolio, for whoever chooses to share it.</p>
+      ${checkbox('share', db.settings.sharePortfolio !== false, 'Share my portfolio with my family', 'Holdings and their values; never your transactions or bank balances.')}`,
+    submitLabel: 'Accept', cancelLabel: 'Not now',
+    onSubmit: async (d) => { await answerFamilyInvite(id, true, !!d.share); },
+  });
+}
+/** Dashboard card with every invitation waiting for your answer. */
+function invitesCard() {
+  if (!sharedOn()) return '';
+  const flatsIn = (typeof flats !== 'undefined' && flats.invites) || [], fam = familyIncoming();
+  if (!flatsIn.length && !fam.length) return '';
+  return `<section class="panel p-5 mb-6 invite-card"><h2 class="panel-title mb-3"><i class="fa-solid fa-envelope-open-text mr-1.5 text-royal"></i>Invitations</h2><div class="space-y-3">
+    ${flatsIn.map((h) => { const by = h.members.find((m) => m.user === myUser())?.invitedBy; return `<div class="flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[12rem] text-sm"><b>${esc(userName(by))}</b> invited you to the shared home <b>${esc(h.name)}</b> with ${h.members.filter((m) => isActiveMember(m) && !m.left).map((m) => esc(m.name)).join(', ')}. Shared costs are split with you from the day you join.</div>
+      <div class="flex gap-2"><button class="btn btn-sm btn-primary" data-action="inv-flat" data-id="${h.id}" data-yes="1">Join</button><button class="btn btn-sm" data-action="inv-flat" data-id="${h.id}" data-yes="">Decline</button></div></div>`; }).join('')}
+    ${fam.map((iv) => `<div class="flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[12rem] text-sm"><b>${esc(userName(iv.from))}</b> wants to add you as family (you'd see each other's shared portfolios).</div>
+      <div class="flex gap-2"><button class="btn btn-sm btn-primary" data-action="inv-family" data-id="${iv.id}" data-yes="1">Accept</button><button class="btn btn-sm" data-action="inv-family" data-id="${iv.id}" data-yes="">Decline</button></div></div>`).join('')}
+  </div></section>`;
 }
 
 /* ===== Sign in with a KOSH username and password =====
@@ -7428,6 +7531,9 @@ async function goldSpot(date) {
   const cache = readLS(GOLD_CACHE, {});
   const hit = cache[isToday ? today : date];
   if (hit && (!isToday || Date.now() - hit.at < 12 * 3600e3)) return hit;
+  // 1. Prices saved by the daily job or by anyone on this KOSH
+  const stored = goldFromStore(isToday ? today : date, isToday);
+  if (stored) { stored.at = Date.now(); cache[isToday ? today : date] = stored; writeLS(GOLD_CACHE, cache); return stored; }
   let r = null;
   const key = goldKey();
   if (key) {
@@ -7449,7 +7555,8 @@ async function goldSpot(date) {
       if (res.ok) { const j = await res.json(); if (num(j.xau?.inr) > 0) r = { date: j.date || date, g24: num(j.xau.inr) / OZ, src: 'exchange-rate feed' }; }
     } catch { /* no rate */ }
   }
-  if (r) { r.at = Date.now(); cache[isToday ? today : date] = r; writeLS(GOLD_CACHE, cache); }
+  if (r) { r.at = Date.now(); cache[isToday ? today : date] = r; writeLS(GOLD_CACHE, cache); if (r.src === 'GoldAPI') saveGoldRate(r.date, r.g24); }
+  else if (!isToday) wantGoldDate(date); // the daily job will fetch it
   return r;
 }
 function goldPremium(city) {
@@ -7587,7 +7694,7 @@ function pfFiltered() {
   const hs = M.P.holdings.filter((h) => !sel.length || sel.includes(h.group));
   const value = hs.reduce((s, h) => s + h.value, 0), invested = hs.reduce((s, h) => s + h.invested, 0);
   const ids = new Set(hs.map((h) => h.a.id));
-  const sips = db.sips.filter((x) => x.active && ids.has(x.accountId));
+  const sips = db.sips.filter((x) => x.active && ids.has(x.fundAccountId)); // SIPs point at their fund with fundAccountId
   return { sel, holdings: hs, value, invested, gain: value - invested, gainPct: invested ? (value - invested) / invested : 0, sipMonthly: sips.reduce((s, x) => s + sipAmountOn(x, todayStr()) * perMonthOf(x.frequency), 0), sipCount: sips.length };
 }
 function pfChips() {
@@ -7618,13 +7725,16 @@ const HOMES_FILE = `${SHARED_DIR}/homes.json`;
 const homeFile = (id) => `${SHARED_DIR}/homes/${id}.json`;
 const FLAT_CATS = ['Rent', 'Electricity', 'Internet', 'Water', 'Gas', 'Maid', 'Cook', 'Groceries', 'Maintenance', 'Repairs', 'Household supplies', 'Subscriptions', 'Other'];
 const FLAT_ICON = { Rent: 'fa-house', Electricity: 'fa-bolt', Internet: 'fa-wifi', Water: 'fa-droplet', Gas: 'fa-fire-flame-simple', Maid: 'fa-broom', Cook: 'fa-kitchen-set', Groceries: 'fa-basket-shopping', Maintenance: 'fa-screwdriver-wrench', Repairs: 'fa-hammer', 'Household supplies': 'fa-pump-soap', Subscriptions: 'fa-tv', Other: 'fa-receipt', Settle: 'fa-handshake' };
-const flats = { list: [], homes: {}, current: '', month: '' };
+const flats = { list: [], homes: {}, current: '', month: '', invites: [] };
 
 /* ----- Loading and saving ----- */
 async function loadHomes() {
   const idx = (await readJsonFile(HOMES_FILE)).data;
-  flats.list = ((idx && idx.homes) || []).filter((h) => h.members.includes(myUser()));
-  for (const h of flats.list) { try { flats.homes[h.id] = (await readJsonFile(homeFile(h.id))).data; } catch { /* keep last copy */ } }
+  const mine = ((idx && idx.homes) || []).filter((h) => h.members.includes(myUser()));
+  for (const h of mine) { try { flats.homes[h.id] = (await readJsonFile(homeFile(h.id))).data; } catch { /* keep last copy */ } }
+  // Homes you belong to, and homes you've been invited to (waiting for your yes or no)
+  flats.list = mine.filter((h) => { const m = myMembership(flats.homes[h.id]); return m && isActiveMember(m) && !m.left; });
+  flats.invites = mine.map((h) => flats.homes[h.id]).filter((home) => myMembership(home)?.status === 'invited');
   if (!flats.homes[flats.current]) flats.current = flats.list[0]?.id || '';
   for (const h of flats.list) if (flats.homes[h.id]) await postDueRecurring(flats.homes[h.id]);
 }
@@ -7638,14 +7748,19 @@ async function saveHome(id, mutate, message) {
     if (i >= 0) list[i] = rec; else list.push(rec);
     return { homes: list };
   }, 'KOSH: homes list');
-  flats.list = flats.list.filter((h) => h.id !== id).concat(next.members.some((m) => m.user === myUser()) ? [{ id, name: next.name, members: next.members.map((m) => m.user) }] : []);
+  const meNow = myMembership(next);
+  flats.list = flats.list.filter((h) => h.id !== id).concat(meNow && isActiveMember(meNow) && !meNow.left ? [{ id, name: next.name, members: next.members.map((m) => m.user) }] : []);
+  flats.invites = (flats.invites || []).filter((h) => h.id !== id);
   applyShared(); render();
   return next;
 }
 const flatGuard = () => { if (!sharedOn()) { toast('Set your KOSH username and shared repository in Settings first.', 'error'); return false; } if (!navigator.onLine) { toast('You are offline. Flat entries need the internet.', 'error'); return false; } return true; };
 
 /* ----- Money maths ----- */
-const activeMembers = (home, date = todayStr()) => home.members.filter((m) => (!m.joined || m.joined <= date) && (!m.left || m.left > date));
+// Members join only after they accept the invitation; invited or declined people share no costs.
+const isActiveMember = (m) => !m.status || m.status === 'active';
+const activeMembers = (home, date = todayStr()) => home.members.filter((m) => isActiveMember(m) && (!m.joined || m.joined <= date) && (!m.left || m.left > date));
+const myMembership = (home) => home && home.members.find((m) => m.user === myUser());
 /** Shares that add up exactly to the amount; the last person absorbs the rounding. */
 function flatShares(home, amount, mode, users, exact = {}) {
   const list = users.map((u) => home.members.find((m) => m.user === u)).filter(Boolean);
@@ -7715,7 +7830,7 @@ function renderFlat() {
   if (sharedOn() && !shared.busy && Date.now() - shared.last > 60000) setTimeout(() => syncShared(true), 0);
   if (!sharedOn()) return `<section class="panel">${emptyState('fa-house-user', 'Shared flat needs your KOSH username and the shared repository (Settings → GitHub storage). Everyone in the flat needs KOSH too.')}</section>`;
   const home = flats.homes[flats.current];
-  const top = `<div class="page-top"><p class="page-intro">Split rent, bills and groceries with flatmates. Everyone sees the same list, and their shares go into their own transactions.</p>
+  const top = `${(flats.invites || []).length ? invitesCard() : ''}<div class="page-top"><p class="page-intro">Split rent, bills and groceries with flatmates. Everyone sees the same list, and their shares go into their own transactions.</p>
     <button class="btn btn-primary" data-action="flat-new"><i class="fa-solid fa-plus"></i> New home</button></div>
     ${flats.list.length > 1 ? `<div class="chip-row mb-4">${flats.list.map((h) => `<button class="chip ${h.id === flats.current ? 'on' : ''}" data-action="flat-switch" data-id="${h.id}"><i class="fa-solid fa-house-user mr-1"></i>${esc(h.name)}</button>`).join('')}</div>` : ''}`;
   if (!home) return top + `<section class="panel">${emptyState('fa-house-user', shared.busy ? 'Loading your homes…' : 'No shared home yet. Create one, add your flatmates by their KOSH username, and add the rent.', '<button class="btn btn-primary" data-action="flat-new">Create a home</button>')}</section>`;
@@ -7746,7 +7861,7 @@ function renderFlat() {
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-6">
       <section class="panel p-5"><div class="panel-head"><h2 class="panel-title">Balances</h2></div>
-        <div class="divider">${home.members.map((m) => `<div class="row">${avatar(m.name)}<div class="flex-1 min-w-0"><div class="font-medium">${esc(m.name)}${m.user === me ? ' <span class="pill">You</span>' : ''}${m.left ? ' <span class="pill">Moved out</span>' : ''}</div></div>
+        <div class="divider">${home.members.map((m) => `<div class="row">${avatar(m.name)}<div class="flex-1 min-w-0"><div class="font-medium">${esc(m.name)}${m.user === me ? ' <span class="pill">You</span>' : ''}${m.status === 'invited' ? ' <span class="pill due">Invited, waiting for yes</span>' : m.status === 'declined' ? ' <span class="pill out">Declined</span>' : m.status === 'cancelled' ? ' <span class="pill">Invite cancelled</span>' : m.left ? ' <span class="pill">Moved out</span>' : ''}</div></div>
           <div class="num font-semibold ${net[m.user] > 0.5 ? 'text-gain' : net[m.user] < -0.5 ? 'text-loss' : 'text-ink-3'}">${Math.abs(net[m.user] || 0) < 0.5 ? 'Settled' : `${net[m.user] > 0 ? 'gets' : 'owes'} ${money(Math.abs(Math.round(net[m.user])))}`}</div></div>`).join('')}</div>
         ${plan.length ? `<h3 class="font-semibold text-sm mt-4 mb-2">Fewest payments to settle up</h3><div class="space-y-2">${plan.map((x) => `<div class="flex items-center gap-2 text-sm"><span class="flex-1"><b>${esc(name(x.from))}</b> pays <b>${esc(name(x.to))}</b> <span class="num">${money(x.amount)}</span></span>
           <button class="btn btn-sm" data-action="flat-settle" data-from="${esc(x.from)}" data-to="${esc(x.to)}" data-amt="${x.amount}">Record</button></div>`).join('')}</div>` : '<p class="text-sm text-gain mt-3"><i class="fa-solid fa-circle-check mr-1"></i>Everyone is settled up.</p>'}
@@ -7802,8 +7917,15 @@ function openHomeForm(existing) {
         await saveHome(id, (data) => {
           const base = data || { id, createdBy: myUser(), createdAt: new Date().toISOString(), members: [], recurring: [], entries: [] };
           base.name = d.name.trim(); base.address = d.address || '';
-          for (const u of chosen) { const m = base.members.find((x) => x.user === u); if (m) { delete m.left; m.weight = num(d[`w_${u}`] ?? 1) || 1; } else base.members.push({ user: u, name: userName(u), weight: num(d[`w_${u}`] ?? 1) || 1, joined: todayStr() }); }
-          for (const m of base.members) if (!chosen.includes(m.user) && !m.left) m.left = todayStr();
+          const now = new Date().toISOString();
+          for (const u of chosen) {
+            const m = base.members.find((x) => x.user === u), weight = num(d[`w_${u}`] ?? 1) || 1;
+            if (u === myUser() && !m) { base.members.push({ user: u, name: userName(u), weight, joined: todayStr(), status: 'active' }); continue; }
+            if (!m) { base.members.push({ user: u, name: userName(u), weight, status: 'invited', invitedBy: myUser(), invitedAt: now }); continue; }
+            m.weight = weight;
+            if (m.left || m.status === 'declined' || m.status === 'cancelled') { delete m.left; delete m.joined; Object.assign(m, { status: 'invited', invitedBy: myUser(), invitedAt: now }); } // asked again
+          }
+          for (const m of base.members) if (!chosen.includes(m.user) && !m.left) { if (m.status === 'invited') m.status = 'cancelled'; m.left = todayStr(); }
           return base;
         }, `KOSH: ${isNew ? 'create' : 'update'} home ${d.name}`);
         flats.current = id; toast(isNew ? 'Home created. Add the rent next.' : 'Saved', 'success');
@@ -7910,6 +8032,22 @@ function flatNudges() {
   return out;
 }
 
+/** Answer an invitation to a home: yes joins from today; no declines. */
+async function answerFlatInvite(id, yes) {
+  if (!flatGuard()) return;
+  try {
+    await saveHome(id, (data) => {
+      const m = data && data.members.find((x) => x.user === myUser());
+      if (!m || m.status !== 'invited') return null;
+      if (yes) { m.status = 'active'; m.joined = todayStr(); m.answeredAt = new Date().toISOString(); }
+      else { m.status = 'declined'; m.left = todayStr(); m.answeredAt = new Date().toISOString(); }
+      return data;
+    }, `KOSH: ${myUser()} ${yes ? 'joined' : 'declined'} a home`);
+    if (yes) { flats.current = id; toast('You joined the home. Shared costs from today are split with you.', 'success'); }
+    else toast('Declined. The home is not added to your app.');
+  } catch (e) { toast(`Couldn't answer: ${e.message}`, 'error'); }
+}
+
 /* ===== Insurance =====
    Every policy in one place: health, term and life, car, bike, home, travel and others.
    For each: insurer, policy number, who or what is covered (vehicle number for motor),
@@ -7965,6 +8103,7 @@ function renderInsurance() {
         <div><div class="hero-dim text-sm">Next renewal</div><div class="display text-xl font-semibold">${S.next ? esc(S.next.name) : '–'}</div><div class="hero-dim text-xs">${S.next ? `${fmtDate(S.next.nextDue)} · ${money(S.next.premium)}` : ''}</div></div>
       </div>
     </section>
+    ${vehiclesSection()}
     ${tips.length ? `<div class="mt-5 space-y-2">${tips.map((t) => `<div class="nudge-card neutral"><i class="fa-solid fa-lightbulb"></i><div class="text-sm flex-1">${esc(t)}</div></div>`).join('')}</div>` : ''}
     ${types.length ? types.map((t) => `<section class="panel p-5 mt-6"><div class="panel-head"><h2 class="panel-title"><i class="fa-solid ${INS_TYPES[t].icon} mr-1.5" style="color:${INS_TYPES[t].color}"></i>${INS_TYPES[t].label}</h2></div>
         <div class="divider">${db.insurance.filter((p) => p.type === t).sort((a, b) => (a.nextDue || '9').localeCompare(b.nextDue || '9')).map(insRow).join('')}</div></section>`).join('')
@@ -7990,7 +8129,7 @@ function openInsForm(existing) {
     body: `<div><span class="lbl">Type</span><div class="type-grid ins-grid">${Object.entries(INS_TYPES).map(([k, t]) => `<input type="radio" name="type" id="it_${k}" value="${k}" ${p.type === k ? 'checked' : ''}><label for="it_${k}"><i class="fa-solid ${t.icon}"></i><span>${t.label}</span></label>`).join('')}</div></div>
       ${twoCol(field('Policy name', input('name', p.name, 'required maxlength="60" placeholder="e.g. Family health floater, Activa insurance"')), field('Insurer', input('insurer', p.insurer, 'maxlength="60" placeholder="e.g. Star Health, HDFC Ergo, LIC"')))}
       ${twoCol(field('Policy number (optional)', input('policyNo', p.policyNo, 'maxlength="40"')), field('Who is covered (optional)', input('insured', p.insured, 'maxlength="80" placeholder="e.g. Me, Mom, Dad"')))}
-      <div data-vehicle>${field('Vehicle number', input('vehicle', p.vehicle, 'maxlength="15" placeholder="e.g. MH12AB1234" autocapitalize="characters"'))}</div>
+      <div data-vehicle>${twoCol(field('Vehicle', `<select class="inp" name="vehicleId"><option value="">Not saved / type the number</option>${db.vehicles.filter((v) => !v.archived || v.id === p.vehicleId).map((v) => `<option value="${v.id}" ${p.vehicleId === v.id ? 'selected' : ''}>${esc(vehicleLabel(v))}</option>`).join('')}</select>`, 'Your saved cars and bikes (add them under My vehicles).'), field('Vehicle number', input('vehicle', p.vehicle, 'maxlength="15" placeholder="e.g. MH12AB1234" autocapitalize="characters"'), 'Filled from the vehicle if you pick one.'))}</div>
       ${twoCol(field('Sum insured / cover (₹)', moneyInput('cover', p.cover ?? '', 'min="0"'), 'For a car or bike, the IDV.'), field('Premium (₹)', moneyInput('premium', p.premium ?? '', 'required min="0"')))}
       ${twoCol(field('How often', select('frequency', INS_FREQ, p.frequency)), field('Next premium due', input('nextDue', p.nextDue || '', 'type="date"')))}
       ${twoCol(field('Policy start (optional)', input('startDate', p.startDate || '', 'type="date"')), field('Policy ends (optional)', input('endDate', p.endDate || '', 'type="date"'), 'Maturity, or the end of the term.'))}
@@ -8001,11 +8140,14 @@ function openInsForm(existing) {
       ${field('Notes (optional)', textarea('notes', p.notes, 'rows="2" placeholder="Room rent limit, waiting periods, add-ons…"'))}`,
     submitLabel: isNew ? 'Add policy' : 'Save',
     onOpen: (form) => {
-      const upd = () => { $('[data-vehicle]', form).hidden = !['car', 'bike'].includes(form.elements.type.value); };
+      const upd = (e) => {
+        $('[data-vehicle]', form).hidden = !['car', 'bike'].includes(form.elements.type.value);
+        if (e?.target?.name === 'vehicleId') { const v = vehicleById(e.target.value); if (v) { form.elements.vehicle.value = v.regNo || ''; if (!form.elements.name.value) form.elements.name.value = `${v.name} insurance`; } }
+      };
       form.addEventListener('change', upd, { signal: modalSignal() }); upd();
     },
     onSubmit: (d) => {
-      const rec = { ...(existing || {}), id: existing?.id || uid('ins'), type: d.type, name: d.name.trim(), insurer: d.insurer || '', policyNo: d.policyNo || '', insured: d.insured || '', vehicle: ['car', 'bike'].includes(d.type) ? (d.vehicle || '').toUpperCase() : '',
+      const rec = { ...(existing || {}), id: existing?.id || uid('ins'), type: d.type, name: d.name.trim(), insurer: d.insurer || '', policyNo: d.policyNo || '', insured: d.insured || '', vehicle: ['car', 'bike'].includes(d.type) ? (d.vehicle || vehicleById(d.vehicleId)?.regNo || '').toUpperCase() : '', vehicleId: ['car', 'bike'].includes(d.type) ? d.vehicleId || '' : '',
         cover: num(d.cover) || 0, premium: round2(num(d.premium)), frequency: d.frequency, nextDue: d.nextDue || '', startDate: d.startDate || '', endDate: d.endDate || '', accountId: d.accountId || '', nominee: d.nominee || '', contact: d.contact || '',
         autoLog: !!d.autoLog, active: isNew ? true : !!d.active, notes: d.notes || '', claims: existing?.claims || [] };
       commit([opUpsert('insurance', rec)], `${isNew ? 'Add' : 'Edit'} policy ${rec.name}`);
@@ -8079,6 +8221,586 @@ function taxesPaid(fy) {
   return { list, by, incomeTax: INCOME_TAX_KINDS.reduce((s, k) => s + (by[k] || 0), 0), other: Object.entries(by).filter(([k]) => !INCOME_TAX_KINDS.includes(k)).reduce((s, [, v]) => s + v, 0) };
 }
 
+/* ===== Shared price store, filled once a day =====
+   Gold (GoldAPI) and stock (Alpha Vantage) prices come from services with small free
+   limits. Instead of every phone asking them, prices are kept in the shared repository:
+     kosh/prices/gold.json          written by the daily job: { rates: { 'YYYY-MM-DD': 24K ₹/g } }
+     kosh/prices/stocks.json        written by the daily job: { tickers: { SYMBOL: { date: price } } }
+     kosh/prices/gold-extra.json    written by the apps: past dates someone looked up, and dates still wanted
+     kosh/prices/stocks-extra.json  written by the apps: prices fetched when the job hadn't run yet
+     kosh/prices/watch.json         written by the apps: which stock symbols people hold
+   The job and the apps never write the same file, so they can't overwrite each other.
+   A GitHub Actions job in the shared repository (set up from Settings) runs once a day at
+   about 6:10 pm India time: it fetches today's gold rate, any wanted past gold dates, and up
+   to 24 held stocks (oldest first), using API keys stored as GitHub secrets, not in this app.
+   The app reads these files first and only calls the services directly if something is
+   missing; whatever it fetches is saved for everyone else. Mutual fund NAVs come from a free
+   unlimited service and are not stored here. */
+const PRICE_DIR = `${SHARED_DIR}/prices`;
+const PRICE_JOB = '.github/workflows/kosh-prices.yml';
+const priceStore = { gold: {}, goldUpdatedAt: '', stocks: {}, stocksUpdatedAt: '', loaded: 0 };
+
+async function loadPriceStore() {
+  if (!sharedOn()) return;
+  const [g, ge, s, se] = await Promise.all(['gold', 'gold-extra', 'stocks', 'stocks-extra'].map((f) => readJsonFile(`${PRICE_DIR}/${f}.json`).then((r) => r.data).catch(() => null)));
+  priceStore.gold = { ...((ge && ge.rates) || {}), ...((g && g.rates) || {}) };
+  priceStore.goldUpdatedAt = (g && g.updatedAt) || '';
+  priceStore.stocks = {};
+  for (const src of [se, s]) for (const [t, series] of Object.entries((src && src.tickers) || {})) priceStore.stocks[t] = { ...(priceStore.stocks[t] || {}), ...series };
+  priceStore.stocksUpdatedAt = (s && s.updatedAt) || '';
+  priceStore.loaded = Date.now();
+}
+/** Gold 24K ₹/g from the store: an exact past date, or for today the latest rate from the last 2 days. */
+function goldFromStore(date, isToday) {
+  if (!isToday) return priceStore.gold[date] ? { date, g24: priceStore.gold[date], src: 'saved prices' } : null;
+  const last = Object.keys(priceStore.gold).filter((d) => d <= date).sort().pop();
+  if (!last || (parseDate(date) - parseDate(last)) / 864e5 > 2) return null;
+  return { date: last, g24: priceStore.gold[last], src: last === date ? 'daily prices' : `daily prices (${fmtDate(last)})` };
+}
+function saveGoldRate(date, g24) {
+  priceStore.gold[date] = round2(g24);
+  if (!sharedOn()) return;
+  updateJsonFile(`${PRICE_DIR}/gold-extra.json`, (d) => {
+    const rates = { ...((d && d.rates) || {}) }, wanted = ((d && d.wanted) || []).filter((x) => x !== date);
+    if (rates[date] && (!d.wanted || !d.wanted.includes(date))) return null;
+    rates[date] = round2(g24);
+    return { rates, wanted };
+  }, `KOSH: gold rate for ${date}`).catch(() => {});
+}
+function wantGoldDate(date) {
+  if (!sharedOn()) return;
+  updateJsonFile(`${PRICE_DIR}/gold-extra.json`, (d) => {
+    const wanted = (d && d.wanted) || [];
+    if (wanted.includes(date)) return null;
+    return { rates: (d && d.rates) || {}, wanted: [...wanted, date].slice(-50) };
+  }, `KOSH: gold rate wanted for ${date}`).catch(() => {});
+}
+/** Latest stock price from the store if it's from the last 4 days. */
+function stockFromStore(ticker) {
+  const series = priceStore.stocks[avSymbol(ticker)];
+  const last = series && Object.keys(series).sort().pop();
+  if (!last || (parseDate(todayStr()) - parseDate(last)) / 864e5 > 4) return null;
+  return { price: series[last], date: last, fromStore: true };
+}
+function saveStockPrice(ticker, live) {
+  const sym = avSymbol(ticker);
+  priceStore.stocks[sym] = { ...(priceStore.stocks[sym] || {}), [live.date]: live.price };
+  if (!sharedOn()) return;
+  updateJsonFile(`${PRICE_DIR}/stocks-extra.json`, (d) => {
+    const tickers = (d && d.tickers) || {};
+    if (tickers[sym] && tickers[sym][live.date] === live.price) return null;
+    const series = { ...(tickers[sym] || {}), [live.date]: live.price };
+    tickers[sym] = Object.fromEntries(Object.entries(series).sort().slice(-30)); // a short recent window; the job keeps the long history
+    return { tickers };
+  }, `KOSH: ${sym} price`).catch(() => {});
+}
+/** Tell the daily job which stock symbols you hold. */
+async function registerWatch() {
+  if (!sharedOn()) return;
+  const mine = [...new Set(db.accounts.filter((a) => isStockLive(a) && !a.archived).map((a) => avSymbol(a.ticker)))].sort();
+  const sig = `${myUser()}:${mine.join(',')}`;
+  if (localStorage.getItem('kosh.watchSig') === sig) return;
+  await updateJsonFile(`${PRICE_DIR}/watch.json`, (d) => {
+    const tickers = { ...((d && d.tickers) || {}) };
+    for (const [t, users] of Object.entries(tickers)) { const u = users.filter((x) => x !== myUser()); if (u.length) tickers[t] = u; else delete tickers[t]; }
+    for (const t of mine) tickers[t] = [...new Set([...(tickers[t] || []), myUser()])];
+    return { tickers };
+  }, `KOSH: stocks held by ${myUser()}`);
+  localStorage.setItem('kosh.watchSig', sig);
+}
+
+/* ----- The daily job (GitHub Actions in the shared repository) ----- */
+function priceJobYml() {
+  const script = `
+const fs = require('fs');
+const DIR = 'kosh/prices';
+fs.mkdirSync(DIR, { recursive: true });
+const read = (f, d) => { try { return JSON.parse(fs.readFileSync(DIR + '/' + f, 'utf8')); } catch { return d; } };
+const write = (f, v) => fs.writeFileSync(DIR + '/' + f, JSON.stringify(v, null, 1));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+(async () => {
+  // Gold: today's rate plus up to 4 past dates the apps asked for.
+  const GK = process.env.GOLDAPI_KEY;
+  const gold = read('gold.json', { rates: {} });
+  const extra = read('gold-extra.json', { rates: {}, wanted: [] });
+  const want = [today, ...(extra.wanted || []).filter((d) => !gold.rates[d] && !(extra.rates || {})[d])].slice(0, 5);
+  for (const d of GK ? want : []) {
+    const ymd = d.replace(/-/g, '');
+    const urls = d === today ? ['https://www.goldapi.io/api/price/XAU/INR', 'https://www.goldapi.io/api/XAU/INR'] : ['https://www.goldapi.io/api/price/XAU/INR/' + ymd, 'https://www.goldapi.io/api/XAU/INR/' + ymd];
+    for (const u of urls) {
+      try {
+        const r = await fetch(u, { headers: { 'x-access-token': GK } });
+        if (!r.ok) continue;
+        const j = await r.json();
+        const g = Number(j.price_gram_24k) || (Number(j.price) > 0 ? Number(j.price) / 31.1034768 : 0);
+        if (g > 0) { gold.rates[d] = Math.round(g * 100) / 100; console.log('gold', d, gold.rates[d]); break; }
+      } catch (e) { console.log('gold error', d, e.message); }
+    }
+  }
+  gold.updatedAt = new Date().toISOString(); gold.source = 'GoldAPI.io, daily job';
+  write('gold.json', gold);
+  // Stocks: up to 24 symbols a day (free limit 25), those updated longest ago first.
+  const AK = process.env.ALPHAVANTAGE_KEY;
+  const watch = read('watch.json', { tickers: {} });
+  const st = read('stocks.json', { tickers: {} });
+  const last = (t) => Object.keys(st.tickers[t] || {}).sort().pop() || '';
+  const list = Object.keys(watch.tickers || {}).filter((t) => last(t) < today).sort((a, b) => last(a).localeCompare(last(b))).slice(0, 24);
+  for (const t of AK ? list : []) {
+    try {
+      const r = await fetch('https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=' + encodeURIComponent(t) + '&apikey=' + AK);
+      const j = await r.json();
+      if (j.Note || j.Information) { console.log('stock limit reached'); break; }
+      const q = j['Global Quote'] || {};
+      if (Number(q['05. price']) > 0) {
+        const series = { ...(st.tickers[t] || {}), [q['07. latest trading day'] || today]: Number(q['05. price']) };
+        st.tickers[t] = Object.fromEntries(Object.entries(series).sort().slice(-400)); // keep about a year and a half
+        console.log('stock', t, q['05. price']);
+      }
+    } catch (e) { console.log('stock error', t, e.message); }
+    await sleep(1500);
+  }
+  st.updatedAt = new Date().toISOString();
+  write('stocks.json', st);
+})().catch((e) => { console.error(e); process.exit(1); });`;
+  return `# Daily prices for KOSH (gold and stocks). Created by the app.
+# Runs once a day at about 6:10 pm India time (12:40 UTC); you can also run it by hand from the Actions tab.
+# Needs two repository secrets (Settings → Secrets and variables → Actions):
+#   GOLDAPI_KEY        your GoldAPI.io key
+#   ALPHAVANTAGE_KEY   your Alpha Vantage key
+name: KOSH daily prices
+on:
+  schedule:
+    - cron: '40 12 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  prices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch prices
+        env:
+          GOLDAPI_KEY: \${{ secrets.GOLDAPI_KEY }}
+          ALPHAVANTAGE_KEY: \${{ secrets.ALPHAVANTAGE_KEY }}
+        run: |
+          node - <<'JS'
+${script.split('\n').map((l) => '          ' + l).join('\n')}
+          JS
+      - name: Save
+        run: |
+          git config user.name "kosh-prices"
+          git config user.email "kosh-prices@users.noreply.github.com"
+          git add kosh/prices/gold.json kosh/prices/stocks.json
+          git diff --cached --quiet && exit 0
+          git commit -m "KOSH: daily prices"
+          for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
+          exit 1
+`;
+}
+async function setupPriceJob() {
+  if (!sharedOn()) { toast('Set your KOSH username and the shared repository in Settings first.', 'error'); return; }
+  const yml = priceJobYml();
+  try {
+    const cur = await ghPath(PRICE_JOB, 'GET', undefined, sharedRepo());
+    const sha = cur.ok ? (await cur.json()).sha : undefined;
+    const res = await ghPath(PRICE_JOB, 'PUT', { message: 'KOSH: daily prices job', content: toBase64(yml), branch: config.branch || 'main', ...(sha ? { sha } : {}) }, sharedRepo());
+    if (res.status === 403 || res.status === 404) { showWorkflowManual(yml, PRICE_JOB, sharedRepo()); return; }
+    if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+    openModal({
+      title: 'Daily price job created',
+      body: `<p class="text-sm">One last step, done once on GitHub: add your two API keys as secrets so the job can use them.</p>
+        <ol class="list-decimal ml-5 text-sm space-y-2 mt-3">
+          <li>Open <b>github.com/${esc(config.owner)}/${esc(sharedRepo())}</b> → <b>Settings</b> → <b>Secrets and variables</b> → <b>Actions</b>.</li>
+          <li><b>New repository secret</b>: name <code>GOLDAPI_KEY</code>, value your GoldAPI key → Add secret.</li>
+          <li>Again: name <code>ALPHAVANTAGE_KEY</code>, value your Alpha Vantage key → Add secret.</li>
+          <li>To fill today's prices now: <b>Actions</b> tab → <b>KOSH daily prices</b> → <b>Run workflow</b>.</li>
+        </ol>
+        <p class="hint mt-3">After that it runs by itself every evening. Once it has run, the keys built into the app are only a fallback; you can remove them from <code>BUILTIN_KEYS</code> in app.js to keep them private.</p>`,
+      submitLabel: 'Done', cancelLabel: 'Close', onSubmit: () => {},
+    });
+  } catch (e) { toast(`Couldn't create the job: ${e.message}`, 'error'); }
+}
+/** Settings: status of the daily prices. */
+function priceJobSection() {
+  if (!sharedOn()) return '';
+  const gDays = Object.keys(priceStore.gold).length, sCount = Object.keys(priceStore.stocks).length;
+  const when = priceStore.goldUpdatedAt ? new Date(priceStore.goldUpdatedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+  return `<div class="callout"><b>Daily prices</b> (gold and stocks, shared by everyone on this KOSH): ${when ? `last run ${esc(when)}, ${gDays} gold day${gDays === 1 ? '' : 's'} and ${sCount} stock${sCount === 1 ? '' : 's'} saved.` : 'not set up yet.'}
+    <div class="mt-2"><button type="button" class="btn btn-sm" data-action="price-job"><i class="fa-solid fa-clock-rotate-left"></i> ${when ? 'Update the daily price job' : 'Set up the daily price job'}</button></div></div>`;
+}
+
+/* ===== Vehicles: fuel, odometer and mileage =====
+   Save your cars and bikes once (Insurance page → My vehicles, or straight from the
+   transaction form). When an expense's category is fuel (or anything mentioning
+   vehicle, car, bike, service or parking), the form asks which vehicle and the odometer
+   reading, plus litres if you like. From that the app works out distance, mileage
+   (km per litre) and fuel cost per km. Car and bike insurance policies can be linked to
+   the same vehicle. */
+const VEHICLE_KINDS = { car: { label: 'Car', icon: 'fa-car' }, bike: { label: 'Bike', icon: 'fa-motorcycle' }, scooter: { label: 'Scooter', icon: 'fa-motorcycle' }, other: { label: 'Other', icon: 'fa-truck-pickup' } };
+const FUEL_TYPES = [['petrol', 'Petrol'], ['diesel', 'Diesel'], ['cng', 'CNG'], ['ev', 'Electric']];
+const isVehicleCategory = (c) => /fuel|petrol|diesel|cng|vehicle|car|bike|service|parking|toll|charging/i.test(String(c || ''));
+const isFuelCategory = (c) => /fuel|petrol|diesel|cng|charging/i.test(String(c || ''));
+const vehicleById = (id) => db.vehicles.find((v) => v.id === id);
+const vehicleLabel = (v) => (v ? `${v.name}${v.regNo ? ` (${v.regNo})` : ''}` : '');
+
+/** Fill-ups and running stats for a vehicle. */
+function vehicleStats(v) {
+  const list = db.transactions.filter((t) => t.vehicleId === v.id && t.type === 'expense').sort((a, b) => (a.date + (a.odometer || 0)).localeCompare(b.date + (b.odometer || 0)) || num(a.odometer) - num(b.odometer));
+  const fuel = list.filter((t) => isFuelCategory(t.category));
+  const withOdo = fuel.filter((t) => num(t.odometer) > 0).sort((a, b) => num(a.odometer) - num(b.odometer));
+  const lastOdo = Math.max(num(v.odometer), ...list.map((t) => num(t.odometer)).filter(Boolean), 0);
+  let distance = 0, litres = 0, cost = 0;
+  if (withOdo.length >= 2) {
+    distance = num(withOdo.at(-1).odometer) - num(withOdo[0].odometer);
+    for (const t of withOdo.slice(1)) { litres += num(t.fuelQty); cost += num(t.amount); } // fuel used to cover the distance (first fill-up excluded)
+  }
+  const mk = thisMonth();
+  return {
+    list, fuel, lastOdo, distance,
+    mileage: distance > 0 && litres > 0 ? distance / litres : null,
+    perKm: distance > 0 && cost > 0 ? cost / distance : null,
+    monthFuel: fuel.filter((t) => t.date.startsWith(mk)).reduce((s, t) => s + num(t.amount), 0),
+    monthAll: list.filter((t) => t.date.startsWith(mk)).reduce((s, t) => s + num(t.amount), 0),
+  };
+}
+function vehiclesSection() {
+  const vs = db.vehicles.filter((v) => !v.archived);
+  return `<section class="panel p-5 mt-6">
+    <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-car-side mr-1.5 text-royal"></i>My vehicles</h2><button class="btn btn-sm" data-action="veh-add"><i class="fa-solid fa-plus"></i> Add vehicle</button></div>
+    ${vs.length ? `<div class="divider">${vs.map((v) => {
+      const s = vehicleStats(v), pol = db.insurance.filter((p) => p.vehicleId === v.id && p.active !== false);
+      return `<div class="row"><span class="row-icon"><i class="fa-solid ${VEHICLE_KINDS[v.kind]?.icon || 'fa-car'}"></i></span>
+        <div class="flex-1 min-w-0"><div class="font-medium">${esc(v.name)} ${v.regNo ? `<span class="pill">${esc(v.regNo)}</span>` : ''}</div>
+          <div class="text-xs text-ink-3">${s.lastOdo ? `${s.lastOdo.toLocaleString('en-IN')} km` : 'No odometer reading yet'}${s.mileage ? ` · ${s.mileage.toFixed(1)} km/${v.fuel === 'ev' ? 'kWh' : 'l'}` : ''}${s.perKm ? ` · ₹${s.perKm.toFixed(2)}/km` : ''}${pol.length ? ` · insured: ${pol.map((p) => `${esc(p.insurer || p.name)}, renews ${fmtDate(p.nextDue)}`).join('; ')}` : ''}</div></div>
+        <div class="text-right"><div class="num font-semibold">${money(Math.round(s.monthFuel))}</div><div class="text-xs text-ink-3">fuel this month</div></div>
+        <div class="row-actions"><button class="icon-btn sm" data-action="veh-edit" data-id="${v.id}" title="Edit" aria-label="Edit vehicle"><i class="fa-regular fa-pen-to-square"></i></button></div></div>`;
+    }).join('')}</div>` : '<p class="text-sm text-ink-3">Add your car or bike to track fuel, odometer and mileage, and link its insurance.</p>'}
+  </section>`;
+}
+function openVehicleForm(existing) {
+  const isNew = !existing;
+  const v = existing || { kind: 'car', fuel: 'petrol' };
+  openModal({
+    title: isNew ? 'Add a vehicle' : `Edit ${v.name}`,
+    body: `${twoCol(field('Name', input('name', v.name, 'required maxlength="40" placeholder="e.g. Swift, Activa"')), field('Type', select('kind', Object.entries(VEHICLE_KINDS).map(([k, x]) => [k, x.label]), v.kind)))}
+      ${twoCol(field('Registration number', input('regNo', v.regNo, 'maxlength="15" placeholder="e.g. MH12AB1234" autocapitalize="characters"')), field('Fuel', select('fuel', FUEL_TYPES, v.fuel)))}
+      ${field('Odometer now (km, optional)', input('odometer', v.odometer ?? '', 'type="number" min="0" step="1" inputmode="numeric"'), 'Starting point for distance and mileage.')}
+      ${isNew ? '' : checkbox('archived', !!v.archived, 'Sold or no longer used (hide it)')}`,
+    submitLabel: isNew ? 'Add vehicle' : 'Save',
+    onSubmit: (d) => {
+      const rec = { ...(existing || {}), id: existing?.id || uid('veh'), name: d.name.trim(), kind: d.kind, regNo: (d.regNo || '').toUpperCase().replace(/\s+/g, ''), fuel: d.fuel, odometer: num(d.odometer) || null, archived: !!d.archived };
+      commit([opUpsert('vehicles', rec)], `${isNew ? 'Add' : 'Edit'} vehicle ${rec.name}`);
+      toast(isNew ? `${rec.name} added. Pick it when you log fuel.` : 'Saved', 'success');
+    },
+    onDelete: existing ? () => { if (!confirm(`Delete ${v.name}? Its fuel entries stay, without the vehicle.`)) return false; commit([opDelete('vehicles', v.id)], `Delete vehicle ${v.name}`); } : null,
+  });
+}
+/** The vehicle block inside the transaction form (shown for fuel and vehicle categories). */
+function vehicleFields(t) {
+  const vs = db.vehicles.filter((v) => !v.archived || v.id === t.vehicleId);
+  const last = (id) => { const v = vehicleById(id); return v ? vehicleStats(v).lastOdo : 0; };
+  return `<div data-vehicle-block class="veh-block" ${isVehicleCategory(t.category) && t.type === 'expense' ? '' : 'hidden'}>
+    ${twoCol(field('Vehicle', `<select class="inp" name="vehicleId"><option value="">Not for a vehicle</option>${vs.map((v) => `<option value="${v.id}" ${t.vehicleId === v.id ? 'selected' : ''} data-last="${last(v.id)}">${esc(vehicleLabel(v))}</option>`).join('')}<option value="__new">+ Add a new vehicle…</option></select>`),
+      field('Odometer reading (km)', input('odometer', t.odometer ?? '', 'type="number" min="0" step="1" inputmode="numeric" placeholder="e.g. 24580"'), '<span data-odo-hint></span>'))}
+    <div data-new-vehicle hidden>${twoCol(field('New vehicle name', input('newVehName', '', 'maxlength="40" placeholder="e.g. Swift"')), field('Registration number', input('newVehReg', '', 'maxlength="15" autocapitalize="characters"')))}</div>
+    <div data-fuel-only ${isFuelCategory(t.category) ? '' : 'hidden'}>${twoCol(field('Litres (optional)', input('fuelQty', t.fuelQty ?? '', 'type="number" min="0" step="0.01" inputmode="decimal"'), 'For mileage; kWh for an electric vehicle.'), checkbox('fullTank', t.fullTank !== false, 'Filled the tank full', 'Full-tank fill-ups give the most accurate mileage.'))}</div>
+  </div>`;
+}
+function bindVehicleFields(form, sig) {
+  const block = $('[data-vehicle-block]', form);
+  if (!block) return;
+  const upd = () => {
+    const cat = $$('select[name="category"]', form).find((x) => !x.disabled)?.value;
+    const type = form.elements.type?.value;
+    const show = (type === 'expense' || type === undefined) && isVehicleCategory(cat);
+    block.hidden = !show;
+    for (const el of $$('input, select', block)) el.disabled = !show;
+    $('[data-fuel-only]', block).hidden = !isFuelCategory(cat);
+    const sel = form.elements.vehicleId, isNewV = sel && sel.value === '__new';
+    $('[data-new-vehicle]', block).hidden = !isNewV;
+    const lastOdo = num(sel?.selectedOptions[0]?.dataset.last);
+    const odo = num(form.elements.odometer?.value);
+    const hint = $('[data-odo-hint]', block);
+    if (hint) hint.innerHTML = lastOdo ? (odo && odo < lastOdo ? `<span class="text-loss">Lower than the last reading (${lastOdo.toLocaleString('en-IN')} km).</span>` : `Last reading ${lastOdo.toLocaleString('en-IN')} km${odo > lastOdo ? `; +${(odo - lastOdo).toLocaleString('en-IN')} km since` : ''}.`) : '';
+  };
+  form.addEventListener('change', upd, sig);
+  form.addEventListener('input', (e) => { if (e.target.name === 'odometer') upd(); }, sig);
+  upd();
+}
+/** Applied when the transaction is saved: returns extra ops (a new vehicle) and the fields. */
+function vehicleSave(d) {
+  const ops = [];
+  if (!d.vehicleId && !d.odometer) return { ops, fields: { vehicleId: '', odometer: null, fuelQty: null, fullTank: undefined } };
+  let vehicleId = d.vehicleId || '';
+  if (vehicleId === '__new') {
+    if (!String(d.newVehName || '').trim()) return { error: 'Name the new vehicle.' };
+    const v = { id: uid('veh'), name: d.newVehName.trim(), kind: 'car', regNo: String(d.newVehReg || '').toUpperCase().replace(/\s+/g, ''), fuel: 'petrol', odometer: null, archived: false };
+    ops.push(opUpsert('vehicles', v)); vehicleId = v.id;
+  }
+  return { ops, fields: { vehicleId, odometer: num(d.odometer) || null, fuelQty: num(d.fuelQty) || null, fullTank: d.fuelQty ? !!d.fullTank : undefined } };
+}
+
+/* ===== Statement download (Transactions page) =====
+   Downloads exactly what the filters show, or a date range you pick, as a CSV
+   (opens in Excel or Google Sheets) or as a printable statement you can save as PDF.
+   With one account selected, the statement also shows its running balance. */
+function openStatementDialog() {
+  const cur = filteredTxns();
+  const acc = txFilter.account ? accountById(txFilter.account) : null;
+  const desc = [txFilter.month ? fmtMonth(txFilter.month) : 'All dates', txFilter.type ? ({ invest: 'Investments' }[txFilter.type] || txFilter.type) : '', acc ? acc.name : '', txFilter.category || '', txFilter.q ? `"${txFilter.q}"` : ''].filter(Boolean).join(' · ');
+  openModal({
+    title: 'Download statement',
+    body: `<p class="text-sm text-ink-2">Uses your current filters: <b>${esc(desc)}</b> (${cur.length} transaction${cur.length === 1 ? '' : 's'}).</p>
+      <div class="seg">${[['filter', 'As filtered'], ['range', 'Pick dates']].map(([v, l], i) => `<input type="radio" name="period" id="sp_${v}" value="${v}" ${i === 0 ? 'checked' : ''}><label for="sp_${v}">${l}</label>`).join('')}</div>
+      <div data-range hidden>${twoCol(field('From', input('from', addMonths(todayStr(), -1), 'type="date"')), field('To', input('to', todayStr(), 'type="date"')))}<p class="hint">Other filters (type, account, category, search) still apply; the month filter is replaced by these dates.</p></div>
+      <div class="seg">${[['pdf', 'Statement (PDF / print)'], ['csv', 'Excel / CSV']].map(([v, l], i) => `<input type="radio" name="format" id="sf_${v}" value="${v}" ${i === 0 ? 'checked' : ''}><label for="sf_${v}">${l}</label>`).join('')}</div>`,
+    submitLabel: 'Download',
+    onOpen: (form) => form.addEventListener('change', () => { $('[data-range]', form).hidden = form.elements.period.value !== 'range'; }, { signal: modalSignal() }),
+    onSubmit: (d) => {
+      let list = cur, from = '', to = '';
+      if (d.period === 'range') {
+        if (!d.from || !d.to || d.from > d.to) { toast('Pick a valid date range.', 'error'); return false; }
+        const saved = txFilter.month; txFilter.month = '';
+        list = filteredTxns().filter((t) => t.date >= d.from && t.date <= d.to);
+        txFilter.month = saved; from = d.from; to = d.to;
+      } else if (txFilter.month) { from = `${txFilter.month}-01`; to = addDays(addMonths(from, 1), -1); }
+      if (!list.length) { toast('No transactions in that selection.', 'error'); return false; }
+      const title = `${brandName()} statement`;
+      const period = from ? `${fmtDate(from)} to ${fmtDate(to)}` : 'All dates';
+      if (d.format === 'csv') downloadStatementCsv(list, acc, `${title} ${from || 'all'}${to ? `_${to}` : ''}`);
+      else printStatement(list, acc, title, period, desc);
+    },
+  });
+}
+/** Signed amount from the point of view of your money (or of one account). */
+function stmtSigned(t, acc) {
+  if (acc) return (t.toAccountId === acc.id ? 1 : 0) * num(t.amount) - (t.fromAccountId === acc.id ? 1 : 0) * num(t.amount);
+  if (t.type === 'income') return num(t.amount);
+  if (t.type === 'expense' || isInvestmentOutflow(t)) return -num(t.amount);
+  return 0; // transfers between your own accounts
+}
+function stmtRows(list, acc) {
+  const asc = list.slice().sort((a, b) => a.date.localeCompare(b.date));
+  let bal = acc ? accountBalanceAt(acc.id, addDays(asc[0].date, -1)) : null;
+  const opening = bal;
+  const rows = asc.map((t) => {
+    const s = stmtSigned(t, acc);
+    if (acc) bal = round2(bal + s);
+    const veh = t.vehicleId ? vehicleById(t.vehicleId) : null;
+    return { t, s, bal, type: t.taxKind ? 'Tax' : isInvestmentOutflow(t) ? 'Investment' : t.type === 'transfer' ? 'Transfer' : t.type === 'adjustment' ? 'Balance update' : t.type === 'income' ? 'Income' : 'Expense',
+      flow: t.type === 'transfer' || t.type === 'adjustment' ? `${accountName(t.fromAccountId) || ''} → ${accountName(t.toAccountId) || ''}` : accountName(t.fromAccountId || t.toAccountId),
+      extra: [veh ? vehicleLabel(veh) : '', t.odometer ? `${num(t.odometer).toLocaleString('en-IN')} km` : '', t.fuelQty ? `${t.fuelQty} l` : '', t.taxKind ? `${t.taxKind}${t.taxFy ? ` FY ${t.taxFy}` : ''}` : ''].filter(Boolean).join(', ') };
+  });
+  return { rows, opening, closing: bal };
+}
+function downloadStatementCsv(list, acc, name) {
+  const { rows, opening } = stmtRows(list, acc);
+  const head = ['Date', 'Description', 'Category', 'Type', 'Amount', 'Money in', 'Money out', 'Account', 'Details', 'Notes', ...(acc ? ['Balance'] : [])];
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [head.map(q).join(',')];
+  if (acc) lines.push([q(''), q('Opening balance'), q(''), q(''), q(''), q(''), q(''), q(acc.name), q(''), q(''), q(opening)].join(','));
+  for (const r of rows) lines.push([r.t.date, r.t.description || '', r.t.category || '', r.type, r.s || r.t.amount, r.s > 0 ? r.s : '', r.s < 0 ? -r.s : '', r.flow, r.extra, r.t.notes || '', ...(acc ? [r.bal] : [])].map(q).join(','));
+  download(`${name.replace(/[^a-z0-9_-]+/gi, '-')}.csv`, '\uFEFF' + lines.join('\n'), 'text/csv'); // BOM so Excel reads ₹ and names correctly
+  toast('Statement downloaded.', 'success');
+}
+function printStatement(list, acc, title, period, desc) {
+  const { rows, opening, closing } = stmtRows(list, acc);
+  const inn = rows.filter((r) => r.s > 0).reduce((s, r) => s + r.s, 0), out = rows.filter((r) => r.s < 0).reduce((s, r) => s - r.s, 0);
+  const m = (v) => `₹${Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const e = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${e(title)}</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font:13px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#14213D;margin:28px}h1{font-size:20px;margin:0}.sub{color:#5B6478;margin:4px 0 16px}
+.sum{display:flex;gap:24px;flex-wrap:wrap;margin:12px 0 18px}.sum div span{display:block;color:#5B6478;font-size:11px}.sum b{font-size:15px}
+table{width:100%;border-collapse:collapse}th,td{padding:6px 8px;border-bottom:1px solid #E7EBF2;text-align:left;vertical-align:top}th{background:#F3F6FB;font-size:11px;color:#5B6478}
+td.n,th.n{text-align:right;white-space:nowrap}.in{color:#0E8F47}.out{color:#C2185B}.small{color:#7B8599;font-size:11px}.bar{margin-bottom:14px}
+@media print{.bar{display:none}body{margin:12mm}}
+@media (max-width:640px){body{margin:14px;font-size:12px}.c-cat,.c-acc{display:none}.m-only{display:block!important}th,td{padding:6px 4px}}
+.m-only{display:none}</style></head><body>
+<div class="bar"><button onclick="window.print()" style="padding:8px 14px;font-size:14px">Print / Save as PDF</button></div>
+<h1>${e(title)}</h1><div class="sub">${e(period)}${acc ? ` · ${e(acc.name)}${acc.last4 ? ` (…${e(acc.last4)})` : ''}` : ''} · ${e(desc)} · generated ${e(fmtDate(todayStr()))}</div>
+<div class="sum">${acc ? `<div><span>Opening balance</span><b>${m(opening)}</b></div>` : ''}<div><span>Money in</span><b class="in">${m(inn)}</b></div><div><span>Money out</span><b class="out">${m(out)}</b></div>${acc ? `<div><span>Closing balance</span><b>${m(closing)}</b></div>` : `<div><span>Net</span><b>${m(inn - out)}</b></div>`}<div><span>Transactions</span><b>${rows.length}</b></div></div>
+<table><thead><tr><th>Date</th><th>Description</th><th class="c-cat">Category</th><th class="c-acc">Account</th><th class="n">In</th><th class="n">Out</th>${acc ? '<th class="n">Balance</th>' : ''}</tr></thead><tbody>
+${rows.map((r) => `<tr><td>${e(fmtDate(r.t.date))}</td><td>${e(r.t.description || r.t.category || '')}${r.extra ? `<div class="small">${e(r.extra)}</div>` : ''}<div class="small m-only">${e(r.t.category || '')} · ${e(r.flow)}</div></td><td class="c-cat">${e(r.t.category || '')}<div class="small">${e(r.type)}</div></td><td class="c-acc">${e(r.flow)}</td><td class="n in">${r.s > 0 ? m(r.s) : ''}</td><td class="n out">${r.s < 0 ? m(-r.s) : r.s === 0 ? `<span class="small">${m(r.t.amount)} moved</span>` : ''}</td>${acc ? `<td class="n">${m(r.bal)}</td>` : ''}</tr>`).join('')}
+</tbody></table></body></html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, '_blank');
+  if (!w) { download(`${title.replace(/[^a-z0-9_-]+/gi, '-')}.html`, html, 'text/html'); toast('Saved as a file; open it and use Print to save as PDF.'); }
+  else toast('Statement opened. Use Print / Save as PDF.', 'success');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+/* ===== Help =====
+   Every feature: where to find it, what it does, how to use it, and tips.
+   The ? button in the header opens the topic for the page you are on; the Help page
+   (menu → Help) lists everything with a search box. The same text is used for the
+   downloadable user guide, so keep it up to date when features change. */
+const HELP_TOPICS = [
+  { id: 'start', page: 'dashboard', group: 'Getting started', icon: 'fa-rocket', title: 'Getting started',
+    where: 'Open the app link in Safari (iPhone) or Chrome (Android)',
+    summary: 'KOSH tracks your money: spending, income, accounts, investments, EMIs, insurance, goals and more. Your data is saved in your own private GitHub repository, so it is backed up and shared across your devices.',
+    steps: ['If you were given a username and password, type them in the Sign in card on the dashboard and tap Sign in.', 'Install the app: iPhone Safari → Share → Add to Home Screen; Android Chrome → menu (⋮) → Install app. On iPhone, sign in once more inside the installed app.', 'Add your accounts first (menu → Accounts): cash, bank accounts, credit cards and investments with today\'s balances.', 'Log expenses and income with the big + button at the bottom. Balances update by themselves.', 'Set your name and preferences in Settings (gear icon, top right).'],
+    tips: ['The cloud icon at the top right shows sync status; tap it to sync now.', 'Use the bottom bar: Home, Activity (transactions), + (add), Calendar and More (every other page).', 'Tap ? at the top of any page for help with that page.'] },
+  { id: 'dashboard', page: 'dashboard', group: 'Everyday', icon: 'fa-house', title: 'Dashboard',
+    where: 'Bottom bar → Home',
+    summary: 'Your money at a glance: net worth, a suggestion for you, quick actions, this month\'s money in and out, budgets, insights, what is due soon and recent transactions.',
+    steps: ['Net worth adds cash, bank, investments and money people owe you, minus card dues, loans and money you owe.', 'Switch off Investments or Card dues on the net worth card to see the figure without them.', 'Tap "What makes it up" to see the breakdown.', 'Quick actions: Add expense, Split a bill, I want to buy this, Money health.', 'Customize dashboard (bottom of the page) turns sections on or off: Money health, Portfolio, Subscriptions and Goals cards, and spending charts.'],
+    tips: ['Invitations from family or flatmates appear at the top of the dashboard.', 'Due soon lists the next payments; tap the button next to one to record it.'] },
+  { id: 'add', page: 'transactions', group: 'Everyday', icon: 'fa-plus', title: 'Adding a transaction',
+    where: 'The big + in the bottom bar (or Add transaction at the top on a computer)',
+    summary: 'Record an expense, income, a transfer between your accounts, or a tax payment.',
+    steps: ['Choose Expense, Income, Transfer or Tax at the top.', 'Type the amount, pick the date (Today and Yesterday buttons help), and choose a category; your most-used categories appear as buttons.', 'Choose the account the money came from (or went into).', 'Type a description; descriptions you used before are suggested and fill in their usual category.', 'Tap Add transaction.'],
+    tips: ['Fuel and vehicle costs: pick the vehicle and type the odometer reading (and litres) to track mileage.', 'Tax: choose the tax type (advance tax, TDS, property tax…) and the financial year; it is matched against your tax estimate.', 'Paid for home: tick "I\'ll take it back" for household spending someone will repay; it shows on the People page.', 'To change or delete an entry, tap it in Activity.'] },
+  { id: 'transactions', page: 'transactions', group: 'Everyday', icon: 'fa-list', title: 'Transactions (Activity)',
+    where: 'Bottom bar → Activity',
+    summary: 'Every transaction, grouped by day with each day\'s total, with search and filters.',
+    steps: ['Search by description, category, account or amount.', 'Filter by month, type (expenses, income, investments, transfers…), account and category.', 'Tap a transaction to edit or delete it.', 'Download gives a statement of what is filtered: a printable statement (save as PDF) or an Excel/CSV file. Pick dates to choose any range.', 'Import statement brings in transactions from a bank, card or PhonePe statement.'],
+    tips: ['With one account selected, the downloaded statement shows opening balance, running balance and closing balance, like a bank statement.', 'SIPs and investments show as money going out (amber).'] },
+  { id: 'import', page: 'import', group: 'Everyday', icon: 'fa-file-import', title: 'Import a statement',
+    where: 'Activity → Import statement (or More → Import statement)',
+    summary: 'Read transactions from a PhonePe statement (PDF) or a bank or card statement (CSV, Excel or PDF), check them, and add them in one go.',
+    steps: ['Choose the statement file.', 'Choose which account the money went through, or "Read it from the statement" for PhonePe.', 'Pick the dates to import (This month, Last month, Since my last entry, Everything).', 'Tap Read statement and check each row: account, type, category. Entries already in the app are recognised and left unticked.', 'Tap Import to add the ticked rows.'],
+    tips: ['Add the last 4 digits of your bank accounts and cards (Accounts → edit) so rows are matched to the right account automatically.', 'The app remembers your choices for each payee; see Remembered choices.'] },
+  { id: 'calendar', page: 'calendar', group: 'Everyday', icon: 'fa-calendar-days', title: 'Calendar',
+    where: 'Bottom bar → Calendar',
+    summary: 'A month view: money spent (red), income (green) and invested (amber) on each day, darker on heavier days, plus what is scheduled ahead.',
+    steps: ['Swipe left or right (or use the arrows) to change month.', 'Tap a day to see its transactions and add an expense or income on that date.', 'Switch between Both, Spent and Income at the top.', 'Days ahead show bills, salary, SIPs, EMIs, card due dates and insurance premiums.'],
+    tips: ['The top shows total spent, income, average spend per day and no-spend days; for a future month, what is scheduled to go out.'] },
+  { id: 'insights', page: 'insights', group: 'Understand', icon: 'fa-lightbulb', title: 'Insights',
+    where: 'More → Insights',
+    summary: 'A report on your month compared with your own usual (the average of the 3 months before).',
+    steps: ['Pick the month at the top.', 'Read the cards: how much you kept, spending pace, budgets, biggest places, new places, no-spend days, fixed costs, investing and more.', 'The category table shows where spending went up or down.'],
+    tips: ['The two most useful insights also appear on the dashboard.'] },
+  { id: 'health', page: 'health', group: 'Understand', icon: 'fa-heart-pulse', title: 'Money health',
+    where: 'More → Money health (or the Money health quick action)',
+    summary: 'A score out of 100 from five things: emergency runway, savings rate, card usage, EMIs compared with income, and investing. Plus fun money, a cash-flow forecast, credit health and watch-outs.',
+    steps: ['Improve the shortest bar first; each bar explains its aim.', 'Emergency runway: how long your cash and bank money would cover essential costs if income stopped. Settings lets you count FDs and liquid funds.', 'Fun money: tap Set up, choose a monthly amount and the categories it covers. It counts down as you spend and refills on the 1st.', 'Cash-flow forecast: where your cash and bank money is heading until month end, with scheduled bills, salary, EMIs, SIPs and card bills.', 'Credit health: card usage against the 30% line; tap Log my score to record your credit score each month.'],
+    tips: ['Suggestions at the top connect features, for example lowering fun money if your runway is short. The × hides one for a week.', 'Watch-outs flag idle cash in your bank and lifestyle creep (spending growing faster than income).'] },
+  { id: 'accounts', page: 'accounts', group: 'Money', icon: 'fa-building-columns', title: 'Accounts',
+    where: 'More → Accounts',
+    summary: 'Your cash, bank accounts, credit cards and investments, each with its balance. Banks show in their colours with a short name.',
+    steps: ['Add cash or wallet, Add bank account, Add credit card or Add investment.', 'Give the balance as of today; transactions update it from then on.', 'Update balance (scales icon) corrects a balance that has drifted.', 'For cards, add the limit, statement day and due day to see outstanding, available limit and due dates.'],
+    tips: ['Add the last 4 digits of each account and card for statement import.', 'Pay bill on a card records the payment from your bank.'] },
+  { id: 'portfolio', page: 'portfolio', group: 'Grow', icon: 'fa-chart-line', title: 'Portfolio and SIPs',
+    where: 'More → Portfolio',
+    summary: 'Your mutual funds, stocks, deposits and gold at today\'s prices, with profit, SIPs and each fund\'s instalments.',
+    steps: ['Add holding: search your mutual fund or stock and enter units and average cost once; prices update by themselves.', 'Add SIP: the fund, amount, date and the account it is paid from; instalments are recorded on the date and units are worked out from the NAV.', 'Chips at the top (All, Mutual funds, Stocks & ETFs, Gold…) choose what the totals include; pick several to combine.', 'Instalments (list icon on a fund) show each instalment like Coin: date, days held, amount, NAV, units and profit, plus XIRR. Edit sets the exact allotment date.', 'Refresh prices updates everything now.'],
+    tips: ['The expense ratio is already inside the NAV; only 0.005% stamp duty is deducted at purchase.', 'Family portfolio (bottom of the page) shows family members\' shared portfolios and a combined total.'] },
+  { id: 'gold', page: 'portfolio', group: 'Grow', icon: 'fa-ring', title: 'Gold ornaments',
+    where: 'Portfolio → Add gold',
+    summary: 'Track gold jewellery and coins: weight, purity, what you paid and what it is worth today.',
+    steps: ['Tap Add gold and enter the ornament, purity (24K, 22K, 18K, 14K), weight in grams and the date bought.', 'Optionally add the city, the rate you paid, making charges, the total bill and whether GST was included. Without a rate, the rate on that date is looked up.', 'The Gold section shows total weight, pure-gold weight, invested, value today and profit.', 'Gold → Rates: enter today\'s rate from a jeweller in your city for city-accurate values.'],
+    tips: ['Value is the gold itself; making charges and GST are not recovered when selling.', 'Prices update once a day.'] },
+  { id: 'goals', page: 'goals', group: 'Grow', icon: 'fa-flag-checkered', title: 'Goals, cool-off list and wishlist',
+    where: 'More → Goals & wishlist',
+    summary: 'Save towards goals, pause impulse buys, and keep a wishlist.',
+    steps: ['New goal: name, target amount and date. The app says how much to save each month and warns if you fall behind.', 'Add money or Take out to record savings for a goal.', 'I want to buy this: log something tempting instead of buying it. After the cool-off (48 hours by default) decide: skip it (a saving win) or keep it on the wishlist.', 'Wishlist: things you plan to buy; start saving for one or mark it bought.'],
+    tips: ['Saving wins add up on this page and in Year in review.'] },
+  { id: 'planner', page: 'planner', group: 'Grow', icon: 'fa-compass', title: 'Planners',
+    where: 'More → Planners',
+    summary: 'Calculators for big decisions. Change any number and the result updates. They are estimates, not financial or tax advice.',
+    steps: ['Financial freedom: the age you could stop needing a salary, from your spending, investments and assumptions you control.', 'Loan prepayment: interest saved and months cut by paying extra; also which debt to pay first.', 'Capital gains: gains booked this year, the ₹1.25 lakh tax-free limit left, gains you could book tax-free and losses that could offset gains.', 'Regular vs Direct: the yearly cost of Regular mutual fund plans and the cost of switching.', 'Tax estimate: tax under both regimes from the income you logged, deductions, and taxes already paid.', 'Salary-day plan: decide where salary goes; apply it in one tap on salary day.', 'Year in review: your year in money, ready to share.'],
+    tips: ['Add your year of birth in Settings so planners know your age.'] },
+  { id: 'split', page: 'split', group: 'Shared', icon: 'fa-people-arrows', title: 'Split bills',
+    where: 'More → Split bills (or the Split a bill quick action)',
+    summary: 'Share a bill with friends or family and see who owes whom.',
+    steps: ['Tap Split a bill: what it was, the total, the date, who paid, and who shared it (add new people right there).', 'Split equally, by amounts or by percentages, and add a group like "Goa trip" if you like.', 'The page shows friends who owe you and whom you owe; Settle up records a payment with the amount filled in.'],
+    tips: ['Link a person to their KOSH username (People page) and the split appears in their app too.'] },
+  { id: 'flat', page: 'flat', group: 'Shared', icon: 'fa-house-user', title: 'Shared flat',
+    where: 'More → Shared flat',
+    summary: 'For flatmates who each use KOSH: rent, bills and groceries split fairly, with one shared list.',
+    steps: ['New home: name it, tick your flatmates and set room shares if rooms differ. Each flatmate gets an invitation and taps Join.', 'Add recurring for rent, Wi-Fi, maid or cook: amount, day of the month, who pays it and how it is split. It is added for everyone on that day each month.', 'Add expense for one-off costs: who paid, who shares it, and how.', 'Balances shows who gets back and who owes, with the fewest payments to settle up; tap Record after paying.', 'Activity lists the month\'s entries; Export downloads them.'],
+    tips: ['Invite flatmates before adding rent; costs are split with them from the day they join.', 'Your share of each cost also appears in your own transactions.'] },
+  { id: 'people', page: 'people', group: 'Shared', icon: 'fa-user-group', title: 'People',
+    where: 'More → People',
+    summary: 'Money you lend or borrow, and household spending someone will pay back.',
+    steps: ['Add person, then use I gave or I got to record money handed over.', 'Home expenses to take back lists expenses marked "Paid for home"; tick the ones repaid and tap Mark ticked as taken back.', 'Edit a person to link them to their KOSH username, so splits and payments with them show in their app too.'],
+    tips: ['Balances with people count in your net worth.'] },
+  { id: 'recurring', page: 'subscriptions', group: 'Money', icon: 'fa-rotate', title: 'Recurring: subscriptions, bills, taxes and income',
+    where: 'More → Recurring',
+    summary: 'Everything that repeats: subscriptions, bills such as rent, taxes, and income such as salary.',
+    steps: ['Add under the right group: name, amount, how often, next date, category and the account.', 'Tick "Record it automatically" to have it logged on its date; otherwise tap the tick when you pay.', 'Pause stops it for a while; edit to change the amount or date.', 'Taxes: add advance tax (15 Jun, 15 Sep, 15 Dec, 15 Mar), property tax or road tax.'],
+    tips: ['Upcoming items show in Due soon and on the calendar.'] },
+  { id: 'emis', page: 'emis', group: 'Money', icon: 'fa-calendar-check', title: 'EMIs and loans',
+    where: 'More → EMIs & loans',
+    summary: 'Loans and credit card EMIs: what is paid, what is left, interest and the schedule.',
+    steps: ['Add EMI or loan: principal, interest rate, months, start date, and the account or card.', 'Record payment marks an instalment paid; Schedule shows every instalment.'],
+    tips: ['Card EMIs block part of the card limit until paid, and count as money owed on the card.', 'Planners → Loan prepayment shows the effect of paying extra.'] },
+  { id: 'budgets', page: 'budgets', group: 'Money', icon: 'fa-bullseye', title: 'Budgets',
+    where: 'More → Budgets',
+    summary: 'Monthly limits per category, with progress bars.',
+    steps: ['Add budget: pick a category and the monthly limit.', 'Spending without a budget lists categories you could set a budget for.'],
+    tips: ['Insights warn when you are over budget.'] },
+  { id: 'insurance', page: 'insurance', group: 'Money', icon: 'fa-shield-halved', title: 'Insurance',
+    where: 'More → Insurance',
+    summary: 'Every policy in one place: health, term life, life, car, bike, home, travel and others, with renewals and claims.',
+    steps: ['Add policy: type, name, insurer, policy number, who is covered, cover, premium, how often, next due date and end date.', 'For a car or bike, pick the vehicle from My vehicles; its number fills in.', 'Pay premium records the payment and moves the due date on; or tick "Record the premium automatically".', 'Claims: log each claim with amount, status and settled amount.'],
+    tips: ['You are reminded 15 days before a premium is due.', 'Health premiums count in Section 126 (old 80D) and life or term premiums in Section 123 (old 80C) in the tax estimate.'] },
+  { id: 'vehicles', page: 'insurance', group: 'Money', icon: 'fa-car-side', title: 'Vehicles, fuel and mileage',
+    where: 'Insurance → My vehicles; and the add transaction form (category Fuel)',
+    summary: 'Save your cars and bikes, log fuel with odometer readings, and see mileage and cost per km.',
+    steps: ['Insurance → My vehicles → Add vehicle: name, type, registration number, fuel and current odometer.', 'When you add a Fuel expense, choose the vehicle and type the odometer reading and litres.', 'My vehicles shows the last reading, mileage (km per litre), cost per km and fuel spent this month.'],
+    tips: ['Full-tank fill-ups give the most accurate mileage.', 'You can add a vehicle straight from the transaction form with "+ Add a new vehicle…".'] },
+  { id: 'charts', page: 'charts', group: 'Understand', icon: 'fa-chart-simple', title: 'Charts',
+    where: 'More → Charts',
+    summary: 'Make your own charts: bar, line, pie and more, from spending, income, investments, net worth and other measures.',
+    steps: ['New chart: choose the type, what to show, the period and options.', 'Pin a chart to show it on the dashboard; use the arrows to reorder.'],
+    tips: ['Each chart can have its own filters, such as period or account.'] },
+  { id: 'notifications', page: 'notifications', group: 'Tools', icon: 'fa-bell', title: 'Phone notifications',
+    where: 'More → Notifications',
+    summary: 'Messages on your phone at times you choose: balances, yesterday\'s spending, bills due, budget alerts, fun money, runway, card usage, summaries or your own reminders.',
+    steps: ['Install the free ntfy app and allow notifications.', 'Copy your private topic from this page and subscribe to it in ntfy.', 'Tap Send schedule to GitHub (once). After that, changes update by themselves.', 'Add notification: choose what, the time (India time), how often, and options; see a preview.', 'Send now (paper plane) tests one immediately.'],
+    tips: ['On iPhone, keep Background App Refresh on for ntfy.', 'Tick Hide amounts to keep numbers off the lock screen.'] },
+  { id: 'data', page: 'data', group: 'Tools', icon: 'fa-file-export', title: 'Export and backup',
+    where: 'More → Export & backup',
+    summary: 'Download all your data, restore a backup, and use your data in Excel or Power BI.',
+    steps: ['Download all (ZIP) gives one CSV file per table plus the full JSON.', 'Download JSON is a complete backup; Restore from a backup loads one.', 'Single tables (transactions, accounts…) download separately.'],
+    tips: ['Keep a backup off your phone now and then.'] },
+  { id: 'settings', page: 'dashboard', group: 'Tools', icon: 'fa-gear', title: 'Settings',
+    where: 'The gear icon at the top right',
+    summary: 'Where your data is stored, your username, preferences and price keys.',
+    steps: ['GitHub storage: your repository, token, KOSH username, file path and shared repository. Most people simply sign in instead.', 'Preferences: your name, categories, whether SIPs count as spending, sharing your portfolio with family, year of birth.', 'Sign out removes your token and data from this device; your data stays safe in your repository.', 'Create a login for someone (owner): makes a locked login file for a new person.'],
+    tips: ['If sync shows an error, check the token has not expired.'] },
+  { id: 'family', page: 'portfolio', group: 'Shared', icon: 'fa-people-roof', title: 'Family and invitations',
+    where: 'Portfolio → Family portfolio; Dashboard → Invitations',
+    summary: 'See your family\'s investments together, and answer invitations from family and flatmates.',
+    steps: ['Share mine (in Family portfolio) lets family see your holdings\' values; never your transactions or bank balances.', 'Add member sends an invitation; nothing is shared until they tap Accept.', 'Invitations you receive appear on the dashboard: Accept or Decline.', 'Remove a member with ×; the link ends for both of you.'],
+    tips: ['Values update whenever each person opens the app.'] },
+  { id: 'faq', page: 'dashboard', group: 'Help', icon: 'fa-circle-question', title: 'Common questions',
+    where: 'Anywhere',
+    summary: 'Quick answers when something looks wrong.',
+    steps: ['A balance looks wrong: open the account and use Update balance, or check for a transaction in the wrong account.', 'Net worth looks low: check the Investments and Card dues switches on the net worth card.', 'Prices did not update: tap Refresh prices on Portfolio; prices for gold and stocks update once a day.', 'Nothing syncs: tap the cloud icon; if it shows an error, the token may have expired (ask the owner for a new login).', 'A notification came late: open the app once so the notification job is updated; on iPhone allow notifications for ntfy.', 'I deleted something by mistake: every change is kept in your GitHub repository history; the owner can restore it.'],
+    tips: ['Tap ? on any page for help with that page.'] },
+];
+const HELP_FOR_PAGE = { dashboard: 'dashboard', transactions: 'transactions', import: 'import', calendar: 'calendar', insights: 'insights', health: 'health', accounts: 'accounts', portfolio: 'portfolio', goals: 'goals', planner: 'planner', split: 'split', flat: 'flat', people: 'people', subscriptions: 'recurring', emis: 'emis', budgets: 'budgets', insurance: 'insurance', charts: 'charts', notifications: 'notifications', data: 'data', tax: 'planner', help: 'start' };
+let helpState = { q: '', open: 'start' };
+
+function renderHelp() {
+  const q = helpState.q.trim().toLowerCase();
+  const match = (t) => !q || [t.title, t.where, t.summary, ...t.steps, ...t.tips].join(' ').toLowerCase().includes(q);
+  const list = HELP_TOPICS.filter(match);
+  const groups = [...new Set(list.map((t) => t.group))];
+  return `<div class="page-top"><p class="page-intro">Everything KOSH can do, where to find it and how to use it. Tap ? at the top of any page for help with that page.</p></div>
+    <input class="inp mb-4" type="search" data-help-search value="${esc(helpState.q)}" placeholder="Search help, e.g. fuel, SIP, statement, split" aria-label="Search help">
+    ${list.length ? groups.map((g) => `<h2 class="section-title mt-5 mb-2">${esc(g)}</h2><div class="space-y-2">${list.filter((t) => t.group === g).map((t) => `
+      <details class="help-topic panel" id="help-${t.id}" ${helpState.open === t.id || (q && list.length <= 4) ? 'open' : ''}>
+        <summary><span class="help-ico"><i class="fa-solid ${t.icon}"></i></span><span class="flex-1"><b>${esc(t.title)}</b><span class="help-where">${esc(t.where)}</span></span><i class="fa-solid fa-chevron-down help-chev"></i></summary>
+        <div class="help-body">
+          <p>${esc(t.summary)}</p>
+          <ol>${t.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
+          ${t.tips.length ? `<div class="help-tips"><b>Tips</b><ul>${t.tips.map((s) => `<li>${esc(s)}</li>`).join('')}</ul></div>` : ''}
+          ${t.page && t.page !== 'help' ? `<a class="btn btn-sm mt-3" href="#${t.page}"><i class="fa-solid fa-arrow-right"></i> Open ${esc(PAGES[t.page]?.title || t.title)}</a>` : ''}
+        </div></details>`).join('')}</div>`).join('') : emptyState('fa-magnifying-glass', 'No help topic matches that. Try another word.')}`;
+}
+/** The ? button: open help at the topic for the current page. */
+function openHelpFor(page) {
+  helpState = { q: '', open: HELP_FOR_PAGE[page] || 'start' };
+  location.hash = '#help';
+  setTimeout(() => { const el = document.getElementById(`help-${helpState.open}`); if (el) window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 80); }, 80);
+}
+
 /* ---------------------------------------------------------------------
    9. FORMS & ACTIONS
    --------------------------------------------------------------------- */
@@ -8133,7 +8855,7 @@ function openTxnForm(existing, preset = {}) {
       field('Date', input('date', t.date, 'type="date" required') + `<div class="date-chips">${[['Today', todayStr()], ['Yesterday', addDays(todayStr(), -1)]].map(([l, d]) => `<button type="button" class="chip ${t.date === d ? 'on' : ''}" data-setdate="${d}">${l}</button>`).join('')}</div>`))}
     ${showFor('expense', twoCol(
       field('Category', select('category', expCats, t.type === 'expense' ? t.category : expCats[0]) + quickCategoryChips('expense')),
-      field('Paid from', accountSelect('fromAccountId', defFrom, { types: MONEY_TYPES }))) +
+      field('Paid from', accountSelect('fromAccountId', defFrom, { types: MONEY_TYPES }))) + vehicleFields(t) +
       `<div class="home-claim">${checkbox('forHome', !!t.forHome, 'Paid for home: I\'ll take it back', 'It shows under People → Home expenses until it\'s paid back, and doesn\'t count as your own spending.')}
         <div data-claim ${t.forHome ? '' : 'hidden'} class="mt-3">${twoCol(field('Take it back from', select('claimPersonId', [...db.accounts.filter((a) => a.type === 'person' && !a.archived).map((a) => [a.id, a.name]), ['__new', '+ Someone new']], t.claimPersonId || defaultClaimPerson())),
           `<div data-newperson ${db.accounts.some((a) => a.type === 'person') ? 'hidden' : ''}>${field('Their name', input('newPersonName', '', 'placeholder="e.g. Dad"'))}</div>`)}</div></div>`)}
@@ -8158,6 +8880,7 @@ function openTxnForm(existing, preset = {}) {
     onOpen: (form) => {
       bindShowHide(form, 'type');
       attachDescriptionSuggest(form); // suggestions from descriptions you've used before
+      bindVehicleFields(form, { signal: modalSignal() }); // vehicle + odometer for fuel and vehicle costs
       // Quick picks: Today / Yesterday and your most-used categories
       form.addEventListener('click', (e) => {
         const d = e.target.closest('[data-setdate]');
@@ -8223,6 +8946,13 @@ function openTxnForm(existing, preset = {}) {
       }
       const remembered = rememberDescription(rec);
       if (remembered) extraOps.push(remembered);
+      // Vehicle, odometer and litres for fuel / vehicle costs
+      if (rec.type === 'expense' && !rec.taxKind) {
+        const vs = vehicleSave(d);
+        if (vs.error) { toast(vs.error, 'error'); return false; }
+        extraOps.push(...vs.ops); Object.assign(rec, vs.fields);
+        if (rec.fullTank === undefined) delete rec.fullTank;
+      } else { delete rec.vehicleId; delete rec.odometer; delete rec.fuelQty; delete rec.fullTank; }
       if (isNew && rec.forHome && typeof shareHomeClaim === 'function') shareHomeClaim(rec);
       commit([...extraOps, opUpsert('transactions', rec)], `${isNew ? 'Add' : 'Edit'} ${rec.forHome ? 'home expense' : rec.type} ${money(amount)}${rec.description ? ` (${rec.description})` : ''}`);
       toast(isNew ? (rec.forHome ? `Home expense added. ${accountName(claimTo)} owes you ${money(amount)} more.` : `${cap(rec.type)} added`) : 'Transaction saved', 'success');
@@ -8902,6 +9632,7 @@ function openSettings() {
       ${twoCol(field('Branch', input('branch', config.branch || 'main', 'spellcheck="false"')), field('Shared repository (optional)', input('sharedRepo', config.sharedRepo || '', 'spellcheck="false" placeholder="kosh-shared"'), 'When each person has their own repository, family features use this one.'))}
       <div class="flex gap-2 flex-wrap"><button type="button" class="btn btn-sm" data-action="make-login"><i class="fa-solid fa-key"></i> Create a login for someone</button>${isConfigured() ? '<button type="button" class="btn btn-sm" data-action="sign-out"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>' : ''}</div>
       ${sharedUsersList()}
+      ${priceJobSection()}
       ${field('Personal access token', `<div class="flex gap-2">${input('token', config.token, 'type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"')}<button type="button" class="btn" id="toggleToken">Show</button></div>`,
         'Kept only in this browser. Needs "Contents: Read and write" on the data repository.')}
       <div class="flex items-center gap-3 flex-wrap">
@@ -9110,6 +9841,11 @@ const ACTIONS = {
   'dash-customize': () => openDashCustomize(),
   'make-login': () => openMakeLogin(),
   'gold-add': () => openGoldForm(null),
+  help: () => openHelpFor((location.hash || '#dashboard').slice(1) || 'dashboard'),
+  'veh-add': () => openVehicleForm(null),
+  'veh-edit': (d) => openVehicleForm(vehicleById(d.id)),
+  'stmt-download': () => openStatementDialog(),
+  'price-job': () => setupPriceJob(),
   'ins-add': () => openInsForm(null),
   'ins-edit': (d) => openInsForm(db.insurance.find((x) => x.id === d.id)),
   'ins-pay': (d) => openInsPay(d.id),
@@ -9127,7 +9863,9 @@ const ACTIONS = {
   'pf-group': (d) => togglePfGroup(d.g),
   'sign-out': () => signOut(),
   'family-add': () => openFamilyAdd(),
-  'family-remove': (d) => { commit([opSettings({ familyMembers: (db.settings.familyMembers || []).filter((u) => u !== d.u) })], 'Remove family member'); },
+  'family-remove': async (d) => { if (!confirm(`Remove ${userName(d.u)} from your family? You'll both stop seeing each other's portfolio here.`)) return; commit([opSettings({ familyMembers: (db.settings.familyMembers || []).filter((u) => u !== d.u) })], 'Remove family member'); await endFamily(d.u); syncShared(true); },
+  'inv-family': (d) => (d.yes ? openFamilyAnswer(d.id) : answerFamilyInvite(d.id, false)),
+  'inv-flat': (d) => answerFlatInvite(d.id, !!d.yes),
   'family-share': () => { commit([opSettings({ sharePortfolio: !db.settings.sharePortfolio })], db.settings.sharePortfolio ? 'Stop sharing portfolio' : 'Share portfolio'); localStorage.removeItem('kosh.pfSig'); syncShared(true); toast(db.settings.sharePortfolio ? 'Your portfolio is shared with family on this KOSH.' : 'Stopped sharing. Family members keep the last copy until it is replaced.'); },
   'cool-new': () => openCoolOff(),
   'cool-decide': (d) => openCoolDecide(d.id),
@@ -9225,6 +9963,14 @@ function init() {
   };
   document.addEventListener('input', plannerListen);
   document.addEventListener('change', plannerListen);
+
+  // Help: search as you type (keeps the cursor in the box)
+  document.addEventListener('input', (e) => {
+    if (!e.target.matches?.('[data-help-search]')) return;
+    helpState.q = e.target.value; helpState.open = '';
+    const pos = e.target.selectionStart; render();
+    const box = document.querySelector('[data-help-search]'); if (box) { box.focus(); try { box.setSelectionRange(pos, pos); } catch { /* search inputs may not support it */ } }
+  });
 
   // Shared flat: month picker
   document.addEventListener('change', (e) => { if (e.target.matches?.('[data-flat-month]')) { flats.month = e.target.value; render(); } });
