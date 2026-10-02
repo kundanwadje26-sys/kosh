@@ -1,0 +1,10 @@
+{
+ "v": 1,
+ "user": "ashok",
+ "kdf": "PBKDF2-SHA256",
+ "iterations": 600000,
+ "salt": "07Rdh8ZT/b/TT35aBqrWzw==",
+ "iv": "lokt6ThcwCbRLb6x",
+ "data": "jMLtpTwx1OJRGwmoj4gklXv7ra/Pk4wLeAFvXNIsf7gzRbAexGhDRQok9r8IolCF9knrpU0DGv6D3NOTSj1j/dumTVxCrFrIRERQEZKG5vX0Oo/pE48Gq0czz94L17L+dz7t0XzbgnwTY/QZS078ljJRcycvE0hDDjUioWm1HR45KCEV+Jg2sf06FQyEqGCz3SvnLGZ1KVRjVWHlD+YBCVxRA9PJPvqZKmSuaCyL9eTmUvLJeH98v8ExdAhk/3xEft53GaMfxayabOfPrk1CtNB4Ap/MN39XHB+z2AlJW6xx+5dNmiziX+MCtAAutxsYaHAV9FCFQsj96p0w",
+ "created": "2026-10-02"
+}

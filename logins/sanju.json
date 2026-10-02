@@ -1,0 +1,10 @@
+{
+ "v": 1,
+ "user": "sanju",
+ "kdf": "PBKDF2-SHA256",
+ "iterations": 600000,
+ "salt": "GMTkNUmebb76fH+O+nErdA==",
+ "iv": "cFAXed+GtzYz74VT",
+ "data": "uylPSSCVc2OsREz1mDjV2Hm6qtxEAU1fPyfoo4QHOan0dq4em/5McjB+EqX4CQJUFAAr64djLMTvkzuFfJm/DJb7ij2EAqa57fOGSkcfdMZAeXlQaf1M1R8pnUpwm0r1h7iSHEZvACpVt0bZQLEmTgnKgBUr2WWgEBu0/LBARiiCZH8fBoahisx9sjvbN4rPAUvew/28K7GPGdpOXOVZo70L4mK7TMmbyRz3bGGRzWFrUSP885fmBhOvsUH/mN++hwn/4/K9+kl/mpQxPQauzGon965bU8lzFTg3ba9xtgVHsntT4qlGv3Yq+0EfXWz4isYgJpwkgHfUW0s=",
+ "created": "2026-10-02"
+}

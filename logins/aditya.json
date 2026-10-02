@@ -1,0 +1,10 @@
+{
+ "v": 1,
+ "user": "aditya",
+ "kdf": "PBKDF2-SHA256",
+ "iterations": 600000,
+ "salt": "h+DZfk/po0Vm3oiTJrXuxw==",
+ "iv": "s45PMQBVS73q9Mqf",
+ "data": "3D3c+j7U+SKkIRnDhg3PrHvQniHqbcQ260abge0h0So/igX4ubpELBrcZUcVhsyKwPtyfc/jpZ6exvR+qHT9h9Gf0QVMhh8S/DJ1j10yGslY9lYytS+uTF9jRCWQ2ZAaFhMbnXtFs2X5RmAtMhAU9421SRCNFNSvyJVwZchNBpzZwsrthYS2dmtlZGwU373w19fbz3bqJZD3Rrp8kR2kR/Yw7NB3ep+sIOUkdR3qxsuJCh73uqTlcJRMI6pSUwvvYsorM/NS0ys9+hYTPRAff7Kt849oPHJCURImB9XHaz4oy36JLx2XCzUEuRkJCONWLPex4BS9ewh2QHYyPj5Q",
+ "created": "2026-10-02"
+}

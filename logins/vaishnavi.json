@@ -1,0 +1,10 @@
+{
+ "v": 1,
+ "user": "vaishnavi",
+ "kdf": "PBKDF2-SHA256",
+ "iterations": 600000,
+ "salt": "SgdyvSRkRMMXtg9evT8oRQ==",
+ "iv": "8lAv5/y2a0iDsuEE",
+ "data": "q81wQAh4JeP6rMpVmidUFeAlcy44NJ41Q9sIl8FSmEry9V9cQEPUvoY4gdxv4T59vhRWAF9S96ew6b81t/93OU/iKO2Nh1AHgD4BT2INdwLyeSdfGivSDmA9SvcnlzJFo9X+eqnnKjCHNtW4HefqBB1Ed4+QJW9F2QnOvzaX6ANOPrt9A1d5ZREo/zFdjCWUw9N29qwALcwNzuc/wQS8x4RInCMvnGbmCHvEOS/AikPUmkZ8uYaxsXPE4r8hKoH6bwfYU4YbbCBUcxhLBvh+5ZUUoR36N9cyci5G6+pF+sPe4BSd3k3wv2nU5lGhZeXn/dcis9uQpOft6tDW5m7x5XxlxEaw",
+ "created": "2026-10-02"
+}
