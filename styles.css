@@ -805,3 +805,11 @@ body { background: var(--paper); }
 .help-tips { margin-top: .8rem; background: #F4F8FC; border-radius: 12px; padding: .7rem .9rem; }
 .help-tips ul { list-style: disc; margin: .3rem 0 0 1.1rem; }
 @media (max-width: 639px) { .help-body { padding: 0 1rem 1rem 1rem; } header .icon-btn[data-action="help"] { width: 2.5rem; } }
+
+/* Username box: a fixed @ so nobody has to type it */
+.user-box { position: relative; flex: 1; }
+.user-box .user-at { position: absolute; left: .85rem; top: 50%; transform: translateY(-50%); color: var(--ink-3); font-weight: 600; pointer-events: none; }
+.user-box .inp { padding-left: 1.9rem; }
+
+/* Anything marked hidden stays hidden, even buttons with their own display style */
+[hidden] { display: none !important; }

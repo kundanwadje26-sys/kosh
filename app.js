@@ -7125,7 +7125,9 @@ function accountIcon(a, cls = '') {
 const SHARED_DIR = 'kosh';
 const USERS_FILE = `${SHARED_DIR}/users.json`, LEDGER_FILE = `${SHARED_DIR}/shared.json`;
 const pfFile = (u) => `${SHARED_DIR}/portfolio/${u}.json`;
-const myUser = () => String(config.user || '').toLowerCase();
+/** A username as typed → its plain form: no @, no spaces or invisible characters, lowercase. */
+const normUser = (s) => String(s || '').normalize('NFKC').toLowerCase().replace(/[\s\u200b-\u200d\u2060\ufeff]/g, '').replace(/^@+/, '');
+const myUser = () => normUser(config.user);
 // Shared files live in the shared repository if one is set (each person has their own data repository),
 // otherwise next to the data files in the same repository.
 const sharedRepo = () => config.sharedRepo || config.repo;
@@ -7455,7 +7457,7 @@ async function publishProfile() {
 }
 /** Find a person by username: their profile card, or null if no one has that username. */
 async function lookupUser(username) {
-  const u = String(username || '').trim().toLowerCase().replace(/^@/, '');
+  const u = normUser(username);
   if (!/^[a-z0-9_-]{2,30}$/.test(u)) return null;
   if (shared.known[u]) return shared.known[u];
   const file = (await readJsonFile(`${DIR}/${await dirCode(u)}.json`)).data;
@@ -7468,8 +7470,9 @@ async function lookupUser(username) {
   } catch { return null; }
 }
 async function checkUsername(value) {
-  const u = String(value || '').trim().toLowerCase().replace(/^@/, '');
+  const u = normUser(value);
   if (!u) return { ok: false, msg: 'Type their KOSH username.' };
+  if (!/^[a-z0-9_-]{2,30}$/.test(u)) return { ok: false, msg: 'Usernames use only lowercase letters, numbers, - or _.' };
   if (u === myUser()) return { ok: false, msg: 'That is your own username.' };
   if (!navigator.onLine) return { ok: false, msg: 'You are offline. Checking a username needs the internet.' };
   const card = await lookupUser(u).catch(() => null);
@@ -7477,13 +7480,15 @@ async function checkUsername(value) {
 }
 /** A username box with a Check button and a "found / not found" line. */
 function usernameField(name, label, value = '') {
-  return field(label, `<div class="flex gap-2"><input class="inp" name="${name}" value="${esc(value)}" placeholder="e.g. aarav" autocapitalize="none" autocomplete="off" spellcheck="false"><button type="button" class="btn" data-check-user="${name}">Check</button></div><div class="text-sm mt-1.5" data-user-result="${name}"></div>`);
+  return field(label, `<div class="flex gap-2"><div class="user-box"><span class="user-at" aria-hidden="true">@</span><input class="inp" name="${name}" value="${esc(value)}" placeholder="aarav" autocapitalize="none" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="email" aria-label="${esc(label)} (without @)"></div><button type="button" class="btn" data-check-user="${name}">Check</button></div><div class="text-sm mt-1.5" data-user-result="${name}"></div>`);
 }
 function bindUsernameField(form, name, onFound) {
   const out = $(`[data-user-result="${name}"]`, form);
   const run = async () => {
+    if (!form.isConnected || !form.elements[name]) return { ok: false, msg: '' }; // the form was closed
     out.textContent = 'Checking…'; out.className = 'text-sm mt-1.5 text-ink-3';
     const r = await checkUsername(form.elements[name].value);
+    if (!form.isConnected) return r;
     out.innerHTML = r.ok ? `<i class="fa-solid fa-circle-check mr-1"></i>${esc(r.msg)}` : `<i class="fa-solid fa-circle-xmark mr-1"></i>${esc(r.msg)}`;
     out.className = `text-sm mt-1.5 ${r.ok ? 'text-gain' : 'text-loss'} font-semibold`;
     if (r.ok && onFound) onFound(r);
@@ -7491,7 +7496,12 @@ function bindUsernameField(form, name, onFound) {
   };
   $(`[data-check-user="${name}"]`, form).addEventListener('click', run, { signal: modalSignal() });
   form.elements[name].addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } }, { signal: modalSignal() });
-  form.elements[name].addEventListener('input', () => { out.textContent = ''; }, { signal: modalSignal() });
+  let timer = 0;
+  modalSignal().addEventListener('abort', () => clearTimeout(timer));
+  form.elements[name].addEventListener('input', () => {
+    out.textContent = ''; clearTimeout(timer);
+    if (normUser(form.elements[name].value).length >= 2) timer = setTimeout(run, 700); // checks by itself after you stop typing
+  }, { signal: modalSignal() });
   return run;
 }
 /** Names of the people you are connected with (family, linked people, flatmates, invitations). */
@@ -7539,14 +7549,15 @@ async function openLoginFile(file, password) {
   catch { throw new Error('Wrong username or password.'); }
 }
 async function signIn(user, password) {
-  user = String(user || '').trim().toLowerCase();
+  user = normUser(user);
   if (!/^[a-z0-9_-]{2,30}$/.test(user)) throw new Error('Enter your KOSH username.');
   const res = await fetch(`logins/${user}.json`, { cache: 'no-store' });
   if (!res.ok) throw new Error('Wrong username or password.');
   const s = await openLoginFile(await res.json(), password);
   if (db.transactions.length && config.user && config.user !== user && !confirm('Another person\'s data is on this device. Sign in anyway? Their unsynced changes stay in this browser until they sign in again.')) return false;
   const switching = config.user !== user;
-  config = { owner: s.owner, repo: s.repo, sharedRepo: s.sharedRepo || '', branch: s.branch || 'main', path: s.path || 'data.json', token: s.token, user };
+  // Signed in with a login file → a member, not the owner (owner-only tools are hidden).
+  config = { owner: s.owner, repo: s.repo, sharedRepo: s.sharedRepo || '', branch: s.branch || 'main', path: s.path || 'data.json', token: s.token, user, role: 'member' };
   writeLS(STORAGE_KEYS.config, config);
   if (switching) { db = normalizeDB(emptyDB()); persist(); writeLS(STORAGE_KEYS.pending, []); }
   setSyncStatus('syncing');
@@ -7586,13 +7597,13 @@ function openMakeLogin() {
   openModal({
     title: 'Create a login for someone',
     body: `<p class="text-sm text-ink-2">Before this: create a private repository for them (e.g. <code>kosh-rahul</code>) and a fine-grained token limited to that repository and your shared repository, with Contents: Read and write. Steps are in the README.</p>
-      ${twoCol(field('Their KOSH username', input('user', '', 'required pattern="[a-z0-9_-]{2,30}" placeholder="rahul" autocapitalize="none" spellcheck="false"')), field('Their name', input('name', '', 'placeholder="Rahul Sharma"')))}
+      ${twoCol(field('Their KOSH username', input('user', '', 'required placeholder="rahul" autocapitalize="none" spellcheck="false"')), field('Their name', input('name', '', 'placeholder="Rahul Sharma"')))}
       ${twoCol(field('Their data repository', input('repo', '', 'required placeholder="kosh-rahul" spellcheck="false"')), field('Shared repository', input('sharedRepo', config.sharedRepo || '', 'placeholder="kosh-shared" spellcheck="false"'), 'Leave empty if you do not use family features.'))}
       ${field('Their token', input('token', '', 'type="password" required placeholder="github_pat_…" autocomplete="off"'))}
       ${twoCol(field('Their password', input('password', '', 'type="password" required minlength="10" autocomplete="new-password"'), 'At least 10 characters; longer is safer.'), field('Password again', input('password2', '', 'type="password" required autocomplete="new-password"')))}`,
     submitLabel: 'Create login file',
     onSubmit: async (d) => {
-      const user = String(d.user || '').trim().toLowerCase();
+      const user = normUser(d.user);
       if (!/^[a-z0-9_-]{2,30}$/.test(user)) { toast('Username: 2 to 30 lowercase letters, numbers, - or _.', 'error'); return false; }
       if (d.password !== d.password2) { toast('The passwords don\'t match.', 'error'); return false; }
       if (String(d.password).length < 10) { toast('Use at least 10 characters for the password.', 'error'); return false; }
@@ -7601,6 +7612,20 @@ function openMakeLogin() {
       toast(`Downloaded ${user}.json. Upload it to the logins folder of your app's website repository.`, 'success');
     },
   });
+}
+
+/* ----- Owner or member -----
+   The owner connects GitHub by hand in Settings; everyone else signs in with a login file.
+   Owner-only tools (Create a login for someone, the daily price job) show only to the owner.
+   Devices set up before this existed are sorted once: if a login file exists for the username
+   on the website, that person is a member; otherwise the owner. */
+const isOwner = () => config.role === 'owner';
+async function settleRole() {
+  if (config.role || !isConfigured() || !myUser()) return;
+  try {
+    const res = await fetch(`logins/${myUser()}.json`, { cache: 'no-store', method: 'GET' });
+    if (res.status === 404 || res.ok) { config = { ...config, role: res.ok ? 'member' : 'owner' }; writeLS(STORAGE_KEYS.config, config); }
+  } catch { /* offline: decide next time */ }
 }
 
 /* ===== Gold ornaments =====
@@ -7829,8 +7854,9 @@ async function loadHomes() {
   const mine = ((idx && idx.homes) || []).filter((h) => h.members.includes(myUser()));
   for (const h of mine) { try { flats.homes[h.id] = (await readJsonFile(homeFile(h.id))).data; } catch { /* keep last copy */ } }
   // Homes you belong to, and homes you've been invited to (waiting for your yes or no)
-  flats.list = mine.filter((h) => { const m = myMembership(flats.homes[h.id]); return m && isActiveMember(m) && !m.left; });
-  flats.invites = mine.map((h) => flats.homes[h.id]).filter((home) => myMembership(home)?.status === 'invited');
+  for (const h of mine) if (flats.homes[h.id]?.deleted) delete flats.homes[h.id]; // deleted homes disappear for everyone
+  flats.list = mine.filter((h) => { const home = flats.homes[h.id], m = myMembership(home); return home && m && isActiveMember(m) && !m.left; });
+  flats.invites = mine.map((h) => flats.homes[h.id]).filter((home) => home && myMembership(home)?.status === 'invited');
   if (!flats.homes[flats.current]) flats.current = flats.list[0]?.id || '';
   for (const h of flats.list) if (flats.homes[h.id]) await postDueRecurring(flats.homes[h.id]);
 }
@@ -8009,6 +8035,7 @@ function openHomeForm(existing) {
       <button type="button" class="btn btn-sm" data-add-flatmate><i class="fa-solid fa-user-plus"></i> Add to this home</button>
       <p class="hint">Ask flatmates for their username. They get an invitation and join when they tap Join.</p>`,
     submitLabel: isNew ? 'Create home' : 'Save',
+    onDelete: !isNew && canDeleteHome(h) ? () => { deleteHome(h.id); } : null,
     onOpen: (form) => {
       const sig = { signal: modalSignal() };
       const redraw = () => { for (const r of rows) { r.keep = r.me || !!form.elements[`m_${r.user}`]?.checked; r.weight = num(form.elements[`w_${r.user}`]?.value) || 1; } $('[data-rows]', form).innerHTML = rowHtml(); };
@@ -8160,6 +8187,34 @@ async function answerFlatInvite(id, yes) {
     if (yes) { flats.current = id; toast('You joined the home. Shared costs from today are split with you.', 'success'); }
     else toast('Declined. The home is not added to your app.');
   } catch (e) { toast(`Couldn't answer: ${e.message}`, 'error'); }
+}
+
+/** Who may delete a home: the person who created it, or, if they have left, anyone still living there. */
+function canDeleteHome(home) {
+  const creatorIn = home.members.some((m) => m.user === home.createdBy && isActiveMember(m) && !m.left);
+  return home.createdBy === myUser() || !creatorIn;
+}
+/** Delete a home for everyone. Entries already in each person's own transactions stay as history. */
+async function deleteHome(id) {
+  const home = flats.homes[id];
+  if (!home || !flatGuard()) return;
+  const net = flatBalances(home);
+  const open = Object.entries(net).filter(([, v]) => Math.abs(v) >= 1);
+  const msg = open.length
+    ? `Balances in ${home.name} are not settled yet:\n${open.map(([u, v]) => `${userName(u)} ${v > 0 ? 'gets back' : 'owes'} ${money(Math.abs(Math.round(v)))}`).join('\n')}\n\nSettle up first if you can. Delete the home anyway for everyone?`
+    : `Delete ${home.name} for everyone? Monthly costs stop. Expenses already added stay in each person's own transactions.`;
+  if (!confirm(msg)) return false;
+  try {
+    await updateJsonFile(homeFile(id), (data) => (data ? { ...data, deleted: true, deletedBy: myUser(), deletedAt: new Date().toISOString(), recurring: (data.recurring || []).map((r) => ({ ...r, active: false })) } : null), `KOSH: delete home ${home.name}`);
+    await updateJsonFile(HOMES_FILE, (data) => { const list = (data && data.homes) || []; return list.some((h) => h.id === id) ? { homes: list.filter((h) => h.id !== id) } : null; }, 'KOSH: homes list');
+    delete flats.homes[id];
+    flats.list = flats.list.filter((h) => h.id !== id);
+    flats.invites = (flats.invites || []).filter((h) => h.id !== id);
+    if (flats.current === id) flats.current = flats.list[0]?.id || '';
+    closeModal(); render();
+    toast(`${home.name} deleted. Past expenses stay in everyone's transactions.`, 'success');
+  } catch (e) { toast(`Couldn't delete: ${e.message}`, 'error'); }
+  return false;
 }
 
 /* ===== Insurance =====
@@ -8825,8 +8880,8 @@ const HELP_TOPICS = [
   { id: 'flat', page: 'flat', group: 'Shared', icon: 'fa-house-user', title: 'Shared flat',
     where: 'More → Shared flat',
     summary: 'For flatmates who each use KOSH: rent, bills and groceries split fairly, with one shared list.',
-    steps: ['New home: name it, add each flatmate by typing their KOSH username (Check shows found or not found), and set room shares if rooms differ. Each flatmate gets an invitation and taps Join.', 'Add recurring for rent, Wi-Fi, maid or cook: amount, day of the month, who pays it and how it is split. It is added for everyone on that day each month.', 'Add expense for one-off costs: who paid, who shares it, and how.', 'Balances shows who gets back and who owes, with the fewest payments to settle up; tap Record after paying.', 'Activity lists the month\'s entries; Export downloads them.'],
-    tips: ['Invite flatmates before adding rent; costs are split with them from the day they join.', 'Your share of each cost also appears in your own transactions.'] },
+    steps: ['New home: name it, add each flatmate by typing their KOSH username (Check shows found or not found), and set room shares if rooms differ. Each flatmate gets an invitation and taps Join.', 'Add recurring for rent, Wi-Fi, maid or cook: amount, day of the month, who pays it and how it is split. It is added for everyone on that day each month.', 'Add expense for one-off costs: who paid, who shares it, and how.', 'Balances shows who gets back and who owes, with the fewest payments to settle up; tap Record after paying.', 'Activity lists the month\'s entries; Export downloads them.', 'Delete a home: Home settings → Delete (the person who created it; or anyone still living there if they moved out). Monthly costs stop for everyone; past expenses stay in each person\'s transactions.'],
+    tips: ['Type usernames with or without @; the app checks them as you type.', 'Invite flatmates before adding rent; costs are split with them from the day they join.', 'Your share of each cost also appears in your own transactions.'] },
   { id: 'people', page: 'people', group: 'Shared', icon: 'fa-user-group', title: 'People',
     where: 'More → People',
     summary: 'Money you lend or borrow, and household spending someone will pay back.',
@@ -8875,7 +8930,7 @@ const HELP_TOPICS = [
   { id: 'settings', page: 'dashboard', group: 'Tools', icon: 'fa-gear', title: 'Settings',
     where: 'The gear icon at the top right',
     summary: 'Where your data is stored, your username, preferences and price keys.',
-    steps: ['GitHub storage: your repository, token, KOSH username, file path and shared repository. Most people simply sign in instead.', 'Preferences: your name, categories, whether SIPs count as spending, sharing your portfolio with family, year of birth.', 'Sign out removes your token and data from this device; your data stays safe in your repository.', 'Create a login for someone (owner): makes a locked login file for a new person.'],
+    steps: ['GitHub storage: your repository, token, KOSH username, file path and shared repository. Most people simply sign in instead.', 'Preferences: your name, categories, whether SIPs count as spending, sharing your portfolio with family, year of birth.', 'Sign out removes your token and data from this device; your data stays safe in your repository.', 'Create a login for someone: only on the owner\'s device (the one connected to GitHub by hand); people who sign in with a username and password do not see it.'],
     tips: ['If sync shows an error, check the token has not expired.'] },
   { id: 'family', page: 'portfolio', group: 'Shared', icon: 'fa-people-roof', title: 'Family and invitations',
     where: 'Portfolio → Family portfolio; Dashboard → Invitations',
@@ -9741,12 +9796,12 @@ function openSettings() {
       </div>
       ${twoCol(field('GitHub username', input('owner', config.owner, 'autocomplete="off" spellcheck="false" placeholder="your-username"')),
         field('Data repository name', input('repo', config.repo, 'autocomplete="off" spellcheck="false" placeholder="kosh-data"')))}
-      ${twoCol(field('Your KOSH username', input('user', config.user || '', 'autocomplete="off" spellcheck="false" placeholder="e.g. kundan" pattern="[a-z0-9_-]{2,30}" title="2 to 30 lowercase letters, numbers, - or _"'), 'Lets several people use this same repository, each with their own data file, and share splits and portfolios.'),
+      ${twoCol(field('Your KOSH username', input('user', config.user || '', 'autocomplete="off" spellcheck="false" placeholder="e.g. kundan" autocapitalize="none" title="2 to 30 lowercase letters, numbers, - or _ (no @)"'), 'Lets several people use this same repository, each with their own data file, and share splits and portfolios.'),
         field('File path', input('path', config.path || 'data.json', 'spellcheck="false"'), 'Your own data file. For a second person: users/their-username/data.json'))}
       ${twoCol(field('Branch', input('branch', config.branch || 'main', 'spellcheck="false"')), field('Shared repository (optional)', input('sharedRepo', config.sharedRepo || '', 'spellcheck="false" placeholder="kosh-shared"'), 'When each person has their own repository, family features use this one.'))}
-      <div class="flex gap-2 flex-wrap"><button type="button" class="btn btn-sm" data-action="make-login"><i class="fa-solid fa-key"></i> Create a login for someone</button>${isConfigured() ? '<button type="button" class="btn btn-sm" data-action="sign-out"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>' : ''}</div>
+      <div class="flex gap-2 flex-wrap"><button type="button" class="btn btn-sm" data-action="make-login" ${isOwner() ? '' : 'hidden'}><i class="fa-solid fa-key"></i> Create a login for someone</button>${isConfigured() ? '<button type="button" class="btn btn-sm" data-action="sign-out"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>' : ''}</div>
       ${sharedUsersList()}
-      ${priceJobSection()}
+      ${isOwner() ? priceJobSection() : ''}
       ${field('Personal access token', `<div class="flex gap-2">${input('token', config.token, 'type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"')}<button type="button" class="btn" id="toggleToken">Show</button></div>`,
         'Kept only in this browser. Needs "Contents: Read and write" on the data repository.')}
       <div class="flex items-center gap-3 flex-wrap">
@@ -9831,9 +9886,9 @@ function openSettings() {
     },
     onSubmit: (d) => {
       const { owner, repo } = parseRepoInput(d.owner, d.repo);
-      const user = String(d.user || '').trim().toLowerCase();
+      const user = normUser(d.user);
       if (user && !/^[a-z0-9_-]{2,30}$/.test(user)) { toast('Username: 2 to 30 lowercase letters, numbers, - or _.', 'error'); return false; }
-      const next = { owner, repo, branch: d.branch || 'main', path: (d.path || 'data.json').replace(/^\/+/, ''), token: d.token, user, sharedRepo: String(d.sharedRepo || '').trim() };
+      const next = { owner, repo, branch: d.branch || 'main', path: (d.path || 'data.json').replace(/^\/+/, ''), token: d.token, user, role: config.role === 'member' && d.token === config.token ? 'member' : 'owner', sharedRepo: String(d.sharedRepo || '').trim() };
       const anyGit = next.owner || next.repo || next.token;
       if (anyGit && !(next.owner && next.repo && next.token)) {
         toast('To connect GitHub, fill in username, repository and token (or clear all three).', 'error');
@@ -9953,7 +10008,7 @@ const ACTIONS = {
   'split-filter': (d) => { splitFilter = d.g; render(); },
   'split-settle': (d) => openPersonMoney(d.id, d.dir, d.amt),
   'dash-customize': () => openDashCustomize(),
-  'make-login': () => openMakeLogin(),
+  'make-login': () => (isOwner() ? openMakeLogin() : toast('Only the owner can create logins.', 'error')),
   'gold-add': () => openGoldForm(null),
   help: () => openHelpFor((location.hash || '#dashboard').slice(1) || 'dashboard'),
   'veh-add': () => openVehicleForm(null),
@@ -10161,6 +10216,7 @@ function init() {
     processAutoPayments();
     learnFromEntriesOnce(); // turn your existing entries into remembered import choices (first run only)
     processInsuranceAuto(); // insurance premiums set to record themselves
+    settleRole();           // owner or member (owner-only tools)
     notifyOnStart(); // custom notifications: first-run setup and keeping the phone schedule up to date
     // Units for SIP instalments whose NAV is out, then (if due) fresh prices.
     setTimeout(async () => { await autoAllotUnits(); refreshPrices({ auto: true }); }, 300);
