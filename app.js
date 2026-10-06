@@ -1268,7 +1268,7 @@ function renderDashboard() {
     ${netWorthPanel(T)}
     ${dashOn('suggestions') ? `<div class="mt-5">${nudgeStrip(1, true)}</div>` : ''}
     ${dashOn('quick') ? `<div class="quick-actions" aria-label="Quick actions">
-      <button class="qa" data-action="add-txn" data-type="expense"><i class="fa-solid fa-plus"></i><span>Add expense</span></button>
+      ${voiceOn() ? '<button class="qa" data-action="voice-open"><i class="fa-solid fa-microphone"></i><span>Speak to add</span></button>' : '<button class="qa" data-action="add-txn" data-type="expense"><i class="fa-solid fa-plus"></i><span>Add expense</span></button>'}
       <button class="qa" data-action="split-new"><i class="fa-solid fa-people-arrows"></i><span>Split a bill</span></button>
       <button class="qa" data-action="cool-new"><i class="fa-solid fa-hourglass-half"></i><span>I want to buy this</span></button>
       <a class="qa" href="#health"><i class="fa-solid fa-heart-pulse"></i><span>Money health</span></a>
@@ -1638,6 +1638,7 @@ function renderTransactions() {
       <button class="btn" data-action="add-txn" data-type="transfer"><i class="fa-solid fa-right-left"></i> Transfer money</button>
       <a class="btn" href="#import"><i class="fa-solid fa-file-import"></i> Import statement</a>
       <button class="btn" data-action="stmt-download"><i class="fa-solid fa-file-arrow-down"></i> Download</button>
+      ${voiceOn() ? '<button class="btn" data-action="voice-open"><i class="fa-solid fa-microphone"></i> Speak</button>' : ''}
     </div>
     <section class="panel p-5">
       <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-5">
@@ -3817,20 +3818,20 @@ function openPersonForm(existing) {
 }
 
 /** Money between you and a person. dir 'out' = you gave, 'in' = you received. */
-function openPersonMoney(personId, dir, presetAmount = '') {
+function openPersonMoney(personId, dir, presetAmount = '', preset = {}) {
   const p = accountById(personId);
   if (!p) return;
   const bal = M.balances.get(p.id) || 0;
   const kinds = dir === 'out'
     ? [['lent', `Lent / gave money to ${p.name}`], ['repaid', `Paid back what I owed ${p.name}`]]
     : [['borrowed', `Borrowed / took money from ${p.name}`], ['gotback', `${p.name} paid me back`]];
-  const guess = dir === 'out' ? (bal < 0 ? 'repaid' : 'lent') : (bal > 0 ? 'gotback' : 'borrowed');
+  const guess = preset.what || (dir === 'out' ? (bal < 0 ? 'repaid' : 'lent') : (bal > 0 ? 'gotback' : 'borrowed'));
   openModal({
     title: dir === 'out' ? `Money I gave ${p.name}` : `Money I got from ${p.name}`,
     body: `${field('What was it?', select('what', kinds, guess))}
-      ${twoCol(field('Amount', moneyInput('amount', presetAmount, 'required min="0.01"')), field('Date', input('date', todayStr(), 'type="date" required')))}
-      ${field(dir === 'out' ? 'From my' : 'Into my', accountSelect('acc', firstAccountOf(['bank', 'cash']), { types: ['cash', 'bank', 'credit_card'] }))}
-      ${field('Note (optional)', input('description', '', 'maxlength="120" placeholder="e.g. for college fees"'))}
+      ${twoCol(field('Amount', moneyInput('amount', presetAmount, 'required min="0.01"')), field('Date', input('date', preset.date || todayStr(), 'type="date" required')))}
+      ${field(dir === 'out' ? 'From my' : 'Into my', accountSelect('acc', preset.acc || firstAccountOf(['bank', 'cash']), { types: ['cash', 'bank', 'credit_card'] }))}
+      ${field('Note (optional)', input('description', preset.description || '', 'maxlength="120" placeholder="e.g. for college fees"'))}
       <p class="hint">${esc(p.name)}: ${personLine(bal).text.toLowerCase()} right now.</p>`,
     submitLabel: 'Save',
     onSubmit: (d) => {
@@ -3840,6 +3841,7 @@ function openPersonMoney(personId, dir, presetAmount = '') {
       const rec = { id: uid('txn'), date: d.date, type: 'transfer', amount, category: label,
         description: d.description || `${label} ${dir === 'out' ? 'to' : 'from'} ${p.name}`,
         fromAccountId: dir === 'out' ? d.acc : p.id, toAccountId: dir === 'out' ? p.id : d.acc, relatedType: 'person', relatedId: p.id, notes: '' };
+      preset.onSaved?.();
       commit([opUpsert('transactions', rec)], `${label} ${money(amount)} ${dir === 'out' ? 'to' : 'from'} ${p.name}`);
       if (shareSettle(rec, p.id, dir)) setTimeout(() => toast(`${p.name} will see this in their app too.`), 1500);
       const after = (M.balances.get(p.id) || 0);
@@ -8822,6 +8824,11 @@ const HELP_TOPICS = [
     summary: 'Record an expense, income, a transfer between your accounts, or a tax payment.',
     steps: ['Choose Expense, Income, Transfer or Tax at the top.', 'Type the amount, pick the date (Today and Yesterday buttons help), and choose a category; your most-used categories appear as buttons.', 'Choose the account the money came from (or went into).', 'Type a description; descriptions you used before are suggested and fill in their usual category.', 'Tap Add transaction.'],
     tips: ['Fuel and vehicle costs: pick the vehicle and type the odometer reading (and litres) to track mileage.', 'Tax: choose the tax type (advance tax, TDS, property tax…) and the financial year; it is matched against your tax estimate.', 'Paid for home: tick "I\'ll take it back" for household spending someone will repay; it shows on the People page.', 'To change or delete an entry, tap it in Activity.'] },
+  { id: 'voice', page: 'dashboard', group: 'Everyday', icon: 'fa-microphone', title: 'Speak and log',
+    where: 'Dashboard → Speak to add; press and hold the + button; or Speak instead in the add form',
+    summary: 'Say a transaction in your own words and KOSH fills in the form for you: amount, category, account, date, note, and for fuel the vehicle, odometer and litres. Nothing is saved until you check it.',
+    steps: ['Tap Speak to add on the dashboard (or press and hold the + button). The mic turns pink while it listens.', 'Speak naturally, in any order, for example "Spent 250 on lunch at Vaishali from cash yesterday". The words appear as you speak.', 'Check the card under What I understood. Parts marked guessed or not said were filled in for you; tap Did you mean to switch to another account.', 'Tap Add now to save it, or Review & add to open the usual form with everything filled in and change anything first.', 'Say several at once with "and": "200 on lunch and 50 on tea from cash". Tap Add all to save them together.', 'If a word was misheard, correct it in the What I heard box and tap Understand.'],
+    tips: ['Understood: amounts in words (two fifty, 1.5 lakh, 10k), today, yesterday, on 6th, last Friday, 2 days ago, kal, aaj, card ending 9950, income ("received salary in SBI"), transfers ("moved 10k from HDFC to SBI", "paid card bill"), lending ("gave 500 to Dad"), taxes ("paid advance tax"), and corrections ("50, no, 60").', 'If you call an account something KOSH does not know ("my red card"), pick the right one in Review once and it is remembered.', 'iPhone: allow the microphone for Safari, and turn on Dictation (Settings → General → Keyboard). Android: allow the microphone for Chrome.', 'Turn it off, or change the language, in Settings → Preferences → Speak and log.'] },
   { id: 'transactions', page: 'transactions', group: 'Everyday', icon: 'fa-list', title: 'Transactions (Activity)',
     where: 'Bottom bar → Activity',
     summary: 'Every transaction, grouped by day with each day\'s total, with search and filters.',
@@ -8970,6 +8977,815 @@ function openHelpFor(page) {
   setTimeout(() => { const el = document.getElementById(`help-${helpState.open}`); if (el) window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 80); }, 80);
 }
 
+/* ===== Speak and log =====
+   Say a transaction the way you would tell a friend, and KOSH fills in the form:
+     "Spent 25 rupees on food and dining on 6th from HDFC savings"
+     "Received salary 92,000 in SBI yesterday"
+     "Paid 2800 for petrol in the Swift, odometer 25,420, 26 litres"
+     "Gave 500 to Dad"  ·  "Moved 10k from HDFC to SBI"  ·  "200 on lunch and 50 on tea from cash"
+   Everything is editable before it is saved. Part 1 (VoiceParser) is a pure function: it only
+   reads a context object (accounts, categories, people, vehicles, past descriptions, today),
+   never the app's globals, so it can be tested on its own. Part 2 is the screen. */
+
+const VoiceParser = (() => {
+  // ---------- vocabulary ----------
+  const UNITS = { zero: 0, oh: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+  const TENS = { twenty: 20, thirty: 30, forty: 40, fourty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+  const SCALES = { thousand: 1e3, k: 1e3, grand: 1e3, lakh: 1e5, lakhs: 1e5, lac: 1e5, lacs: 1e5, lakh_: 1e5, crore: 1e7, crores: 1e7, cr: 1e7, million: 1e6 };
+  const ORD_WORDS = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10, eleventh: 11, twelfth: 12, thirteenth: 13, fourteenth: 14, fifteenth: 15, sixteenth: 16, seventeenth: 17, eighteenth: 18, nineteenth: 19, twentieth: 20, thirtieth: 30 };
+  const MONTHS = { january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4, may: 5, june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8, september: 9, sept: 9, sep: 9, october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12 };
+  const WEEKDAYS = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+  const CURRENCY = new Set(['rs', 'rupees', 'rupee', 'rupaye', 'rupay', 'rupaiye', 'rupiya', 'rupiye', 'inr', 'bucks', 'rupees.']);
+  const AMOUNT_LEAD = new Set(['spent', 'spend', 'paid', 'pay', 'bought', 'cost', 'costs', 'costing', 'for', 'of', 'worth', 'received', 'receive', 'got', 'earned', 'transferred', 'transfer', 'moved', 'move', 'sent', 'send', 'gave', 'give', 'lent', 'lend', 'borrowed', 'borrow', 'credited', 'debited', 'withdrew', 'withdraw', 'deposited', 'deposit', 'is', 'was', 'total', 'bill', 'amount', 'invested', 'kharcha', 'kharch', 'diya', 'liya', 'mila', 'returned', 'repaid']);
+  const CORRECTION = new Set(['no', 'sorry', 'actually', 'correction', 'mean', 'rather', 'nahi', 'nahin']);
+  const FILLER = new Set(['please', 'add', 'log', 'record', 'note', 'um', 'umm', 'uh', 'uhh', 'hmm', 'okay', 'ok', 'hey', 'kosh', 'just', 'so', 'like', 'i', "i've", 'ive', 'have', 'has', 'had', 'was', 'were', 'is', 'are', 'my', 'me', 'the', 'a', 'an', 'it', 'that', 'this', 'which', 'and', 'also', 'then', 'plus', 'today', 'yesterday', 'ji', 'maine', 'mera', 'meri', 'ne', 'ka', 'ki', 'ke', 'hai', 'tha', 'thi', 'liya', 'diya', 'kiya', 'kar', 'karo', 'expense', 'transaction', 'entry', 'amount', 'of', 'rupees', 'rs', 'inr', 'rupee', 'rupaye', 'rupay', 'bucks', 'only', 'ending', 'number', 'can', 'could', 'would', 'will', 'you', 'u', 'kindly', 'need', 'want', 'quickly', 'record', 'that', 'us', 'go', 'ahead', 'put', 'down', 'enter']);
+  const EDGE_WORDS = new Set(['on', 'for', 'at', 'from', 'to', 'in', 'of', 'via', 'using', 'with', 'by', 'through', 'into', 'and', 'my', 'the', 'a', 'an', 'se', 'mein', 'me', 'pe', 'par', 'ke', 'liye', 'ka', 'ki', ',', '.']);
+  const FROM_PREP = new Set(['from', 'using', 'via', 'with', 'by', 'through', 'frm', 'off', 'se']);
+  const TO_PREP = new Set(['to', 'into', 'in', 'towards', 'mein', 'me']);
+  const EXPENSE_VERBS = ['spent', 'spend', 'spending', 'paid', 'pay', 'paying', 'bought', 'buy', 'buying', 'purchased', 'purchase', 'ordered', 'order', 'kharcha', 'kharch', 'kharche', 'debited', 'cost', 'costs'];
+  const INCOME_VERBS = ['received', 'receive', 'got', 'get', 'earned', 'earn', 'credited', 'income', 'mila', 'mile', 'aaya', 'aya', 'came'];
+  const TRANSFER_VERBS = ['transferred', 'transfer', 'moved', 'move', 'shifted', 'shift', 'withdrew', 'withdraw', 'withdrawal', 'withdrawn', 'deposited', 'deposit', 'invested', 'invest', 'topped', 'top', 'topup'];
+  const LEND_OUT = ['lent', 'lend', 'loaned', 'loan', 'gave', 'give', 'given', 'sent', 'send', 'repaid', 'returned', 'diya', 'diye', 'udhaar'];
+  const LEND_IN = ['borrowed', 'borrow', 'took', 'taken', 'got', 'received', 'returned', 'repaid', 'liya', 'liye', 'mila', 'mile'];
+  const TAX_KINDS = [[['advance', 'tax'], 'Advance tax'], [['self', 'assessment'], 'Self-assessment tax'], [['tds'], 'TDS'], [['property', 'tax'], 'Property tax'], [['house', 'tax'], 'Property tax'], [['professional', 'tax'], 'Professional tax'], [['road', 'tax'], 'Road tax'], [['gst'], 'GST'], [['income', 'tax'], 'Advance tax']];
+  // Keywords → default category names (resolved to the person's own categories when they exist)
+  const EXPENSE_KEYWORDS = {
+    'Food & dining': ['samosa', 'vada', 'pav', 'pani', 'puri', 'momos', 'maggi', 'thali', 'paratha', 'idli', 'sandwich', 'cake', 'bakery', 'food', 'lunch', 'dinner', 'breakfast', 'brunch', 'snack', 'snacks', 'meal', 'meals', 'restaurant', 'cafe', 'coffee', 'tea', 'chai', 'swiggy', 'zomato', 'pizza', 'burger', 'biryani', 'dosa', 'eating', 'eat', 'ate', 'khana', 'nashta', 'starbucks', 'dominos', 'mcdonalds', 'kfc', 'canteen', 'juice', 'icecream', 'sweets', 'party'],
+    Groceries: ['apples', 'apple', 'bananas', 'banana', 'mango', 'mangoes', 'onions', 'tomatoes', 'potatoes', 'oil', 'sugar', 'grocery', 'groceries', 'vegetables', 'veggies', 'sabzi', 'sabji', 'fruits', 'fruit', 'milk', 'bread', 'eggs', 'bigbasket', 'blinkit', 'zepto', 'instamart', 'dmart', 'kirana', 'ration', 'atta', 'rice', 'dal', 'doodh'],
+    Transport: ['metro card', 'bus pass', 'auto ride', 'uber', 'ola', 'rapido', 'auto', 'rickshaw', 'cab', 'taxi', 'metro', 'bus', 'train', 'local', 'parking', 'toll', 'fastag', 'commute'],
+    Fuel: ['fuel', 'petrol', 'diesel', 'cng', 'gas station', 'pump', 'refuel', 'refill', 'charging'],
+    Utilities: ['electricity', 'light bill', 'power', 'water', 'wifi', 'wi-fi', 'internet', 'broadband', 'recharge', 'mobile', 'phone bill', 'postpaid', 'prepaid', 'dth', 'cylinder', 'lpg', 'jio', 'airtel', 'bsnl', 'vi'],
+    Rent: ['rent', 'kiraya', 'pg', 'hostel', 'maintenance', 'society'],
+    Shopping: ['shopping', 'amazon', 'flipkart', 'myntra', 'ajio', 'meesho', 'clothes', 'shirt', 'tshirt', 't-shirt', 'jeans', 'shoes', 'sneakers', 'dress', 'kurta', 'saree', 'watch', 'bag', 'gadget', 'headphones', 'mall', 'nykaa'],
+    Health: ['medicine', 'medicines', 'doctor', 'hospital', 'clinic', 'pharmacy', 'chemist', 'medical', 'tablets', 'dentist', 'checkup', 'test', 'lab', 'gym', 'dawai', 'davai'],
+    Education: ['fees', 'fee', 'tuition', 'course', 'books', 'book', 'school', 'college', 'exam', 'udemy', 'coaching', 'stationery'],
+    Entertainment: ['movie', 'movies', 'cinema', 'pvr', 'inox', 'concert', 'game', 'games', 'bookmyshow', 'show', 'outing'],
+    Travel: ['flight', 'flights', 'hotel', 'trip', 'travel', 'holiday', 'vacation', 'airbnb', 'makemytrip', 'irctc', 'booking', 'resort'],
+    Subscriptions: ['netflix', 'spotify', 'prime', 'hotstar', 'youtube', 'subscription', 'icloud', 'chatgpt', 'membership'],
+    'Personal care': ['haircut', 'salon', 'parlour', 'parlor', 'spa', 'grooming', 'cosmetics', 'barber'],
+    'Gifts & donations': ['gift', 'gifts', 'donation', 'donate', 'charity', 'temple', 'mandir', 'church', 'shagun'],
+    Insurance: ['insurance', 'premium', 'policy'],
+    EMI: ['emi'],
+    Family: ['family', 'kids', 'mom', 'dad', 'parents'],
+    'Fees & charges': ['charges', 'penalty', 'late fee', 'bank charges', 'annual fee'],
+  };
+  const INCOME_KEYWORDS = {
+    Salary: ['salary', 'pay', 'paycheck', 'stipend', 'bonus', 'tankhwah', 'tankha'],
+    Freelance: ['freelance', 'freelancing', 'client', 'project', 'gig', 'consulting'],
+    Business: ['business', 'sales', 'shop', 'customer'],
+    Interest: ['interest', 'fd interest'],
+    Dividends: ['dividend', 'dividends'],
+    Refund: ['refund', 'refunded', 'reversal', 'reversed'],
+    Cashback: ['cashback', 'cash back', 'reward', 'rewards'],
+    Gift: ['gift', 'shagun'],
+    'Rental income': ['rental', 'tenant'],
+  };
+  const TYPE_WORDS = { cash: ['cash', 'wallet', 'hand', 'nakad'], credit_card: ['card', 'credit', 'cc'], bank: ['bank', 'account', 'savings', 'saving', 'salary', 'current', 'debit', 'upi', 'ac'], investment: ['fund', 'sip', 'mutual', 'stock', 'stocks', 'fd', 'deposit', 'gold', 'ppf', 'nps'] };
+  const BANK_ALIASES = [['hdfc'], ['sbi', 'state bank'], ['icici'], ['axis'], ['kotak'], ['bob', 'bank of baroda', 'baroda'], ['pnb', 'punjab national'], ['idfc'], ['yes bank', 'yes'], ['indusind'], ['federal'], ['canara'], ['union bank', 'union'], ['au'], ['rbl'], ['paytm'], ['amazon pay'], ['phonepe', 'phone pe'], ['gpay', 'google pay'], ['onecard', 'one card'], ['slice'], ['jupiter'], ['fi'], ['idbi'], ['iob', 'indian overseas'], ['boi', 'bank of india'], ['citi', 'citibank'], ['hsbc'], ['standard chartered', 'sc'], ['sbm']];
+  const STOP_ACC = new Set(['account', 'a/c', 'ac', 'bank', 'card', 'ltd', 'limited', 'the', 'of', 'my', 'and', '&', '-']);
+
+  // ---------- helpers ----------
+  const pad = (n) => String(n).padStart(2, '0');
+  const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  const parseYmd = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); };
+  const addDaysS = (s, n) => { const d = parseYmd(s); d.setUTCDate(d.getUTCDate() + n); return ymd(d); };
+  const daysIn = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const words = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9&\s]/g, ' ').split(/\s+/).filter(Boolean);
+  const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+  /** Lowercase, unify currency, digits and punctuation; keep a raw copy of each word for nice descriptions. */
+  function normalize(text) {
+    let s = ` ${String(text || '')} `;
+    s = s.replace(/[\u2018\u2019]/g, "'").replace(/'s\b/gi, '').replace(/[\u201c\u201d"]/g, ' ').replace(/\u20b9\s*/g, ' rs ');
+    s = s.replace(/(\d{1,2})\s*[/-]\s*(\d{1,2})(?:\s*[/-]\s*(\d{2,4}))?(?!\d)/g, (m, d, mo, y) => ` __date_${d}_${mo}_${y || ''}__ `); // 6/10 or 06-10-2026
+    s = s.replace(/(\d),(?=\d)/g, '$1');                     // 1,25,000 → 125000
+    s = s.replace(/(\d)\s*\/-/g, '$1');                      // 500/-
+    s = s.replace(/\b(rs|inr)\.?(?=\s*\d)/gi, ' rs ');
+    s = s.replace(/(\d)(rs|rupees?|k|km|kms|kg|l|ltr|ltrs|litres?|liters?|lakhs?|lacs?|cr)\b/gi, '$1 $2');
+    s = s.replace(/\b(rs)(\d)/gi, '$1 $2');
+    s = s.replace(/(\d+)\s*(st|nd|rd|th)\b/gi, '$1th');
+    s = s.replace(/(\d)\.(?!\d)/g, '$1 ');                   // sentence dot after a number
+    s = s.replace(/[!?;:()]+/g, ' . ').replace(/,/g, ' , ').replace(/(?<=[a-z])\.(?=\s)/gi, ' . ');
+    s = s.replace(/(?<=[a-z])-(?=[a-z])/gi, ' ');           // twenty-five, wi-fi
+    const raw = s.split(/\s+/).filter(Boolean);
+    return raw.map((r, i) => ({ i, raw: r.replace(/^\.$/, '.'), w: r.toLowerCase(), used: false }));
+  }
+
+  /** Turn number words and digit+scale pairs into single number tokens; ordinals into ordinal tokens. */
+  function numberize(toks) {
+    const out = [];
+    for (let i = 0; i < toks.length; i++) {
+      const t = toks[i];
+      const w = t.w;
+      const dateTok = w.match(/^__date_(\d+)_(\d+)_(\d*)__$/);
+      if (dateTok) { out.push({ ...t, numDate: { d: +dateTok[1], m: +dateTok[2], y: dateTok[3] ? +dateTok[3] : null } }); continue; }
+      const ordDigit = w.match(/^(\d{1,2})th$/);
+      if (ordDigit) { out.push({ ...t, ord: +ordDigit[1] }); continue; }
+      if (ORD_WORDS[w] !== undefined && !(w === 'second' && toks[i + 1] && /^(hand|half)$/.test(toks[i + 1].w))) { out.push({ ...t, ord: ORD_WORDS[w] }); continue; }
+      // twenty first / thirty first
+      if (TENS[w] !== undefined && toks[i + 1] && ORD_WORDS[toks[i + 1].w] !== undefined && ORD_WORDS[toks[i + 1].w] < 10) { out.push({ ...t, raw: `${t.raw} ${toks[i + 1].raw}`, ord: TENS[w] + ORD_WORDS[toks[i + 1].w] }); i++; continue; }
+      const isNumWord = (x) => x && (UNITS[x.w] !== undefined || TENS[x.w] !== undefined || x.w === 'hundred' || SCALES[x.w] !== undefined || /^\d+(\.\d+)?$/.test(x.w));
+      const startsNum = /^\d+(\.\d+)?$/.test(w) || UNITS[w] !== undefined || TENS[w] !== undefined || (w === 'a' && toks[i + 1] && (toks[i + 1].w === 'hundred' || SCALES[toks[i + 1].w] !== undefined && toks[i + 1].w !== 'k'));
+      if (!startsNum || (w === 'oh' && !isNumWord(toks[i + 1]))) { out.push(t); continue; }
+      // collect a run
+      let j = i, total = 0, current = 0, any = false, raws = [], sawDigitRun = false;
+      while (j < toks.length) {
+        const x = toks[j], xw = x.w;
+        if (xw === 'a' && j === i) { current = 1; any = true; raws.push(x.raw); j++; continue; }
+        if (xw === 'and' && any && toks[j + 1] && (UNITS[toks[j + 1].w] !== undefined || TENS[toks[j + 1].w] !== undefined)) { raws.push(x.raw); j++; continue; }
+        if (/^\d+(\.\d+)?$/.test(xw)) {
+          if (sawDigitRun && !(SCALES[toks[j - 1]?.w] || toks[j - 1]?.w === 'hundred')) break; // two separate numbers
+          current += parseFloat(xw); any = true; sawDigitRun = true; raws.push(x.raw); j++; continue;
+        }
+        if (UNITS[xw] !== undefined) { if (sawDigitRun && current % 1 === 0 && current >= 10 && current % 10 !== 0) break; current += UNITS[xw]; any = true; raws.push(x.raw); j++; continue; }
+        if (TENS[xw] !== undefined) {
+          if (current % 100 !== 0 && current > 0 && current % 100 >= 10) break;
+          // spoken prices: "two fifty" = 250, "five twenty" = 520 (a single digit word, then tens)
+          if (current > 0 && current < 10 && UNITS[toks[j - 1]?.w] !== undefined && total === 0) { current = current * 100 + TENS[xw]; any = true; raws.push(x.raw); j++; continue; }
+          current += TENS[xw]; any = true; raws.push(x.raw); j++; continue;
+        }
+        if (xw === 'hundred') { current = (current || 1) * 100; any = true; raws.push(x.raw); j++; continue; }
+        if (SCALES[xw] !== undefined && any) { total += (current || 1) * SCALES[xw]; current = 0; raws.push(x.raw); j++; continue; }
+        break;
+      }
+      if (!any || j === i) { out.push(t); continue; }
+      out.push({ ...t, raw: raws.join(' '), num: Math.round((total + current) * 100) / 100 });
+      i = j - 1;
+    }
+    return out.map((t, k) => ({ ...t, i: k }));
+  }
+
+  // ---------- dates ----------
+  function resolveDay(day, month, year, today) {
+    const T = parseYmd(today);
+    let y = year || T.getUTCFullYear(), m = month || T.getUTCMonth() + 1;
+    if (year && year < 100) y = 2000 + year;
+    if (day < 1 || day > 31 || m < 1 || m > 12) return null;
+    let d = Math.min(day, daysIn(y, m));
+    let s = `${y}-${pad(m)}-${pad(d)}`;
+    if (s > today && !year) {
+      if (!month) { m -= 1; if (m < 1) { m = 12; y -= 1; } }  // "on 26th" when today is the 6th → last month
+      else y -= 1;                                          // "26 December" in October → last year
+      d = Math.min(day, daysIn(y, m)); s = `${y}-${pad(m)}-${pad(d)}`;
+    }
+    return s;
+  }
+  function findDate(toks, today) {
+    const W = (k) => toks[k]?.w;
+    const use = (...ks) => ks.forEach((k) => { if (toks[k]) toks[k].used = true; });
+    for (let k = 0; k < toks.length; k++) {
+      const t = toks[k];
+      if (t.used) continue;
+      if (t.numDate) { const s = resolveDay(t.numDate.d, t.numDate.m, t.numDate.y, today); if (s) { use(k); return { date: s, how: 'heard' }; } }
+      // relative words
+      if (t.w === 'day' && W(k + 1) === 'before' && (W(k + 2) === 'yesterday' || W(k + 2) === 'kal')) { use(k, k + 1, k + 2); return { date: addDaysS(today, -2), how: 'heard' }; }
+      if (t.w === 'parso' || t.w === 'parson') { use(k); return { date: addDaysS(today, -2), how: 'heard' }; }
+      if (t.w === 'yesterday' || t.w === 'kal' || (t.w === 'last' && W(k + 1) === 'night')) { use(k); if (t.w === 'last') use(k + 1); return { date: addDaysS(today, -1), how: 'heard' }; }
+      if (t.w === 'today' || t.w === 'aaj' || t.w === 'tonight' || (t.w === 'this' && /^(morning|evening|afternoon)$/.test(W(k + 1) || ''))) { use(k); if (t.w === 'this') use(k + 1); return { date: today, how: 'heard' }; }
+      if ((t.num !== undefined || t.w === 'a') && /^days?$/.test(W(k + 1) || '') && W(k + 2) === 'ago') { use(k, k + 1, k + 2); return { date: addDaysS(today, -(t.num ?? 1)), how: 'heard' }; }
+      if ((t.num !== undefined || t.w === 'a') && /^weeks?$/.test(W(k + 1) || '') && W(k + 2) === 'ago') { use(k, k + 1, k + 2); return { date: addDaysS(today, -7 * (t.num ?? 1)), how: 'heard' }; }
+      if (t.w === 'last' && W(k + 1) === 'week') { use(k, k + 1); return { date: addDaysS(today, -7), how: 'heard' }; }
+      // weekdays: "on Monday", "last Monday", "Monday"
+      if (WEEKDAYS[t.w] !== undefined) {
+        const T = parseYmd(today), diff = (T.getUTCDay() - WEEKDAYS[t.w] + 7) % 7;
+        const last = W(k - 1) === 'last';
+        const back = last ? (diff === 0 ? 7 : diff) : diff;
+        use(k); if (last || W(k - 1) === 'on' || W(k - 1) === 'this') use(k - 1);
+        return { date: addDaysS(today, -back), how: 'heard' };
+      }
+      // "6th October 2026", "6 october", "6th of october", "the 6th"
+      const dayAt = (x) => (toks[x]?.ord !== undefined ? toks[x].ord : (toks[x]?.num !== undefined && Number.isInteger(toks[x].num) && toks[x].num >= 1 && toks[x].num <= 31 ? toks[x].num : null));
+      const monthAt = (x) => { const w = W(x); if (!w || MONTHS[w] === undefined) return null; if (w === 'may' || w === 'march' || w === 'mar') return MONTHS[w]; return MONTHS[w]; };
+      const yearAt = (x) => (toks[x]?.num !== undefined && toks[x].num >= 1990 && toks[x].num <= 2100 ? toks[x].num : null);
+      const dk = dayAt(k);
+      if (dk !== null) {
+        let m2 = k + 1; if (W(m2) === 'of') m2++;
+        const mo = monthAt(m2);
+        if (mo) { const yr = yearAt(m2 + 1); const s = resolveDay(dk, mo, yr, today); if (s) { use(k, m2, ...(W(k + 1) === 'of' ? [k + 1] : []), ...(yr ? [m2 + 1] : [])); return { date: s, how: 'heard' }; } }
+        if (t.ord !== undefined) { const s = resolveDay(t.ord, null, null, today); if (s) { use(k); if (W(k - 1) === 'the') use(k - 1); return { date: s, how: 'heard' }; } }
+        if (t.num !== undefined && (W(k - 1) === 'on' || W(k - 1) === 'dated') && W(k - 2) !== 'spent' && !CURRENCY.has(W(k + 1) || '')) {
+          // "on 6" only when another number is clearly the amount
+          const others = toks.filter((x, z) => z !== k && x.num !== undefined && !x.used);
+          if (others.length) { const s = resolveDay(t.num, null, null, today); if (s) { use(k); return { date: s, how: 'heard' }; } }
+        }
+      }
+      const mk = monthAt(k);
+      if (mk && (W(k) !== 'may' || dayAt(k + 1) !== null)) {
+        const d2 = dayAt(k + 1);
+        if (d2 !== null) { const yr = yearAt(k + 2); const s = resolveDay(d2, mk, yr, today); if (s) { use(k, k + 1, ...(yr ? [k + 2] : [])); return { date: s, how: 'heard' }; } }
+      }
+    }
+    return { date: today, how: 'default' };
+  }
+
+  // ---------- accounts, people, vehicles ----------
+  function accountAliases(a) {
+    const name = words(a.name).filter((w) => !STOP_ACC.has(w));
+    const inst = words(a.institution).filter((w) => !STOP_ACC.has(w));
+    const banks = BANK_ALIASES.filter((alts) => alts.some((x) => ` ${String(a.name).toLowerCase()} ${String(a.institution || '').toLowerCase()} `.includes(` ${x} `) || words(a.name).includes(x) || words(a.institution).includes(x))).flat();
+    const strong = new Set([...name, ...inst, ...banks.flatMap(words)].filter((w) => w.length > 1 && !EDGE_WORDS.has(w) && !FILLER.has(w) && !(TYPE_WORDS[a.type] || []).includes(w)));
+    const type = new Set([...(TYPE_WORDS[a.type] || []), ...words(a.subtype)]);
+    return { strong, type, last4: a.last4 ? String(a.last4) : '' };
+  }
+  /** Every account mention in the tokens, with its score, span and the role words around it. */
+  function findAccounts(toks, accounts) {
+    const res = [];
+    for (const a of accounts) {
+      const al = accountAliases(a);
+      let score = 0, pos = [], strongHits = 0;
+      toks.forEach((t, k) => {
+        if (t.usedBy && t.usedBy !== 'acct') return;
+        if (al.strong.has(t.w)) { score += 3; strongHits++; pos.push(k); }
+        else if (al.type.has(t.w)) { score += 1; pos.push(k); }
+        else if (al.last4 && t.num !== undefined && String(t.num) === al.last4 && (toks[k - 1]?.w === 'ending' || toks[k - 2]?.w === 'ending' || /^(card|account|ac|xx)$/.test(toks[k - 1]?.w || '') || toks[k - 1]?.w === 'with' || toks[k - 1]?.w === 'in')) { score += 6; strongHits++; pos.push(k); }
+      });
+      // "cash" alone is enough for a cash account; type words alone are weak elsewhere
+      if (!strongHits && !(a.type === 'cash' && pos.length)) score = pos.length && a.type !== 'cash' ? Math.min(score, 1) : score;
+      if (!pos.length) continue;
+      // keep the tightest cluster of positions (a mention is a few words together)
+      pos.sort((x, y) => x - y);
+      const groups = []; let g = [pos[0]];
+      for (let z = 1; z < pos.length; z++) { if (pos[z] - pos[z - 1] <= 2) g.push(pos[z]); else { groups.push(g); g = [pos[z]]; } }
+      groups.push(g);
+      const best = groups.map((gg) => ({ gg, s: gg.reduce((s, k) => s + (al.strong.has(toks[k].w) ? 3 : toks[k].num !== undefined ? 6 : 1), 0) })).sort((x, y) => y.s - x.s)[0];
+      res.push({ a, score: strongHits ? best.s : score, strong: strongHits > 0, span: [best.gg[0], best.gg[best.gg.length - 1]], pos: best.gg });
+    }
+    return res.sort((x, y) => y.score - x.score);
+  }
+  function roleBefore(toks, start, end) {
+    for (let k = start - 1; k >= Math.max(0, start - 3); k--) {
+      const w = toks[k].w;
+      if (FROM_PREP.has(w)) return 'from';
+      if (TO_PREP.has(w)) return 'to';
+      if (w === 'on' && k === start - 1) return 'on';
+      if (toks[k].num !== undefined || toks[k].used) break;
+    }
+    const after = toks[end + 1]?.w;
+    if (after === 'se') return 'from';
+    if (after === 'mein' || after === 'me' || after === 'main') return 'to';
+    return '';
+  }
+  function findNamed(toks, list, key = 'name') {
+    let best = null;
+    for (const p of list) {
+      const ws = words(p[key]).filter((w) => w.length > 1);
+      const extra = key === 'name' && p.regNo ? [String(p.regNo).toLowerCase()] : [];
+      const hits = toks.map((t, k) => (!t.used && (ws.includes(t.w) || extra.includes(t.w)) ? k : -1)).filter((k) => k >= 0);
+      if (!hits.length) continue;
+      const score = hits.length / Math.max(1, ws.length) + (hits.length >= 1 && ws[0] === toks[hits[0]].w ? 0.5 : 0);
+      if (!best || score > best.score) best = { item: p, score, span: [hits[0], hits[hits.length - 1]], pos: hits };
+    }
+    return best;
+  }
+
+  // ---------- categories ----------
+  function matchCategory(toks, type, ctx) {
+    const list = type === 'income' ? ctx.incomeCategories : ctx.expenseCategories;
+    const text = ` ${toks.filter((t) => !t.used).map((t) => t.w).join(' ')} `;
+    // 1. a category named outright ("on food and dining", "groceries")
+    let best = null;
+    for (const c of list) {
+      const cw = words(c).filter((w) => w !== 'and' && w !== '&');
+      if (!cw.length) continue;
+      const all = cw.every((w) => text.includes(` ${w} `) || text.includes(` ${w}s `) || (w.endsWith('s') && text.includes(` ${w.slice(0, -1)} `)));
+      const first = text.includes(` ${cw[0]} `) && cw[0].length > 3;
+      const score = all ? 10 + cw.length : first ? 6 : 0;
+      if (score && (!best || score > best.score)) best = { category: c, score, how: 'heard', words: cw };
+    }
+    // 2. what this person usually files these words under (their past descriptions)
+    let mem = null;
+    for (const e of ctx.descIndex || []) {
+      if (e.type !== type || !e.category || e.key.length < 3) continue;
+      const k = ` ${e.key} `;
+      if (text.includes(k) && (!mem || e.key.length > mem.len)) mem = { category: e.category, len: e.key.length, how: 'inferred', words: words(e.key) };
+    }
+    // 3. everyday keywords
+    let kw = null;
+    const KW = type === 'income' ? INCOME_KEYWORDS : EXPENSE_KEYWORDS;
+    for (const [cat, keys] of Object.entries(KW)) {
+      for (const key of keys) { if (text.includes(` ${key} `) && (!kw || key.length > kw.len)) kw = { category: resolveCat(cat, list), len: key.length, how: 'inferred', words: words(key) }; }
+    }
+    if (best && best.score >= 10) return best;
+    if (mem) return mem;
+    if (kw) return kw;
+    if (best) return best;
+    return { category: type === 'income' ? resolveCat('Other', list) : resolveCat('Other', list), how: 'default', words: [] };
+  }
+  function resolveCat(name, list) {
+    const exact = list.find((c) => c.toLowerCase() === name.toLowerCase());
+    if (exact) return exact;
+    const loose = list.find((c) => words(c)[0] === words(name)[0]);
+    return loose || name;
+  }
+
+  // ---------- one item ----------
+  function parseOne(seg, ctx, opts = {}) {
+    const toks = seg;
+    const has = (list) => toks.some((t) => !t.used && list.includes(t.w));
+    const hasPhrase = (arr) => { for (let k = 0; k + arr.length <= toks.length; k++) if (arr.every((w, z) => toks[k + z].w === w)) return k; return -1; };
+    const draft = { conf: {}, notes: [] };
+    // tax first ("income tax" contains "income")
+    for (const [ph, kind] of TAX_KINDS) { const k = hasPhrase(ph); if (k >= 0) { draft.taxKind = kind; for (let z = 0; z < ph.length; z++) toks[k + z].used = true; break; } }
+    // date, odometer, litres, time-of-day
+    const dt = findDate(toks, ctx.today);
+    draft.date = dt.date; draft.conf.date = dt.how;
+    for (let k = 0; k < toks.length; k++) {
+      const t = toks[k], prev = toks[k - 1]?.w, prev2 = toks[k - 2]?.w, next = toks[k + 1]?.w;
+      if (t.used || t.num === undefined) continue;
+      if ((/^(odometer|odo|meter|reading|km|kms)$/.test(prev || '') || /^(odometer|odo)$/.test(prev2 || '') || /^(km|kms|kilometers|kilometres)$/.test(next || '') && t.num >= 100) && t.num >= 10) {
+        draft.odometer = t.num; t.used = true; if (/^(km|kms|kilometers|kilometres)$/.test(next || '')) toks[k + 1].used = true;
+        for (let z = Math.max(0, k - 3); z < k; z++) if (/^(odometer|odo|meter|reading|is|at|of|showing|shows)$/.test(toks[z].w)) toks[z].used = true;
+        continue;
+      }
+      if (/^(l|ltr|ltrs|litre|litres|liter|liters)$/.test(next || '')) { draft.fuelQty = t.num; t.used = true; toks[k + 1].used = true; continue; }
+      if (/^(am|pm|baje|o'clock|oclock)$/.test(next || '')) { t.used = true; toks[k + 1].used = true; continue; }
+      if (prev === 'at' && /^(am|pm)$/.test(toks[k + 2]?.w || '')) { t.used = true; continue; }
+    }
+    for (const ph of [['full', 'tank'], ['tank', 'full']]) { const k = hasPhrase(ph); if (k >= 0) { draft.fullTank = true; toks[k].used = toks[k + 1].used = true; if (toks[k - 1]?.w === 'a') toks[k - 1].used = true; } }
+    // amount
+    const lastFour = (t) => /^\d{4}$/.test(String(t.num)) && (toks[t.i - 1]?.w === 'ending' || toks[t.i - 2]?.w === 'ending' || /^(xx|xxxx)$/.test(toks[t.i - 1]?.w || ''));
+    const cands = toks.filter((t) => t.num !== undefined && !t.used && !lastFour(t));
+    let pick = null;
+    for (const t of cands) {
+      const k = t.i, prev = toks[k - 1]?.w || '', next = toks[k + 1]?.w || '';
+      let s = 0;
+      if (CURRENCY.has(next) || CURRENCY.has(prev)) s += 6;
+      if (AMOUNT_LEAD.has(prev) || AMOUNT_LEAD.has(toks[k - 2]?.w || '') && CURRENCY.has(prev)) s += 3;
+      for (let z = Math.max(0, k - 3); z < k; z++) if (CORRECTION.has(toks[z].w)) s += 10 + z / 100;
+      if (t.num >= 10) s += 0.5;
+      if (/^(kg|kgs|pieces|piece|pcs|items|item|people|persons|plates|cups|times|tickets|ticket|coffees|nos|dozen|packets|units|shares|grams|gram|g)$/.test(next)) s -= 4;
+      if (toks.some((x) => x.ord !== undefined) && t.num <= 31 && !CURRENCY.has(next)) s -= 0.2;
+      s += k / 1000; // later wins ties (people correct themselves)
+      if (!pick || s > pick.s) pick = { t, s };
+    }
+    if (pick) { draft.amount = pick.t.num; pick.t.used = true; draft.amountStrength = pick.s; draft.conf.amount = pick.s >= 3 || cands.length === 1 ? 'heard' : 'inferred'; } // the only number said is the amount
+    else { draft.amount = null; draft.conf.amount = 'missing'; }
+    // a number said again later as a correction ("50 no 60") leaves the first one unused; ignore it quietly
+    for (const t of toks) if (t.num !== undefined && !t.used && t !== pick?.t && toks.slice(t.i + 1, t.i + 4).some((x) => CORRECTION.has(x.w))) t.used = true;
+    for (const t of toks) if (CURRENCY.has(t.w) || CORRECTION.has(t.w) && toks.slice(t.i + 1, t.i + 3).some((x) => x === pick?.t)) t.used = true;
+
+    // people, vehicles, accounts
+    const vehicle = findNamed(toks, ctx.vehicles || []);
+    if (vehicle) { draft.vehicleId = vehicle.item.id; draft.conf.vehicle = 'heard'; vehicle.pos.forEach((p) => { toks[p].used = true; toks[p].usedBy = 'veh'; }); }
+    const person = findNamed(toks, ctx.people || []);
+    // learned phrases first ("the blue card" → HDFC Millennia)
+    let learned = null;
+    const joined = ` ${toks.filter((t) => !t.used).map((t) => t.w).join(' ')} `;
+    for (const [phrase, id] of Object.entries(ctx.aliases || {})) { if (joined.includes(` ${phrase} `) && ctx.accounts.some((a) => a.id === id) && (!learned || phrase.length > learned.phrase.length)) learned = { phrase, id }; }
+    const mentions = findAccounts(toks.map((t) => (t.used ? { ...t, usedBy: t.usedBy || 'other' } : t)), ctx.accounts.filter((a) => !a.archived && a.type !== 'person'))
+      .filter((m) => m.score >= 2 || (m.a.type === 'cash' && m.score >= 1));
+    if (learned) { const a = ctx.accounts.find((x) => x.id === learned.id); mentions.unshift({ a, score: 99, strong: true, span: [0, 0], pos: [], learned: learned.phrase }); }
+
+    // ---- what kind of transaction ----
+    const verbOut = has(LEND_OUT), verbIn = has(LEND_IN);
+    // "paid 12000 to HDFC card from SBI": money between two of your own accounts
+    const twoOwn = (() => {
+      const ms = [];
+      for (const m of mentions.filter((x) => x.strong || x.a.type === 'cash')) if (!ms.some((o) => o.pos.some((p) => m.pos.includes(p)))) ms.push(m); // strongest of overlapping matches
+      if (ms.length < 2) return false;
+      const r = ms.map((m) => roleBefore(toks, m.span[0], m.span[1]));
+      return r.includes('from') && r.includes('to'); // "on Amazon" is usually the shop, not your Amazon card
+    })();
+    const personRole = person ? roleBefore(toks, person.span[0], person.span[1]) : '';
+    const transferWord = has(TRANSFER_VERBS) || hasPhrase(['card', 'bill']) >= 0 || hasPhrase(['credit', 'card', 'payment']) >= 0 || hasPhrase(['top', 'up']) >= 0 || hasPhrase(['added', 'money']) >= 0;
+    const incomeWord = has(INCOME_VERBS) || (has(['salary', 'refund', 'cashback', 'dividend', 'interest', 'bonus', 'stipend']) && !has(['paid', 'pay', 'gave', 'spent']));
+    const expenseWord = has(EXPENSE_VERBS);
+    let type;
+    if (draft.taxKind) type = 'tax';
+    else if (person && (verbOut || verbIn || personRole === 'to' || personRole === 'from' || /^(paid|pay|returned|repaid|gave)$/.test(toks[person.span[0] - 1]?.w || '') || /^(paid|returned|repaid|gave)$/.test(toks[person.span[1] + 1]?.w || ''))) type = 'person';
+    else if (transferWord) type = 'transfer';
+    else if (twoOwn) type = 'transfer';
+    else if (incomeWord && !(expenseWord && has(['paid', 'spent', 'bought']))) type = 'income';
+    else type = 'expense';
+    if (opts.inheritType && !draft.taxKind && type === 'expense' && !expenseWord && !incomeWord) type = opts.inheritType;
+    draft.typeHow = (draft.taxKind || person && type === 'person' || transferWord || incomeWord || expenseWord) ? 'heard' : (opts.inheritType ? 'inferred' : 'default');
+
+    // ---- accounts by role ----
+    const own = mentions.filter((m) => m.a.type !== 'person');
+    const roled = own.map((m) => ({ ...m, role: m.learned ? '' : roleBefore(toks, m.span[0], m.span[1]) }));
+    // remove overlapping weaker mentions (same words matched two accounts)
+    const chosen = [];
+    for (const m of roled) {
+      const clash = chosen.find((c) => m.pos.some((p) => c.pos.includes(p)) || (!m.pos.length && !c.pos.length));
+      if (!clash) chosen.push(m);
+      else if (Math.abs(clash.score - m.score) < 0.5 && !m.learned) (clash.alts = clash.alts || []).push(m.a.id);
+    }
+    const ambiguous = (m) => { const near = roled.filter((x) => x !== m && x.pos.some((p) => m.pos.includes(p)) && Math.abs(x.score - m.score) < 0.5); return near.map((x) => x.a.id); };
+    const pickTie = (m) => {
+      const alts = ambiguous(m);
+      if (!alts.length) return m;
+      const all = [m.a.id, ...alts];
+      const recent = (ctx.recentAccountIds || []).find((id) => all.includes(id));
+      const winner = recent ? roled.find((x) => x.a.id === recent) : m;
+      return { ...winner, alts: all.filter((id) => id !== winner.a.id), tie: true };
+    };
+    const used = (m) => { if (m) for (const p of m.pos) { toks[p].used = true; toks[p].usedBy = 'acct'; } };
+    const fromM = chosen.find((m) => m.role === 'from'), toM = chosen.find((m) => m.role === 'to' || m.role === 'on'), freeM = chosen.filter((m) => !m.role);
+    const defaultAcc = (types) => ctx.accounts.find((a) => a.id === ctx.lastAccountId && types.includes(a.type) && !a.archived)?.id || ctx.accounts.find((a) => types.includes(a.type) && !a.archived)?.id || '';
+    const setAcc = (field, m, fallbackTypes) => {
+      if (m) { const w = pickTie(m); draft[field] = w.a.id; draft.conf[field] = w.tie ? 'ambiguous' : (w.strong || w.a.type === 'cash' || w.learned ? 'heard' : 'inferred'); if (w.alts?.length) draft.alts = { ...(draft.alts || {}), [field]: w.alts }; used(m); return; }
+      draft[field] = defaultAcc(fallbackTypes); draft.conf[field] = 'default';
+    };
+    // an account phrase we could not match ("from my blue card") is kept so a correction can be learned
+    const unknownAfter = (preps) => {
+      const typeWords = Object.values(TYPE_WORDS).flat();
+      for (let k = 0; k < toks.length; k++) {
+        if (!preps.has(toks[k].w)) continue;
+        let z = k + 1;
+        while (toks[z] && /^(my|the|a|our|mere|mera)$/.test(toks[z].w)) z++;
+        const ph = [];
+        for (; z < Math.min(toks.length, k + 5) && !toks[z].used && !EDGE_WORDS.has(toks[z].w) && toks[z].num === undefined; z++) ph.push(toks[z].w);
+        if (ph.length && ph.some((w) => typeWords.includes(w))) return ph.join(' ');
+      }
+      return '';
+    };
+
+    if (type === 'person') {
+      draft.personId = person.item.id;
+      person.pos.forEach((p) => { toks[p].used = true; });
+      const back = has(['back', 'returned', 'repaid', 'wapas', 'vapas']);
+      const inWords = has(['borrowed', 'borrow', 'took', 'taken', 'liya', 'liye', 'mila', 'mile', 'received', 'got']) || /^(paid|returned|repaid|gave|sent)$/.test(toks[person.span[1] + 1]?.w || '') && (has(['me']) || has(['back']));
+      draft.dir = personRole === 'from' || inWords ? 'in' : 'out';
+      draft.what = draft.dir === 'out' ? (back ? 'repaid' : 'lent') : (back ? 'gotback' : 'borrowed');
+      setAcc('accountId', fromM || toM || freeM[0], ['bank', 'cash']);
+      draft.conf.person = 'heard';
+    } else if (type === 'transfer') {
+      const cardBill = hasPhrase(['card', 'bill']) >= 0 || hasPhrase(['credit', 'card']) >= 0 && has(['bill', 'payment', 'paid', 'pay']);
+      let f = fromM, t2 = toM;
+      if (!f && !t2 && freeM.length >= 2) { f = freeM[0].span[0] < freeM[1].span[0] ? freeM[0] : freeM[1]; t2 = f === freeM[0] ? freeM[1] : freeM[0]; }
+      else if (!t2 && freeM.length) t2 = freeM.find((m) => m !== f);
+      else if (!f && freeM.length) f = freeM.find((m) => m !== t2);
+      if (!t2 && cardBill) { const cards = ctx.accounts.filter((a) => a.type === 'credit_card' && !a.archived); if (cards.length) { draft.toAccountId = (cards.find((a) => a.id === ctx.lastCardId) || cards[0]).id; draft.conf.toAccountId = cards.length === 1 ? 'inferred' : 'ambiguous'; if (cards.length > 1) draft.alts = { ...(draft.alts || {}), toAccountId: cards.map((a) => a.id).filter((id) => id !== draft.toAccountId) }; } }
+      if (!draft.toAccountId) setAcc('toAccountId', t2, ['bank', 'cash']);
+      setAcc('fromAccountId', f, ['bank', 'cash']);
+      if (draft.fromAccountId && draft.fromAccountId === draft.toAccountId) {
+        const other = ctx.accounts.find((a) => a.id !== draft.toAccountId && ['bank', 'cash'].includes(a.type) && !a.archived);
+        draft.fromAccountId = other?.id || ''; draft.conf.fromAccountId = 'default';
+      }
+      const toAcc = ctx.accounts.find((a) => a.id === draft.toAccountId);
+      draft.category = toAcc?.type === 'credit_card' ? 'Credit card payment' : toAcc?.type === 'investment' ? 'Investment' : (has(['withdrew', 'withdraw', 'withdrawal', 'withdrawn']) ? 'Cash withdrawal' : 'Transfer');
+      draft.conf.category = 'inferred';
+    } else if (type === 'income') {
+      setAcc('toAccountId', toM || freeM[0] || fromM, ['bank', 'cash']);
+    } else {
+      // expense and tax: a single account mention is where the money came from, whatever the preposition
+      const m = fromM || freeM[0] || toM;
+      setAcc('fromAccountId', m, type === 'tax' ? ['bank', 'cash', 'credit_card'] : ['cash', 'bank', 'credit_card']);
+      const ph = unknownAfter(FROM_PREP);
+      if (draft.conf.fromAccountId === 'default' && ph) draft.accountPhrase = ph;
+    }
+    if (draft.conf.fromAccountId === 'default' && !draft.accountPhrase && type !== 'person') { const ph = unknownAfter(FROM_PREP); if (ph) draft.accountPhrase = ph; }
+
+    // ---- category ----
+    if (type === 'expense' || type === 'income') {
+      const c = matchCategory(toks, type, ctx);
+      draft.category = c.category; draft.conf.category = c.how;
+      if (c.how === 'heard' && c.words.length) {
+        // the category's own words don't belong in the description ("on food and dining")
+        for (let k = 0; k < toks.length; k++) if (!toks[k].used && (c.words.includes(toks[k].w) || (toks[k].w === 'and' && c.words.includes(toks[k - 1]?.w) && c.words.includes(toks[k + 1]?.w)))) toks[k].used = true;
+      }
+      if (type === 'expense' && draft.vehicleId && draft.conf.category === 'default') { draft.category = resolveCat('Fuel', ctx.expenseCategories); draft.conf.category = 'inferred'; }
+    }
+    if (type === 'tax') { draft.category = 'Taxes'; draft.conf.category = 'heard'; }
+    // a single vehicle is assumed for fuel
+    if (!draft.vehicleId && /fuel|petrol|diesel|cng/i.test(draft.category || '') && (ctx.vehicles || []).length === 1) { draft.vehicleId = ctx.vehicles[0].id; draft.conf.vehicle = 'inferred'; }
+
+    // ---- description: what's left, tidied ----
+    for (const t of toks) if (!t.used && (EXPENSE_VERBS.includes(t.w) || INCOME_VERBS.includes(t.w) && type === 'income' || TRANSFER_VERBS.includes(t.w) || LEND_OUT.includes(t.w) && type === 'person' || LEND_IN.includes(t.w) && type === 'person')) t.used = true;
+    let rest = toks.filter((t) => !t.used && t.ord === undefined && !t.numDate);
+    const isFill = (t) => FILLER.has(t.w) && !['and', 'of'].includes(t.w) || t.w === ',' || t.w === '.';
+    rest = rest.filter((t, k, arr) => !(isFill(t) && !(t.w === 'my' && arr[k + 1])));
+    while (rest.length && EDGE_WORDS.has(rest[0].w)) rest.shift();
+    while (rest.length && EDGE_WORDS.has(rest[rest.length - 1].w)) rest.pop();
+    // collapse doubled prepositions left behind ("at from")
+    rest = rest.filter((t, k, arr) => !(EDGE_WORDS.has(t.w) && arr[k + 1] && EDGE_WORDS.has(arr[k + 1].w)));
+    let desc = rest.map((t) => (t.num !== undefined ? String(t.num) : t.raw.replace(/[.,]+$/, ''))).join(' ').replace(/\s+/g, ' ').trim();
+    if (desc.split(' ').length > 9) desc = desc.split(' ').slice(0, 9).join(' ');
+    if (desc.toLowerCase() === String(draft.category || '').toLowerCase()) desc = '';
+    draft.description = cap(desc);
+    if (!draft.description && type === 'person') draft.description = '';
+    draft.type = type;
+    return draft;
+  }
+
+  /** Split "200 on lunch and 50 on tea" into separate items (only where each side has its own amount). */
+  function segments(toks) {
+    const isAmt = (t) => t.num !== undefined && !(t.ord !== undefined);
+    const parts = []; let cur = [];
+    for (let k = 0; k < toks.length; k++) {
+      const t = toks[k];
+      const sep = ['and', ',', 'then', 'also', 'plus', '.', 'aur'].includes(t.w);
+      if (sep && cur.some(isAmt)) {
+        const rest = toks.slice(k + 1);
+        // the next part must start a new item: an amount before the next separator, and not just "6th"/a year
+        let z = 0, nextHasAmt = false;
+        // a year (2026) only counts as part of a date when it sits next to a month or day
+        const yearLike = (x, at) => x.num >= 1990 && x.num <= 2100 && Number.isInteger(x.num) && (MONTHS[rest[at - 1]?.w] !== undefined || rest[at - 1]?.ord !== undefined);
+        while (z < rest.length && !['and', ',', 'then', 'also', 'plus', '.', 'aur'].includes(rest[z].w)) { if (isAmt(rest[z]) && !yearLike(rest[z], z)) nextHasAmt = true; z++; }
+        // a number right before a unit word belongs to this item (odometer, litres)
+        if (nextHasAmt && !/^(l|ltr|litres|liters|km|kms)$/.test(rest[1]?.w || '') && !/^(odometer|odo|reading)$/.test(rest[0]?.w || '')) { parts.push(cur); cur = []; continue; }
+      }
+      cur.push(t);
+    }
+    if (cur.length) parts.push(cur);
+    return parts.filter((p) => p.some((t) => t.w !== ',' && t.w !== '.'));
+  }
+
+  /** The whole thing: text → list of drafts. */
+  function parse(text, ctx) {
+    const toks = numberize(normalize(text));
+    if (!toks.length) return { drafts: [], heard: '' };
+    const segs = segments(toks).map((s) => s.map((t, k) => ({ ...t, i: k, used: false })));
+    const drafts = [];
+    let inherit = null;
+    for (const s of segs) {
+      const d = parseOne(s, ctx, { inheritType: inherit });
+      if (d.typeHow === 'heard') inherit = d.type;
+      d.heard = s.map((t) => t.raw).join(' ').replace(/\s+([,.])/g, '$1').trim();
+      drafts.push(d);
+    }
+    // shared context: a date or account said once applies to every item
+    const sharedDate = drafts.find((d) => d.conf.date === 'heard')?.date;
+    const sharedFrom = drafts.find((d) => ['heard', 'ambiguous'].includes(d.conf.fromAccountId) && (d.type === 'expense' || d.type === 'tax'));
+    for (const d of drafts) {
+      if (d.conf.date === 'default' && sharedDate) { d.date = sharedDate; d.conf.date = 'heard'; }
+      if ((d.type === 'expense' || d.type === 'tax') && d.conf.fromAccountId === 'default' && sharedFrom) {
+        d.fromAccountId = sharedFrom.fromAccountId; d.conf.fromAccountId = sharedFrom.conf.fromAccountId; // an unsure account stays marked "check", with the same alternatives
+        if (sharedFrom.alts?.fromAccountId) d.alts = { ...(d.alts || {}), fromAccountId: [...sharedFrom.alts.fromAccountId] };
+      }
+    }
+    // drop empty fragments ("and", "okay") that have no amount and nothing else said
+    return { drafts: drafts.filter((d) => d.amount !== null || drafts.length === 1 || d.description), heard: String(text || '').trim() };
+  }
+  return { parse, normalize, numberize, segments, resolveDay };
+})();
+
+/* ===== Speak and log: the screen =====
+   Opened from the dashboard (Speak to add), the transaction form (Speak instead), Activity
+   (Speak), or by pressing and holding the + button. Listens with the phone's own speech
+   recognition (Chrome on Android, Safari on iPhone), shows the words live, then a card for
+   each transaction it understood. "Review & add" opens the usual form already filled in;
+   "Add now" saves straight away. Where speech recognition isn't available, the same box
+   takes typed text, or the keyboard's own mic button. */
+const VOICE_EXAMPLES = [
+  'Spent 250 on lunch at Vaishali from cash',
+  'Received salary 92,000 in SBI yesterday',
+  'Paid 2800 for petrol, odometer 25,420, 26 litres',
+  'Gave 500 to Dad',
+  'Moved 10,000 from HDFC to SBI',
+  '200 on groceries and 50 on tea',
+];
+const voiceSupported = () => !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+const voiceOn = () => db.settings.voiceOn !== false;
+const voice = { rec: null, listening: false, drafts: [], text: '', alts: [], pending: null };
+
+/** What the parser may read: your accounts, categories, people, vehicles, past descriptions. */
+function voiceContext() {
+  const idx = typeof descriptionIndex === 'function' ? descriptionIndex() : new Map();
+  const descIndex = [];
+  for (const [key, e] of idx) for (const type of ['expense', 'income']) { const c = usualCategory(e, type); if (c) descIndex.push({ key, type, category: c }); }
+  const recent = [];
+  for (const t of sortTxns(db.transactions).slice(0, 80)) for (const id of [t.fromAccountId, t.toAccountId]) if (id && !recent.includes(id)) recent.push(id);
+  const lastCard = recent.find((id) => accountById(id)?.type === 'credit_card');
+  return {
+    today: todayStr(),
+    accounts: db.accounts.filter((a) => a.type !== 'person').map((a) => ({ id: a.id, name: a.name, type: a.type, subtype: a.subtype || '', institution: a.institution || '', last4: a.last4 || '', archived: !!a.archived })),
+    people: db.accounts.filter((a) => a.type === 'person' && !a.archived).map((a) => ({ id: a.id, name: a.name })),
+    vehicles: (db.vehicles || []).filter((v) => !v.archived).map((v) => ({ id: v.id, name: v.name, regNo: v.regNo || '' })),
+    expenseCategories: db.settings.expenseCategories, incomeCategories: db.settings.incomeCategories,
+    descIndex, recentAccountIds: recent, lastAccountId: localStorage.getItem(LAST_ACCOUNT_KEY) || '', lastCardId: lastCard || '',
+    aliases: db.settings.voiceAliases || {},
+  };
+}
+/** How sure a reading is: heard counts most; used to pick the best of several possible hearings. */
+const draftScore = (ds) => ds.reduce((s, d) => s + (d.amount ? 3 : 0) + Math.min(6, Math.max(0, d.amountStrength || 0)) / 2 + Object.values(d.conf).filter((c) => c === 'heard').length, 0) - (ds.length - 1) * 0.5;
+
+function openVoice(opts = {}) {
+  if (!db.accounts.some((a) => a.type !== 'person')) { toast('Add an account first.', 'error'); location.hash = '#accounts'; return; }
+  const can = voiceSupported();
+  voice.drafts = opts.drafts || []; voice.text = opts.text || '';
+  openModal({
+    title: 'Speak to add',
+    body: `<div class="voice">
+      <div class="voice-top">
+        <button type="button" class="voice-mic ${can ? '' : 'off'}" data-voice-mic aria-label="${can ? 'Start or stop listening' : 'Speech is not available here'}"><i class="fa-solid fa-microphone"></i></button>
+        <div class="voice-status" data-voice-status aria-live="polite">${can ? 'Tap the mic and say it the way you would tell a friend.' : esc(voiceUnsupportedText())}</div>
+      </div>
+      <label class="block"><span class="lbl">What I heard <span class="text-ink-3 font-normal">(you can correct it)</span></span>
+        <textarea class="inp voice-text" name="voiceText" rows="2" ${can && opts.autostart !== false && !opts.drafts ? 'disabled' : ''} placeholder="e.g. Spent 250 on lunch at Vaishali from cash">${esc(voice.text)}</textarea></label>
+      <div class="flex gap-2 flex-wrap"><button type="button" class="btn btn-sm" data-voice-parse><i class="fa-solid fa-wand-magic-sparkles"></i> Understand</button>
+        <button type="button" class="btn btn-sm" data-voice-clear><i class="fa-solid fa-eraser"></i> Clear</button></div>
+      <div data-voice-results aria-live="polite"></div>
+      <details class="voice-tips"><summary>What can I say?</summary>
+        <p class="text-sm text-ink-2 mt-2">Any order, your own words. Say the amount, and if you like: what it was for, the account, the day.</p>
+        <div class="voice-examples">${VOICE_EXAMPLES.map((x) => `<button type="button" class="chip" data-voice-example="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+        <p class="hint mt-2">Also understood: words for numbers (two fifty, 1.5 lakh, 10k), today, yesterday, on 6th, last Friday, 2 days ago, kal, aaj, card ending 9950, several items with "and", and corrections ("50, no, 60").</p></details>
+    </div>`,
+    submitLabel: 'Review & add', cancelLabel: 'Close',
+    onOpen: (form) => {
+      const sig = { signal: modalSignal() };
+      modalSignal().addEventListener('abort', () => stopListening(true));
+      const box = form.elements.voiceText;
+      $('[data-voice-mic]', form).addEventListener('click', () => (voice.listening ? stopListening() : startListening(form)), sig);
+      $('[data-voice-parse]', form).addEventListener('click', () => understand(form, box.value), sig);
+      $('[data-voice-clear]', form).addEventListener('click', () => { box.value = ''; voice.drafts = []; renderVoiceResults(form); box.focus(); }, sig);
+      form.addEventListener('click', (e) => {
+        const ex = e.target.closest('[data-voice-example]');
+        if (ex) { box.disabled = false; box.value = ex.dataset.voiceExample; understand(form, box.value); return; }
+        const alt = e.target.closest('[data-voice-alt]');
+        if (alt) { const [k, fld, id] = alt.dataset.voiceAlt.split('|'); const d = voice.drafts[+k]; if (d) { d[fld] = id; d.conf[fld] = 'heard'; if (d.alts) delete d.alts[fld]; renderVoiceResults(form); } return; }
+        const act = e.target.closest('[data-voice-act]');
+        if (act) { const k = +act.dataset.k; if (act.dataset.voiceAct === 'edit') reviewDraft(k); else if (act.dataset.voiceAct === 'save') saveDrafts([k]); else if (act.dataset.voiceAct === 'drop') { voice.drafts.splice(k, 1); renderVoiceResults(form); } }
+      }, sig);
+      box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); understand(form, box.value); } }, sig);
+      renderVoiceResults(form);
+      if (can && opts.autostart !== false && !opts.drafts) startListening(form);
+      else if (!opts.drafts) setTimeout(() => box.focus(), 60);
+    },
+    onSubmit: () => {
+      const form = $('#modalForm');
+      if (!voice.drafts.length && form.elements.voiceText.value.trim()) understand(form, form.elements.voiceText.value);
+      if (!voice.drafts.length) { toast('Say or type a transaction first.', 'error'); return false; }
+      if (voice.drafts.length === 1) { reviewDraft(0); return false; }
+      saveDrafts(voice.drafts.map((_, k) => k));
+      return false;
+    },
+  });
+}
+function voiceUnsupportedText() {
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  return ios ? 'Speech recognition isn\'t available here. Type below, or tap the mic on your keyboard to dictate (Settings → General → Keyboard → Enable Dictation).'
+    : 'Speech recognition isn\'t available in this browser. Type below, or use the mic on your keyboard. On Android, Chrome supports speaking directly.';
+}
+function startListening(form) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const box = form.elements.voiceText, status = $('[data-voice-status]', form), mic = $('[data-voice-mic]', form);
+  if (!SR) { box.disabled = false; box.focus(); return; }
+  stopListening(true);
+  let rec;
+  try { rec = new SR(); } catch { box.disabled = false; status.textContent = voiceUnsupportedText(); return; }
+  rec.lang = db.settings.voiceLang || 'en-IN';
+  rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 3;
+  let finals = '', alts = [];
+  rec.onstart = () => { voice.listening = true; mic.classList.add('on'); status.textContent = 'Listening… say the amount and what it was for.'; navigator.vibrate?.(12); };
+  rec.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r.isFinal) { finals += `${r[0].transcript} `; alts = [...r].map((x) => x.transcript).filter(Boolean); }
+      else interim += r[0].transcript;
+    }
+    box.value = `${finals}${interim}`.trim();
+  };
+  rec.onerror = (e) => {
+    const msg = {
+      'not-allowed': /iPhone|iPad/.test(navigator.userAgent) ? 'Microphone is blocked. iPhone: Settings → Safari → Microphone → Allow, and turn on Dictation (Settings → General → Keyboard).' : 'Microphone is blocked. Tap the lock icon in Chrome\'s address bar → Permissions → Microphone → Allow.',
+      'service-not-allowed': 'Speech recognition is turned off on this phone. You can type instead.',
+      'no-speech': 'I didn\'t hear anything. Tap the mic and try again.',
+      'audio-capture': 'No microphone was found. You can type instead.',
+      network: 'Speech recognition needs the internet. You can type instead.',
+      'language-not-supported': 'This language isn\'t supported here. Change it in Settings → Preferences.',
+    }[e.error];
+    if (msg) status.textContent = msg;
+    if (e.error !== 'aborted' && e.error !== 'no-speech') box.disabled = false;
+  };
+  rec.onend = () => {
+    voice.listening = false; voice.rec = null; mic.classList.remove('on'); box.disabled = false;
+    const said = box.value.trim();
+    if (said) {
+      // several possible hearings: keep the one that makes the most sense as a transaction
+      const ctx = voiceContext();
+      const candidates = uniq([said, ...alts.map((a) => (finals.trim().endsWith(a.trim()) ? said : a.trim()))]).filter(Boolean);
+      let best = said, bestScore = -1;
+      for (const c of candidates) { const sc = draftScore(VoiceParser.parse(c, ctx).drafts); if (sc > bestScore) { best = c; bestScore = sc; } }
+      box.value = best; understand(form, best);
+    } else if (!/blocked|internet|turned off|microphone was/.test(status.textContent)) status.textContent = 'Tap the mic to try again, or type below.';
+  };
+  voice.rec = rec;
+  try { rec.start(); } catch { status.textContent = 'Couldn\'t start listening. Tap the mic again.'; box.disabled = false; }
+}
+function stopListening(abort = false) {
+  if (!voice.rec) return;
+  try { abort ? voice.rec.abort() : voice.rec.stop(); } catch { /* already stopped */ }
+  if (abort) { voice.rec = null; voice.listening = false; }
+}
+function understand(form, text) {
+  const said = String(text || '').trim();
+  if (!said) { toast('Say or type a transaction first.'); return; }
+  voice.text = said;
+  voice.drafts = VoiceParser.parse(said, voiceContext()).drafts;
+  const status = $('[data-voice-status]', form);
+  if (status) status.textContent = voice.drafts.length ? 'Here\'s what I understood. Check the highlighted parts.' : 'I couldn\'t find a transaction in that. Try saying an amount.';
+  renderVoiceResults(form);
+}
+
+/* ----- cards ----- */
+const VOICE_TYPE = { expense: ['Expense', 'fa-arrow-up', 'out'], income: ['Income', 'fa-arrow-down', 'in'], transfer: ['Transfer', 'fa-right-left', ''], tax: ['Tax', 'fa-landmark', 'out'], person: ['', 'fa-user', ''] };
+function draftProblems(d) {
+  const p = [];
+  if (!(d.amount > 0)) p.push('amount');
+  if (d.type === 'person') { if (!d.accountId) p.push('account'); return p; }
+  if ((d.type === 'expense' || d.type === 'tax' || d.type === 'transfer') && !d.fromAccountId) p.push('account');
+  if ((d.type === 'income' || d.type === 'transfer') && !d.toAccountId) p.push('account');
+  if (d.type === 'transfer' && d.fromAccountId && d.fromAccountId === d.toAccountId) p.push('two accounts');
+  return p;
+}
+function renderVoiceResults(form) {
+  const out = $('[data-voice-results]', form);
+  if (!out) return;
+  const btn = $('#modalFooter button[type=submit]');
+  if (btn) btn.textContent = voice.drafts.length > 1 ? `Add all ${voice.drafts.length}` : 'Review & add';
+  if (!voice.drafts.length) { out.innerHTML = ''; return; }
+  const label = (conf) => (conf === 'heard' ? '' : conf === 'ambiguous' ? '<span class="vg amb">check</span>' : conf === 'inferred' ? '<span class="vg">guessed</span>' : conf === 'default' ? '<span class="vg def">not said</span>' : '');
+  const accRow = (d, k, fld, title) => {
+    const a = accountById(d[fld]);
+    const alts = (d.alts?.[fld] || []).map((id) => accountById(id)).filter(Boolean);
+    return `<div class="vrow ${d.conf[fld] || ''}"><span>${title}</span><b>${a ? esc(a.name) : '<span class="text-loss">Choose an account</span>'}</b>${label(d.conf[fld])}
+      ${alts.length ? `<div class="valts">Did you mean ${alts.map((x) => `<button type="button" class="chip" data-voice-alt="${k}|${fld}|${x.id}">${esc(x.name)}</button>`).join(' ')}</div>` : ''}</div>`;
+  };
+  out.innerHTML = `<h3 class="voice-h">What I understood${voice.drafts.length > 1 ? ` · ${voice.drafts.length} items` : ''}</h3>` + voice.drafts.map((d, k) => {
+    const [tl, icon, cls] = VOICE_TYPE[d.type];
+    const person = d.personId ? accountById(d.personId) : null;
+    const title = d.type === 'person' ? ({ lent: `Lent to ${person?.name}`, repaid: `Paid back ${person?.name}`, borrowed: `Borrowed from ${person?.name}`, gotback: `${person?.name} paid you back` }[d.what]) : d.type === 'tax' ? (d.taxKind || 'Tax') : tl;
+    const probs = draftProblems(d);
+    const veh = d.vehicleId ? db.vehicles.find((v) => v.id === d.vehicleId) : null;
+    return `<div class="vcard">
+      <div class="vhead"><span class="vicon ${cls}"><i class="fa-solid ${icon}"></i></span><span class="vtitle">${esc(title)}</span>
+        <span class="vamt num ${d.amount ? '' : 'text-loss'}">${d.amount ? money(d.amount) : 'Amount?'}</span></div>
+      ${d.conf.amount === 'inferred' ? '<p class="hint">I took this number as the amount; check it.</p>' : ''}
+      <div class="vrows">
+        ${d.type === 'expense' || d.type === 'income' ? `<div class="vrow ${d.conf.category}"><span>Category</span><b>${esc(d.category)}</b>${label(d.conf.category)}</div>` : ''}
+        ${d.type === 'person' ? accRow(d, k, 'accountId', d.dir === 'out' ? 'From' : 'Into')
+          : d.type === 'transfer' ? accRow(d, k, 'fromAccountId', 'From') + accRow(d, k, 'toAccountId', 'To')
+          : d.type === 'income' ? accRow(d, k, 'toAccountId', 'Into') : accRow(d, k, 'fromAccountId', 'Paid from')}
+        <div class="vrow ${d.conf.date}"><span>Date</span><b>${esc(fmtDate(d.date))}${d.date === todayStr() ? ' (today)' : d.date === addDays(todayStr(), -1) ? ' (yesterday)' : ''}</b>${label(d.conf.date)}</div>
+        ${d.description ? `<div class="vrow"><span>Note</span><b>${esc(d.description)}</b></div>` : ''}
+        ${veh || d.odometer || d.fuelQty ? `<div class="vrow ${d.conf.vehicle || ''}"><span>Vehicle</span><b>${esc([veh?.name, d.odometer ? `${num(d.odometer).toLocaleString('en-IN')} km` : '', d.fuelQty ? `${d.fuelQty} l` : '', d.fullTank ? 'full tank' : ''].filter(Boolean).join(' · ') || '–')}</b>${label(d.conf.vehicle)}</div>` : ''}
+        ${d.accountPhrase ? `<p class="hint">I don't know "${esc(d.accountPhrase)}" yet. Pick the account in Review and I'll remember it.</p>` : ''}
+      </div>
+      <div class="vact">${probs.length ? `<span class="text-loss text-sm flex-1">Needs: ${esc(probs.join(', '))}</span>` : '<span class="flex-1"></span>'}
+        ${voice.drafts.length > 1 ? `<button type="button" class="btn btn-sm" data-voice-act="drop" data-k="${k}" aria-label="Remove"><i class="fa-solid fa-xmark"></i></button>` : ''}
+        <button type="button" class="btn btn-sm" data-voice-act="edit" data-k="${k}"><i class="fa-regular fa-pen-to-square"></i> ${voice.drafts.length > 1 ? 'Edit' : 'Review'}</button>
+        ${probs.length ? '' : `<button type="button" class="btn btn-sm btn-primary" data-voice-act="save" data-k="${k}"><i class="fa-solid fa-check"></i> Add now</button>`}</div>
+    </div>`;
+  }).join('');
+}
+
+/* ----- saving ----- */
+/** The draft as a transaction for the usual form (or for saving directly). */
+function draftToTxn(d) {
+  const base = { id: uid('txn'), date: d.date, amount: d.amount || '', description: d.description || '', notes: '' };
+  if (d.type === 'income') return { ...base, type: 'income', category: d.category, fromAccountId: '', toAccountId: d.toAccountId };
+  if (d.type === 'transfer') return { ...base, type: 'transfer', category: d.category || 'Transfer', fromAccountId: d.fromAccountId, toAccountId: d.toAccountId };
+  if (d.type === 'tax') return { ...base, type: 'expense', category: 'Taxes', taxKind: d.taxKind, taxFy: fyOf(d.date), fromAccountId: d.fromAccountId, toAccountId: '', description: d.description || d.taxKind };
+  const t = { ...base, type: 'expense', category: d.category, fromAccountId: d.fromAccountId, toAccountId: '' };
+  if (d.vehicleId || d.odometer) Object.assign(t, { vehicleId: d.vehicleId || '', odometer: d.odometer || null, fuelQty: d.fuelQty || null, ...(d.fuelQty ? { fullTank: d.fullTank !== false } : {}) });
+  return t;
+}
+function draftToPersonTxn(d) {
+  const p = accountById(d.personId);
+  const label = { lent: 'Lent', repaid: 'Repaid', borrowed: 'Borrowed', gotback: 'Got back' }[d.what];
+  return { id: uid('txn'), date: d.date, type: 'transfer', amount: round2(d.amount), category: label, description: d.description || `${label} ${d.dir === 'out' ? 'to' : 'from'} ${p?.name || ''}`.trim(),
+    fromAccountId: d.dir === 'out' ? d.accountId : d.personId, toAccountId: d.dir === 'out' ? d.personId : d.accountId, relatedType: 'person', relatedId: d.personId, notes: '' };
+}
+function saveDrafts(indexes) {
+  const ok = indexes.filter((k) => voice.drafts[k] && !draftProblems(voice.drafts[k]).length);
+  const skipped = indexes.length - ok.length;
+  if (!ok.length) { toast('Fill in the missing parts first (tap Edit).', 'error'); return; }
+  const recs = ok.map((k) => { const d = voice.drafts[k]; return d.type === 'person' ? draftToPersonTxn(d) : { ...draftToTxn(d), amount: round2(d.amount) }; });
+  commit(recs.map((r) => opUpsert('transactions', r)), `Added by voice: ${recs.length} transaction${recs.length === 1 ? '' : 's'}`);
+  for (const r of recs) { if (typeof rememberDescription === 'function' && r.description && r.relatedType !== 'person') rememberDescription(r); if (r.fromAccountId && accountById(r.fromAccountId)?.type !== 'person') localStorage.setItem(LAST_ACCOUNT_KEY, r.fromAccountId); }
+  for (const k of [...ok].sort((a, b) => b - a)) voice.drafts.splice(k, 1);
+  for (const r of recs) if (r.relatedType === 'person' && typeof shareSettle === 'function') shareSettle(r, r.relatedId, accountById(r.toAccountId)?.type === 'person' ? 'out' : 'in');
+  toast(`Added ${recs.length} transaction${recs.length === 1 ? '' : 's'}${skipped ? `; ${skipped} still need a look` : ''}.`, 'success');
+  if (voice.drafts.length) renderVoiceResults($('#modalForm')); else closeModal();
+}
+/** Open the usual form with this draft filled in; when it closes, come back to any other items. */
+function reviewDraft(k) {
+  const d = voice.drafts[k];
+  if (!d) return;
+  const rest = voice.drafts.filter((_, z) => z !== k);
+  const text = voice.text;
+  let saved = false;
+  if (d.type === 'person') {
+    openPersonMoney(d.personId, d.dir, d.amount || '', { date: d.date, acc: d.accountId, description: d.description, what: d.what, onSaved: () => { saved = true; } });
+  } else {
+    openTxnForm(draftToTxn(d), { voice: { heard: d.heard || text, conf: d.conf, accountPhrase: d.accountPhrase || '', guessFrom: d.fromAccountId, guessTo: d.toAccountId, onSaved: () => { saved = true; } } });
+  }
+  modalSignal()?.addEventListener('abort', () => {
+    const left = saved ? rest : [...rest.slice(0, k), d, ...rest.slice(k)];
+    if (left.length && (rest.length || !saved)) setTimeout(() => { if ($('#modal').classList.contains('hidden')) openVoice({ drafts: left, text, autostart: false }); }, 80);
+  });
+}
+/** When you correct a guessed account in the form, remember the words you used for it. */
+function learnVoiceAlias(voiceInfo, rec) {
+  const phrase = String(voiceInfo?.accountPhrase || '').trim().toLowerCase();
+  const id = rec.type === 'income' ? rec.toAccountId : rec.fromAccountId;
+  if (!phrase || !id || phrase.length < 3) return null;
+  const aliases = { ...(db.settings.voiceAliases || {}), [phrase]: id };
+  return opSettings({ voiceAliases: aliases });
+}
+
 /* ---------------------------------------------------------------------
    9. FORMS & ACTIONS
    --------------------------------------------------------------------- */
@@ -9016,7 +9832,11 @@ function openTxnForm(existing, preset = {}) {
   const types = [['expense', 'Expense'], ['income', 'Income'], ['transfer', 'Transfer'], ['tax', 'Tax']];
   if (t.taxKind || (preset.type === 'tax' && !existing)) t.type = 'tax';
 
-  const body = `
+  // Filled in from speech: show what was heard and which fields were guessed; or offer to speak instead
+  const vo = preset.voice;
+  const voiceTop = vo ? `<div class="voice-banner"><i class="fa-solid fa-microphone"></i><div><b>Filled in from your voice</b><div class="text-sm">"${esc(vo.heard)}"</div><div class="hint">Fields with a dotted outline were guessed or not said. Check them, then add.</div></div></div>`
+    : (isNew && typeof voiceOn === 'function' && voiceOn() ? '<button type="button" class="btn btn-sm voice-instead" data-action="voice-open"><i class="fa-solid fa-microphone"></i> Speak instead</button>' : '');
+  const body = `${voiceTop}
     <div class="seg" role="radiogroup" aria-label="Transaction type">
       ${types.map(([v, l]) => `<input type="radio" name="type" id="tt_${v}" value="${v}" ${t.type === v ? 'checked' : ''}><label for="tt_${v}">${l}</label>`).join('')}
     </div>
@@ -9049,6 +9869,11 @@ function openTxnForm(existing, preset = {}) {
     onOpen: (form) => {
       bindShowHide(form, 'type');
       attachDescriptionSuggest(form); // suggestions from descriptions you've used before
+      if (vo) { // outline what speech guessed, so it gets a second look
+        const map = { amount: 'amount', category: 'category', fromAccountId: 'fromAccountId', toAccountId: 'toAccountId', date: 'date' };
+        for (const [k, name] of Object.entries(map)) if (vo.conf?.[k] && vo.conf[k] !== 'heard') for (const el of form.querySelectorAll(`[name="${name}"]`)) el.classList.add('voice-guess');
+        if (!(num(form.elements.amount?.value) > 0)) setTimeout(() => form.elements.amount?.focus(), 80);
+      }
       bindVehicleFields(form, { signal: modalSignal() }); // vehicle + odometer for fuel and vehicle costs
       // Quick picks: Today / Yesterday and your most-used categories
       form.addEventListener('click', (e) => {
@@ -9123,10 +9948,15 @@ function openTxnForm(existing, preset = {}) {
         if (rec.fullTank === undefined) delete rec.fullTank;
       } else { delete rec.vehicleId; delete rec.odometer; delete rec.fuelQty; delete rec.fullTank; }
       if (isNew && rec.forHome && typeof shareHomeClaim === 'function') shareHomeClaim(rec);
+      if (vo) { // remember the words used for an account that had to be picked by hand
+        const guessed = rec.type === 'income' ? vo.guessTo : vo.guessFrom, chosen = rec.type === 'income' ? rec.toAccountId : rec.fromAccountId;
+        if (vo.accountPhrase && chosen && chosen !== guessed) { const op = learnVoiceAlias(vo, rec); if (op) extraOps.push(op); }
+        vo.onSaved?.();
+      }
       commit([...extraOps, opUpsert('transactions', rec)], `${isNew ? 'Add' : 'Edit'} ${rec.forHome ? 'home expense' : rec.type} ${money(amount)}${rec.description ? ` (${rec.description})` : ''}`);
       toast(isNew ? (rec.forHome ? `Home expense added. ${accountName(claimTo)} owes you ${money(amount)} more.` : `${cap(rec.type)} added`) : 'Transaction saved', 'success');
     },
-    onDelete: existing ? () => deleteTxn(existing.id) : null,
+    onDelete: existing && !isNew ? () => deleteTxn(existing.id) : null, // a prefilled new entry (voice, import) has nothing to delete yet
   });
 }
 
@@ -9823,6 +10653,8 @@ function openSettings() {
         '<div class="pt-6">' + checkbox('stampDuty', s.stampDuty !== false, 'Deduct 0.005% stamp duty', 'Mutual fund purchases in India lose 0.005% to stamp duty, so a few fewer units are allotted.') + '</div>')}
       ${field('Year of birth (optional)', input('birthYear', s.birthYear || '', 'type="number" min="1940" max="2015" placeholder="e.g. 2001"'), 'Used by the financial freedom planner and the cool-off list to show ages.')}
       ${checkbox('sharePortfolio', !!s.sharePortfolio, 'Share my portfolio with family on this KOSH', 'Others using this repository can add you to their family portfolio and see your holdings\' values.')}
+      ${checkbox('voiceOn', s.voiceOn !== false, 'Speak and log', 'Say a transaction ("spent 250 on lunch from cash") and KOSH fills in the form. Shows Speak to add on the dashboard; press and hold + to speak.')}
+      ${field('Speaking language', select('voiceLang', [['en-IN', 'English (India)'], ['en-GB', 'English (UK)'], ['en-US', 'English (US)']], s.voiceLang || 'en-IN'), 'Hindi words like kal, aaj, rupaye and se are understood in all of these.')}
       ${checkbox('showNwToggles', s.showNwToggles !== false, 'Show the net worth switches on the dashboard', 'Small switches on the net worth card to leave out investments or credit card dues.')}
       ${checkbox('sipAsSpending', s.sipAsSpending, 'Count SIPs as money going out', 'Shows SIPs and other money you invest in the spending chart and monthly totals. Net worth is not affected, because the money is still yours in the fund.')}
       ${field('Expense categories', textarea('expenseCategories', s.expenseCategories.join('\n'), 'rows="6"'), 'One per line. Renaming a category here does not change past transactions.')}
@@ -9905,6 +10737,7 @@ function openSettings() {
         autoPrices: !!d.autoPrices,
         showNwToggles: !!d.showNwToggles,
         sharePortfolio: !!d.sharePortfolio,
+        voiceOn: !!d.voiceOn, voiceLang: d.voiceLang || 'en-IN',
         birthYear: d.birthYear ? int(d.birthYear) : '',
         navLagDays: int(d.navLagDays),
         stampDuty: !!d.stampDuty,
@@ -10010,6 +10843,7 @@ const ACTIONS = {
   'dash-customize': () => openDashCustomize(),
   'make-login': () => (isOwner() ? openMakeLogin() : toast('Only the owner can create logins.', 'error')),
   'gold-add': () => openGoldForm(null),
+  'voice-open': () => openVoice(),
   help: () => openHelpFor((location.hash || '#dashboard').slice(1) || 'dashboard'),
   'veh-add': () => openVehicleForm(null),
   'veh-edit': (d) => openVehicleForm(vehicleById(d.id)),
@@ -10132,6 +10966,21 @@ function init() {
   };
   document.addEventListener('input', plannerListen);
   document.addEventListener('change', plannerListen);
+
+  // Press and hold the + button to speak a transaction (a normal tap still opens the form)
+  (() => {
+    let timer = 0, held = false;
+    const plus = () => document.querySelector('.tab-add');
+    document.addEventListener('pointerdown', (e) => {
+      if (!e.target.closest?.('.tab-add') || !voiceOn()) return;
+      held = false; clearTimeout(timer);
+      timer = setTimeout(() => { held = true; navigator.vibrate?.(20); openVoice(); }, 480);
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) document.addEventListener(ev, () => clearTimeout(timer));
+    document.addEventListener('click', (e) => { if (held && e.target.closest?.('.tab-add')) { e.stopPropagation(); e.preventDefault(); held = false; } }, true);
+    document.addEventListener('contextmenu', (e) => { if (e.target.closest?.('.tab-add')) e.preventDefault(); });
+    void plus;
+  })();
 
   // Help: search as you type (keeps the cursor in the box)
   document.addEventListener('input', (e) => {
