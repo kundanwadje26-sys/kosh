@@ -1,0 +1,10 @@
+{
+ "v": 1,
+ "user": "guru",
+ "kdf": "PBKDF2-SHA256",
+ "iterations": 600000,
+ "salt": "Otyhfz/5YXiflPTI+r9NHw==",
+ "iv": "lQfJWWwOZz8k1/QY",
+ "data": "ig4M7TvqTY1D/4rzrn9Z6k0e+NbBGnA+3HONXYTDkcIAlBy04M9/66YmxRojKB3J2o2gQc8dON5QU7HqSdTTHSVdDcFua9GTQUpWDFPLdYwZob2NzgI529cG4gobMg5+ExYKC0tFJInIk9+Yp8MDcB4Z3t/Y6wYebugl7o2zTs/T3l3oPItq/97LMq7DMZPbyRCXG1I872eVMMJJPL5D1XYojtAxcKsPXfAppwzjO2/RV9E1B0SCh+sAZO+ffTQLZ2paveBu/d4miRp4ZPsSFXRJCpjawKm8YPyKlB4x1NngW9tW9MDG011nEk00H4ZAAsA8hvgiHp5JUeQ4PiOouQ==",
+ "created": "2026-10-11"
+}
