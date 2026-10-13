@@ -387,10 +387,10 @@ table.imp-table tr.off td { opacity: .45; }
 table.imp-table th { text-align: left; }
 
 /* ---------- Installed app on iPhone: keep clear of the notch and home bar ---------- */
-header.sticky { padding-top: env(safe-area-inset-top); }
-#sidebar { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
-.fab { bottom: calc(1.1rem + env(safe-area-inset-bottom)); }
-@media (display-mode: standalone) { #view { padding-bottom: calc(7rem + env(safe-area-inset-bottom)); } }
+header.sticky { padding-top: max(env(safe-area-inset-top), var(--safe-area-inset-top, 0px)); }
+#sidebar { padding-top: max(env(safe-area-inset-top), var(--safe-area-inset-top, 0px)); padding-bottom: max(env(safe-area-inset-bottom), var(--safe-area-inset-bottom, 0px)); }
+.fab { bottom: calc(1.1rem + max(env(safe-area-inset-bottom), var(--safe-area-inset-bottom, 0px))); }
+@media (display-mode: standalone) { #view { padding-bottom: calc(7rem + max(env(safe-area-inset-bottom), var(--safe-area-inset-bottom, 0px))); } }
 .nudge.install { background: var(--royal-tint); border-color: #B9DDF3; }
 .nudge.install > i { color: var(--royal); }
 #nav { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.2) transparent; }
@@ -481,7 +481,7 @@ table.imp-table label.pill input { accent-color: var(--royal); vertical-align: -
     display: grid; grid-template-columns: repeat(5, 1fr); align-items: end;
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     background: rgba(255,255,255,.96); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    border-top: 1px solid var(--line); padding: .35rem .25rem calc(.35rem + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line); padding: .35rem .25rem calc(.35rem + max(env(safe-area-inset-bottom), var(--safe-area-inset-bottom, 0px)));
     box-shadow: 0 -4px 18px rgba(11,37,64,.06);
   }
   .tabbar a, .tabbar button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .15rem;
@@ -491,8 +491,8 @@ table.imp-table label.pill input { accent-color: var(--royal); vertical-align: -
   .tabbar .tab-add { align-self: center; justify-self: center; width: 3.4rem; height: 3.4rem; min-height: 0; border-radius: 999px; margin-top: -1.4rem;
     background: var(--royal); color: #fff; box-shadow: 0 6px 16px rgba(10,111,176,.4); border: 4px solid #fff; }
   .tabbar .tab-add i { font-size: 1.3rem; }
-  #view { padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)) !important; }
-  #toasts { bottom: calc(5.2rem + env(safe-area-inset-bottom)) !important; }
+  #view { padding-bottom: calc(6.5rem + max(env(safe-area-inset-bottom), var(--safe-area-inset-bottom, 0px))) !important; }
+  #toasts { bottom: calc(5.2rem + max(env(safe-area-inset-bottom), var(--safe-area-inset-bottom, 0px))) !important; }
 
   /* Header: keep the title readable; the sync chip shows only its dot */
   header .sync-chip { padding: .45rem; min-width: 2.5rem; min-height: 2.5rem; justify-content: center; }
@@ -576,7 +576,7 @@ table.imp-table label.pill input { accent-color: var(--royal); vertical-align: -
   /* Modals: full-width bottom sheet with a grab handle */
   #modalForm { border-radius: 20px 20px 0 0 !important; max-height: 92dvh !important; }
   #modalForm::before { content: ''; display: block; width: 2.6rem; height: .3rem; border-radius: 999px; background: #D6DDE9; margin: .5rem auto 0; }
-  #modalFooter { padding-bottom: calc(.75rem + env(safe-area-inset-bottom)) !important; }
+  #modalFooter { padding-bottom: calc(.75rem + max(env(safe-area-inset-bottom), var(--safe-area-inset-bottom, 0px))) !important; }
   #modalFooter .btn { flex: 1; }
 
   /* Tables that stay tables scroll inside their card */
@@ -589,7 +589,7 @@ table.imp-table label.pill input { accent-color: var(--royal); vertical-align: -
 @media (max-width: 639px) {
   .cal-amt { white-space: nowrap; }
   .cal-amt .sign { display: none; }
-  #sidebar { z-index: 60; padding-bottom: env(safe-area-inset-bottom); }
+  #sidebar { z-index: 60; padding-bottom: max(env(safe-area-inset-bottom), var(--safe-area-inset-bottom, 0px)); }
   #navBackdrop { z-index: 55; }
 }
 
@@ -848,3 +848,16 @@ body { background: var(--paper); }
 .voice-banner > i { color: var(--royal); margin-top: .2rem; }
 .voice-instead { align-self: flex-start; }
 .voice-guess { outline: 2px dashed #E0A100 !important; outline-offset: 1px; }
+
+/* Inside the FinRi phone app: keep content clear of the bottom bar and the home indicator */
+.native #view { padding-bottom: calc(7rem + max(env(safe-area-inset-bottom), var(--safe-area-inset-bottom, 0px))); }
+
+/* Insurance summary: big amounts (₹1,00,00,000) shrink to fit narrow phones */
+.ins-big { font-size: clamp(1.15rem, 5.4vw, 1.875rem); line-height: 1.15; overflow-wrap: anywhere; }
+
+/* People: where a balance comes from */
+.person-bd { display: grid; gap: .2rem; font-size: .8rem; background: #F5F8FC; border-radius: 10px; padding: .5rem .65rem; }
+.person-bd > div { display: flex; justify-content: space-between; gap: .75rem; }
+.person-bd span { color: var(--ink-3); }
+/* "Other" category: name it */
+.other-cat { border-left: 3px solid var(--royal); padding: .4rem 0 .2rem .75rem; margin-top: .5rem; display: grid; gap: .5rem; }

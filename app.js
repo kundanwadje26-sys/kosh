@@ -1,5 +1,5 @@
 /* =====================================================================
-   Kundan's Finance  (KOSH: Kundan On Savings Hustle)
+   FinRi: your money, in one place (personal finance app by AKap Industries)
    Expense tracker, fund manager and investment portfolio
    ---------------------------------------------------------------------
    A single-page app with no backend server. All data lives in ONE JSON
@@ -35,7 +35,7 @@ const STORAGE_KEYS = {
   config: 'kosh.config.v1',     // GitHub connection details (incl. token)
   lastSync: 'kosh.lastSync.v1', // time of last successful sync
 };
-const APP_NAME = "Kundan's Finance";
+const APP_NAME = "FinRi";
 const SCHEMA_VERSION = 3; // v2 added `sips`, v3 goals/wishlist/rules/taxItems; older files load unchanged
 const COLLECTIONS = ['accounts', 'transactions', 'emis', 'subscriptions', 'budgets', 'sips', 'charts', 'goals', 'wishlist', 'rules', 'taxItems', 'notifications', 'creditScores', 'insurance', 'vehicles'];
 
@@ -87,7 +87,7 @@ const BUILTIN_KEYS = {
 const stockKey = () => String(db.settings.stockApiKey || '').trim() || BUILTIN_KEYS.stock;
 const goldKey = () => String(db.settings.goldApiKey || '').trim() || BUILTIN_KEYS.gold;
 const DEFAULT_SETTINGS = {
-  ownerName: 'Kundan',       // shown in the app heading: "Kundan's Finance"
+  ownerName: 'Kundan',       // shown in the app heading: "FinRi"
   currency: 'INR',
   sipAsSpending: true,       // show SIPs / money invested in monthly spending charts
   autoPrices: true,          // refresh mutual fund NAVs / stock prices when the app opens
@@ -461,8 +461,8 @@ function scheduleSync(delay = 700) {
 
 function commitMessage(batches) {
   const msgs = batches.map((b) => b.message).filter(Boolean);
-  if (msgs.length <= 1) return `KOSH: ${msgs[0] || 'Update data'}`;
-  return `KOSH: ${msgs.length} changes (${msgs.slice(0, 3).join('; ')}${msgs.length > 3 ? '; …' : ''})`;
+  if (msgs.length <= 1) return `FinRi: ${msgs[0] || 'Update data'}`;
+  return `FinRi: ${msgs.length} changes (${msgs.slice(0, 3).join('; ')}${msgs.length > 3 ? '; …' : ''})`;
 }
 
 async function runSync() {
@@ -495,7 +495,7 @@ async function runSync() {
       merged.meta.updatedAt = new Date().toISOString();
 
       try {
-        await api.putFile(merged, remote.sha, batches.length ? commitMessage(batches) : 'KOSH: create data file'); // (c)
+        await api.putFile(merged, remote.sha, batches.length ? commitMessage(batches) : 'FinRi: create data file'); // (c)
       } catch (e) {
         const conflict = e.status === 409 || (e.status === 422 && /sha/i.test(e.raw || ''));
         if (conflict) { await sleep(500 * attempt); continue; }   // (d) retry
@@ -1019,6 +1019,47 @@ function bindShowHide(form, controlName) {
 }
 
 /** Reads a form into a plain object; checkboxes become true/false. */
+/* ----- "Other" category: when Other is picked in a category list, ask for its name -----
+   Works in every form with a category list. The name is used for this entry, and with
+   "Remember it" ticked it's added to your categories (before Other) for next time. */
+const isOtherCategory = (v) => /^other$/i.test(String(v || '').trim());
+function bindOtherCategory(form) {
+  const update = (sel) => {
+    if (!sel || sel.name !== 'category' || sel.tagName !== 'SELECT') return;
+    let box = sel.closest('label')?.nextElementSibling;
+    if (!box?.matches?.('[data-other-cat]')) box = null;
+    if (!isOtherCategory(sel.value) || sel.disabled) { box?.remove(); return; }
+    if (box) return;
+    const opts = [...sel.options].map((o) => o.value);
+    const kind = opts.some((v) => db.settings.incomeCategories.includes(v) && !db.settings.expenseCategories.includes(v)) ? 'income' : 'expense';
+    box = document.createElement('div');
+    box.className = 'other-cat'; box.dataset.otherCat = '';
+    box.innerHTML = `${field('Name this category', input('customCategory', '', 'maxlength="40" placeholder="e.g. Pet care, Gym, Donations" autocomplete="off"'))}
+      ${checkbox('rememberCategory', true, 'Remember it in my categories', 'It will appear in your category list from now on.')}
+      <input type="hidden" name="customCategoryKind" value="${kind}">`;
+    (sel.closest('label') || sel).after(box);
+    setTimeout(() => box.querySelector('input')?.focus(), 30);
+  };
+  form.addEventListener('change', (e) => update(e.target), { signal: modalSignal() });
+  form.addEventListener('click', (e) => { if (e.target.closest('[data-setcat]')) setTimeout(() => $$('select[name="category"]', form).filter((x) => !x.disabled).forEach(update), 0); }, { signal: modalSignal() });
+}
+/** On save: use the typed name instead of Other, and add it to the person's list if they asked. */
+function applyOtherCategory(d) {
+  const name = String(d.customCategory || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  if (!name || !isOtherCategory(d.category)) return d;
+  const kind = d.customCategoryKind === 'income' ? 'income' : 'expense';
+  const listKey = kind === 'income' ? 'incomeCategories' : 'expenseCategories';
+  const list = db.settings[listKey] || [];
+  const found = list.find((c) => c.toLowerCase() === name.toLowerCase());
+  const clean = found || name.charAt(0).toUpperCase() + name.slice(1);
+  if (d.rememberCategory && !found) {
+    const at = list.findIndex(isOtherCategory);
+    const next = at >= 0 ? [...list.slice(0, at), clean, ...list.slice(at)] : [...list, clean];
+    commit([opSettings({ [listKey]: next })], `New ${kind} category: ${clean}`);
+  }
+  return { ...d, category: clean };
+}
+
 function readForm(form) {
   const data = {};
   for (const el of form.elements) {
@@ -1055,6 +1096,7 @@ function openModal({ title, body, submitLabel = 'Save', onSubmit, onOpen, onDele
   $('#modal').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
   if (onOpen) onOpen(form);
+  bindOtherCategory(form); // "Other" category: name it, and optionally keep it in your list
   const first = $('#modalBody input:not([type=hidden]):not([disabled]), #modalBody select:not([disabled]), #modalBody textarea', form);
   setTimeout(() => (first || $('#modalFooter .btn', form))?.focus(), 30);
 }
@@ -1076,7 +1118,7 @@ function bindModal() {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!modalState?.onSubmit) return closeModal();
-    const result = await modalState.onSubmit(readForm(form), form);
+    const result = await modalState.onSubmit(applyOtherCategory(readForm(form)), form);
     if (result !== false) closeModal();
   });
   $('#modal').addEventListener('click', async (e) => {
@@ -1154,12 +1196,9 @@ function render() {
   setSyncStatus(sync.state, sync.detail);
 }
 
-/** "Kundan's Finance" (the name comes from Settings > Your name). */
+/** The app name shown above each page title. */
 function brandName() {
-  if (!isConfigured() && !db.transactions.length && !db.accounts.some((a) => a.type !== 'cash')) return 'KOSH'; // a new, signed-out device
-  const n = String(db.settings.ownerName || '').trim();
-  if (!n) return 'My Finance';
-  return `${n}${/s$/i.test(n) ? "'" : "'s"} Finance`;
+  return 'FinRi'; // the product name; your own name appears in the greeting
 }
 
 function toggleNav(open) {
@@ -1316,7 +1355,7 @@ function gettingStarted() {
   ];
   if (steps.every((s) => s.done) || localStorage.getItem('kosh.setupHidden')) return '';
   return `<section class="panel p-5 mb-6">
-    <div class="flex items-start justify-between gap-2 mb-3"><h2 class="panel-title">Get KOSH ready in three steps</h2>
+    <div class="flex items-start justify-between gap-2 mb-3"><h2 class="panel-title">Get FinRi ready in three steps</h2>
       <button class="icon-btn sm" data-action="setup-hide" aria-label="Hide these steps" title="Hide"><i class="fa-solid fa-xmark"></i></button></div>
     <ol class="space-y-3">
       ${steps.map((s, i) => `<li class="flex items-center gap-3 flex-wrap">
@@ -3725,6 +3764,27 @@ function avatar(name) {
   return `<span class="avatar" style="background:${colorFor(name)}">${esc(initials)}</span>`;
 }
 
+/** A person's balance by source, so a total like "owes you ₹18,000" can be explained. */
+const PERSON_SOURCES = [['lend', 'Lent / borrowed'], ['split', 'Split bills'], ['flat', 'Shared flat'], ['home', 'Home expenses'], ['other', 'Other']];
+function personSource(t) {
+  if (t.forHome) return 'home';
+  if (t.relatedType === 'person') return 'lend';
+  if (t.relatedType === 'split') return 'split';
+  if (t.relatedType === 'flat') return 'flat';
+  return 'other';
+}
+function personBreakdown(p) {
+  const b = { start: num(p.openingBalance), lend: 0, split: 0, flat: 0, home: 0, other: 0 };
+  for (const t of db.transactions) {
+    if (t.fromAccountId !== p.id && t.toAccountId !== p.id) continue;
+    if (p.openingDate && t.date < p.openingDate) continue; // the same rule the balance uses
+    b[personSource(t)] += t.toAccountId === p.id ? num(t.amount) : -num(t.amount);
+  }
+  for (const k of Object.keys(b)) b[k] = round2(b[k]);
+  return b;
+}
+const sourceText = (v) => `${v > 0 ? 'owes you' : 'you owe'} ${money(Math.abs(v))}`;
+
 function renderPeople() {
   const ppl = peopleList();
   const pend = pendingHome();
@@ -3737,6 +3797,7 @@ function renderPeople() {
         <button class="btn btn-primary" data-action="add-txn" data-type="expense" data-home="1"><i class="fa-solid fa-house"></i> Add home expense</button>
       </div>
     </div>
+    ${shared.waiting ? `<div class="callout mb-4"><b>${shared.waiting} shared entr${shared.waiting === 1 ? 'y is' : 'ies are'} waiting for you.</b> Someone you're linked with recorded money with you. Add a bank or cash account (More → Accounts) and they appear here automatically.</div>` : ''}
     <section class="panel p-5 mb-6"><dl class="kv">
       <div><dt>People owe me</dt><dd class="text-lg text-gain">${money(M.T.owedToMe)}</dd></div>
       <div><dt>I owe people</dt><dd class="text-lg text-loss">${money(M.T.iOwe)}</dd></div>
@@ -3747,8 +3808,10 @@ function renderPeople() {
       const bal = M.balances.get(p.id) || 0, l = personLine(bal), ph = pendingHome(p.id);
       return `<section class="panel p-5 ${p.archived ? 'opacity-60' : ''}">
         <div class="flex items-center gap-3">${avatar(p.name)}
-          <div class="min-w-0 flex-1"><div class="font-semibold truncate">${esc(p.name)}${p.linkedUser ? ` <span class="pill blue" title="Linked KOSH user">@${esc(p.linkedUser)}</span>` : ''}</div><div class="text-sm font-semibold num ${l.cls}">${l.text}</div></div>
+          <div class="min-w-0 flex-1"><div class="font-semibold truncate">${esc(p.name)}${p.linkedUser ? ` <span class="pill blue" title="Linked FinRi user">@${esc(p.linkedUser)}</span>` : ''}</div><div class="text-sm font-semibold num ${l.cls}">${l.text}</div></div>
           <button class="icon-btn sm" data-action="person-edit" data-id="${p.id}" title="Edit" aria-label="Edit ${esc(p.name)}"><i class="fa-regular fa-pen-to-square"></i></button></div>
+        ${(() => { const bd = personBreakdown(p); const parts = [['start', 'Starting balance'], ...PERSON_SOURCES].filter(([k]) => Math.abs(bd[k]) >= 0.5);
+          return parts.length > 1 || (parts.length === 1 && parts[0][0] !== 'lend') ? `<div class="person-bd mt-2">${parts.map(([k, l]) => `<div><span>${esc(l)}</span><b class="num ${bd[k] > 0 ? 'text-gain' : 'text-loss'}">${sourceText(bd[k])}</b></div>`).join('')}</div>` : ''; })()}
         ${ph.length ? `<div class="text-xs text-ink-2 mt-3"><i class="fa-solid fa-house mr-1" style="color:var(--violet)"></i>${ph.length} home expense${ph.length === 1 ? '' : 's'} to take back: <b class="num">${money(ph.reduce((s, t) => s + num(t.amount), 0))}</b> (already counted in the balance above)</div>` : ''}
         <div class="grid grid-cols-2 gap-2 mt-4">
           <button class="btn btn-sm" data-action="person-money" data-id="${p.id}" data-dir="out"><i class="fa-solid fa-arrow-up"></i> I gave</button>
@@ -3790,7 +3853,7 @@ function openPersonForm(existing) {
       <div><span class="lbl">Right now</span>
         <div class="seg">${[['none', 'We are settled'], ['they', 'They owe me'], ['me', 'I owe them']].map(([v, l]) => `<input type="radio" name="dir" id="pd_${v}" value="${v}" ${(ob > 0 ? 'they' : ob < 0 ? 'me' : 'none') === v ? 'checked' : ''}><label for="pd_${v}">${l}</label>`).join('')}</div></div>
       ${showFor('they me', twoCol(field('How much', moneyInput('amount', Math.abs(ob) || '', 'min="0"')), field('As on', input('openingDate', p.openingDate, 'type="date"'))))}
-      ${sharedOn() ? usernameField('linkedUser', 'Their KOSH username (optional)', p.linkedUser || '') + '<p class="hint">Linked people see the splits and money you record with them in their own app. Ask them for their username.</p>' : ''}
+      ${sharedOn() ? usernameField('linkedUser', 'Their FinRi username (optional)', p.linkedUser || '') + '<p class="hint">Linked people see the splits and money you record with them in their own app. Ask them for their username.</p>' : ''}
       ${isNew ? '' : checkbox('archived', p.archived, 'Hide (archive)', 'Keeps their history but hides them from lists.')}
       ${field('Notes (optional)', textarea('notes', p.notes, 'rows="2"'))}`,
     submitLabel: isNew ? 'Add person' : 'Save',
@@ -3808,12 +3871,7 @@ function openPersonForm(existing) {
       commit([opUpsert('accounts', rec)], `${isNew ? 'Add' : 'Edit'} person ${rec.name}`);
       toast(isNew ? `${rec.name} added` : 'Saved', 'success');
     },
-    onDelete: existing ? () => {
-      const used = db.transactions.some((t) => t.fromAccountId === p.id || t.toAccountId === p.id);
-      if (used) { toast('They have history. Tick "Hide (archive)" instead.', 'error'); return false; }
-      if (!confirm(`Delete ${p.name}?`)) return false;
-      commit([opDelete('accounts', p.id)], `Delete person ${p.name}`);
-    } : null,
+    onDelete: existing ? () => deletePerson(existing) : null,
   });
 }
 
@@ -3842,8 +3900,9 @@ function openPersonMoney(personId, dir, presetAmount = '', preset = {}) {
         description: d.description || `${label} ${dir === 'out' ? 'to' : 'from'} ${p.name}`,
         fromAccountId: dir === 'out' ? d.acc : p.id, toAccountId: dir === 'out' ? p.id : d.acc, relatedType: 'person', relatedId: p.id, notes: '' };
       preset.onSaved?.();
+      if (sharedOn() && linkedOf(p.id)) rec.sharedOut = true;
       commit([opUpsert('transactions', rec)], `${label} ${money(amount)} ${dir === 'out' ? 'to' : 'from'} ${p.name}`);
-      if (shareSettle(rec, p.id, dir)) setTimeout(() => toast(`${p.name} will see this in their app too.`), 1500);
+      if (shareSettle(rec, p.id, dir, d.what)) setTimeout(() => toast(`${p.name} will see this in their app too.`), 1500);
       const after = (M.balances.get(p.id) || 0);
       toast(`${p.name}: ${personLine(after).text.toLowerCase()}`, 'success');
     },
@@ -3853,23 +3912,78 @@ function openPersonMoney(personId, dir, presetAmount = '', preset = {}) {
 function openPersonHistory(personId) {
   const p = accountById(personId);
   if (!p) return;
-  const list = sortTxns(db.transactions.filter((t) => t.fromAccountId === p.id || t.toAccountId === p.id));
-  let run = M.balances.get(p.id) || 0;
+  const list = sortTxns(db.transactions.filter((t) => (t.fromAccountId === p.id || t.toAccountId === p.id) && !(p.openingDate && t.date < p.openingDate)));
+  const bal = M.balances.get(p.id) || 0, bd = personBreakdown(p);
+  let run = bal;
+  const label = Object.fromEntries(PERSON_SOURCES);
   const rows = list.map((t) => {
     const signed = t.toAccountId === p.id ? num(t.amount) : -num(t.amount);
-    const r = `<tr><td>${fmtDate(t.date)}</td><td>${esc(t.forHome ? `Home: ${t.description || t.category}` : t.description || t.category)}${t.forHome ? ` <span class="pill ${t.homeSettled ? 'in' : 'due'}">${t.homeSettled ? 'taken back' : 'to take back'}</span>` : ''}</td>
-      <td class="${signed > 0 ? 'text-gain' : 'text-loss'}">${signed > 0 ? '+' : '−'}${money(Math.abs(signed))}</td><td>${money(run)}</td></tr>`;
+    const shared = t.relatedType === 'person' && (t.sharedFrom || t.sharedOut);
+    const r = `<tr><td>${fmtDate(t.date)}</td>
+      <td>${esc(t.forHome ? `Home: ${t.description || t.category}` : t.description || t.category)}<div class="text-xs text-ink-3">${esc(label[personSource(t)])}${shared ? ` · shared with ${esc(p.name)}` : ''}${t.forHome ? (t.homeSettled ? ' · taken back' : ' · to take back') : ''}</div></td>
+      <td class="${signed > 0 ? 'text-gain' : 'text-loss'} num">${signed > 0 ? '+' : '−'}${money(Math.abs(signed))}</td><td class="num">${money(run)}</td>
+      <td class="whitespace-nowrap"><button type="button" class="icon-btn sm" data-action="person-txn-edit" data-id="${t.id}" aria-label="Edit"><i class="fa-regular fa-pen-to-square"></i></button>
+        <button type="button" class="icon-btn sm" data-action="person-txn-del" data-id="${t.id}" data-person="${p.id}" aria-label="Delete"><i class="fa-regular fa-trash-can"></i></button></td></tr>`;
     run -= signed;
     return r;
   });
+  const parts = [['start', 'Starting balance'], ...PERSON_SOURCES].filter(([k]) => Math.abs(bd[k]) >= 0.5);
   openModal({
     title: `${p.name}: history`,
     wide: true,
-    body: `<p class="text-sm mb-3"><b class="${personLine(M.balances.get(p.id) || 0).cls}">${personLine(M.balances.get(p.id) || 0).text}</b>. <span class="text-ink-3">+ means they owe you more, − means less.</span></p>
-      <div class="overflow-x-auto"><table class="sched"><thead><tr><th>Date</th><th>What</th><th>Change</th><th>Balance after</th></tr></thead>
-      <tbody>${rows.join('')}<tr class="done"><td>${fmtDate(p.openingDate)}</td><td>Starting balance</td><td></td><td>${money(p.openingBalance)}</td></tr></tbody></table></div>`,
+    body: `<p class="text-sm mb-2"><b class="${personLine(bal).cls}">${personLine(bal).text}</b>. <span class="text-ink-3">+ means they owe you more, − means less.</span></p>
+      ${parts.length ? `<div class="person-bd mb-3">${parts.map(([k, l]) => `<div><span>${esc(l)}</span><b class="num ${bd[k] > 0 ? 'text-gain' : 'text-loss'}">${sourceText(bd[k])}</b></div>`).join('')}</div>` : ''}
+      <div class="overflow-x-auto"><table class="sched"><thead><tr><th>Date</th><th>What</th><th>Change</th><th>Balance after</th><th></th></tr></thead>
+      <tbody>${rows.join('')}<tr class="done"><td>${fmtDate(p.openingDate)}</td><td>Starting balance</td><td></td><td class="num">${money(p.openingBalance)}</td><td>${num(p.openingBalance) ? `<button type="button" class="icon-btn sm" data-action="person-edit" data-id="${p.id}" aria-label="Change the starting balance"><i class="fa-regular fa-pen-to-square"></i></button>` : ''}</td></tr></tbody></table></div>
+      <p class="hint mt-2">Deleting an entry shared with a linked person removes it from their app too. Split bills and shared-flat entries are managed on their own pages.</p>`,
     submitLabel: 'Done', cancelLabel: 'Close', onSubmit: () => {},
   });
+}
+
+/** Save a Lend entry from the Add transaction form (also used to edit one). */
+function saveLendFromForm(d, existing, isNew, amount, LEND_LABEL) {
+  const ops = [];
+  let p = accountById(d.personId);
+  if (!p || d.personId === '__new') {
+    const name = String(d.newLendName || '').trim();
+    if (!name) { toast('Enter the person\'s name.', 'error'); return false; }
+    p = db.accounts.find((a) => a.type === 'person' && a.name.trim().toLowerCase() === name.toLowerCase()) || newPersonRecord(name);
+    if (!accountById(p.id)) ops.push(opUpsert('accounts', p));
+  }
+  if (!d.lendAcc) { toast('Choose your account.', 'error'); return false; }
+  const what = d.lendWhat || 'lent', out = what === 'lent' || what === 'repaid', label = LEND_LABEL[what];
+  const rec = { ...(existing || {}), id: existing?.id || uid('txn'), date: d.date, type: 'transfer', amount, category: label,
+    description: d.description || `${label} ${out ? 'to' : 'from'} ${p.name}`, fromAccountId: out ? d.lendAcc : p.id, toAccountId: out ? p.id : d.lendAcc,
+    relatedType: 'person', relatedId: p.id, notes: d.notes || '' };
+  for (const k of ['forHome', 'homeSettled', 'taxKind', 'taxFy', 'taxRef', 'vehicleId', 'odometer', 'fuelQty', 'fullTank', 'claimPersonId']) delete rec[k];
+  // share it with a linked person (a new entry, or an edit of one you shared before)
+  const linked = sharedOn() && linkedOf(p.id) && !rec.sharedFrom;
+  if (linked) rec.sharedOut = true;
+  ops.push(opUpsert('transactions', rec));
+  commit(ops, `${isNew ? 'Add' : 'Edit'} ${label.toLowerCase()} ${money(amount)} ${out ? 'to' : 'from'} ${p.name}`);
+  if (linked) shareSettle(rec, p.id, out ? 'out' : 'in', what, !isNew && !!existing?.sharedOut);
+  const after = M.balances.get(p.id) || 0;
+  toast(`${p.name}: ${personLine(after).text.toLowerCase()}${linked ? '. They will see it in their app too.' : ''}`, 'success');
+}
+
+/** Delete a person: their lend entries go (and from their app, if linked); expenses you paid for home stay as your own. */
+function deletePerson(p) {
+  const list = db.transactions.filter((t) => t.fromAccountId === p.id || t.toAccountId === p.id);
+  const home = list.filter((t) => t.forHome), shares = list.filter((t) => ['split', 'flat'].includes(t.relatedType));
+  const lend = list.filter((t) => !t.forHome && !['split', 'flat'].includes(t.relatedType));
+  if (shares.length) {
+    alert(`${p.name} is part of ${shares.length} split bill or shared-flat entr${shares.length === 1 ? 'y' : 'ies'}. Remove those on the Split bills or Shared flat page first, or tick "Hide (archive)" to keep the history and hide ${p.name}.`);
+    return false;
+  }
+  const msg = `Delete ${p.name}?${lend.length ? `\n\n${lend.length} lend/borrow entr${lend.length === 1 ? 'y' : 'ies'} will be deleted${p.linkedUser ? ', also from their FinRi' : ''}.` : ''}${home.length ? `\n${home.length} home expense${home.length === 1 ? '' : 's'} will stay as your own expense${home.length === 1 ? '' : 's'}.` : ''}`;
+  if (!confirm(msg)) return false;
+  const ops = [];
+  for (const t of lend) ops.push(opDelete('transactions', t.id));
+  for (const t of home) { const k = { ...t, type: 'expense', toAccountId: '' }; delete k.forHome; delete k.homeSettled; ops.push(opUpsert('transactions', k)); }
+  ops.push(opDelete('accounts', p.id));
+  commit(ops, `Delete person ${p.name}`);
+  if (sharedOn()) for (const t of lend) if (t.relatedType === 'person' && (t.sharedFrom || t.sharedOut)) queueShared({ kind: 'delete', id: t.sharedFrom || t.id });
+  toast(`${p.name} deleted.`, 'success');
 }
 
 /** Mark the ticked home expenses as taken back, optionally recording the money received. */
@@ -5110,7 +5224,8 @@ function openTaxItem() {
       (GitHub Actions, free) checks data.json every evening and sends a push
       through ntfy.sh to the free ntfy app on your phone, only when nothing is
       logged or something is due tomorrow. Notifications contain no amounts. */
-const APP_URL = () => location.origin + location.pathname.replace(/index\.html$/, '');
+// Inside the phone app the page lives on the device, so links point to the FinRi website instead.
+const APP_URL = () => (typeof isNative === 'function' && isNative() && window.FINRI_CONFIG?.webUrl) || location.origin + location.pathname.replace(/index\.html$/, '');
 const randomTopic = () => `kosh-${Array.from(crypto.getRandomValues(new Uint8Array(9)), (b) => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('')}`;
 function istToUtc(hhmm) {
   const [h, m] = String(hhmm || '21:00').split(':').map(Number);
@@ -5120,9 +5235,9 @@ function istToUtc(hhmm) {
 function downloadReminderIcs(time) {
   const { h, m } = istToUtc(time);
   const start = todayStr().replace(/-/g, '') + `T${pad2(h)}${pad2(m)}00Z`;
-  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//KOSH//Kundans Finance//EN', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//FinRi//FinRi//EN', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
     `UID:kosh-daily-${Date.now()}@kosh`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`, `DTSTART:${start}`, 'DURATION:PT5M', 'RRULE:FREQ=DAILY',
-    "SUMMARY:Log today's expenses", `URL:${APP_URL()}`, `DESCRIPTION:Open Kundan's Finance and add what you spent today: ${APP_URL()}`,
+    "SUMMARY:Log today's expenses", `URL:${APP_URL()}`, `DESCRIPTION:Open FinRi and add what you spent today: ${APP_URL()}`,
     'BEGIN:VALARM', 'TRIGGER:PT0M', 'ACTION:DISPLAY', "DESCRIPTION:Log today's expenses", 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
   download('kosh-daily-reminder.ics', ics, 'text/calendar');
   toast('Open the downloaded file and tap "Add" to put the reminder in your calendar.', 'success');
@@ -5130,7 +5245,7 @@ function downloadReminderIcs(time) {
 async function sendTestNotification(topic) {
   if (!topic) { toast('Create a topic first.', 'error'); return; }
   try {
-    await ntfyPublish({ topic, title: "Kundan's Finance", message: 'Test notification. Your notifications will arrive like this.', tags: ['moneybag'], click: APP_URL() });
+    await ntfyPublish({ topic, title: "FinRi", message: 'Test notification. Your notifications will arrive like this.', tags: ['moneybag'], click: APP_URL() });
     toast('Sent. It should appear in the ntfy app within a few seconds.', 'success');
   } catch (e) { toast(`Couldn't send: ${e.message}`, 'error'); }
 }
@@ -5155,9 +5270,9 @@ if (!title) { console.log('Nothing to remind.'); process.exit(0); }
 if (home && now.getDay() === 0) body += ' ' + home + ' home expense(s) still to take back.';
 fetch('https://ntfy.sh/' + process.env.TOPIC, { method: 'POST', body, headers: { Title: title, Tags: 'moneybag', Click: process.env.APP_URL } })
   .then((r) => console.log('ntfy', r.status)).catch((e) => { console.error(e); process.exit(1); });`;
-  return `# Daily reminder for Kundan's Finance (KOSH). Created by the app.
+  return `# Daily reminder for FinRi. Created by the app.
 # Runs every day at ${time} India time (GitHub may run it a few minutes late).
-name: KOSH daily reminder
+name: FinRi daily reminder
 on:
   schedule:
     - cron: '${m} ${h} * * *'
@@ -5192,7 +5307,7 @@ async function setupPhoneReminders(topic, time) {
   try {
     const cur = await ghPath(workflowPath());
     const sha = cur.ok ? (await cur.json()).sha : undefined;
-    const res = await ghPath(workflowPath(), 'PUT', { message: 'KOSH: daily reminder', content: toBase64(yml), branch: config.branch || 'main', ...(sha ? { sha } : {}) });
+    const res = await ghPath(workflowPath(), 'PUT', { message: 'FinRi: daily reminder', content: toBase64(yml), branch: config.branch || 'main', ...(sha ? { sha } : {}) });
     if (res.status === 403 || res.status === 404) throw Object.assign(new Error('perm'), { perm: true });
     if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
     commit([opSettings({ ntfyTopic: topic, reminderTime: time })], 'Turn on phone reminders');
@@ -5218,7 +5333,7 @@ async function removePhoneReminders() {
     const cur = await ghPath(workflowPath());
     if (cur.ok) {
       const { sha } = await cur.json();
-      const res = await ghPath(workflowPath(), 'DELETE', { message: 'KOSH: remove daily reminder', sha, branch: config.branch || 'main' });
+      const res = await ghPath(workflowPath(), 'DELETE', { message: 'FinRi: remove daily reminder', sha, branch: config.branch || 'main' });
       if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
     }
     commit([opSettings({ ntfyTopic: '' })], 'Turn off phone reminders');
@@ -5244,6 +5359,7 @@ const isIOS = () => /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.
 const isStandalone = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator) || location.protocol !== 'https:') return;
+  if (typeof isNative === 'function' && isNative()) return; // the phone app ships its files inside the app
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker', e));
 }
 function installCard() {
@@ -5635,10 +5751,10 @@ function target(hhmm) {
     console.log(n.type, n.time, 'sent at', new Date(Date.now() + IST_MS).toISOString().slice(11, 19), 'IST', r.status);
   }
 })().catch((e) => { console.error(e); process.exit(1); });`;
-  return `# Phone notifications for Kundan's Finance (KOSH). Created by the app; it rewrites
+  return `# Phone notifications for FinRi. Created by the app; it rewrites
 # this file when you change your notifications. Times below are UTC (India minus 5:30),
 # ${NOTIFY_LEAD_MIN} minutes early, waits until the exact India time, then sends the message.
-name: KOSH notifications
+name: FinRi notifications
 on:
   schedule:
 ${crons.length ? crons.map((c) => `    - cron: '${c}'   # for ${map[c].join(', ')} India time`).join('\n') : "    - cron: '0 0 1 1 *'"}
@@ -5673,7 +5789,7 @@ async function syncNotifyWorkflow({ quiet = false } = {}) {
     const yml = notifyWorkflow();
     const cur = await ghPath(workflowPath());
     const sha = cur.ok ? (await cur.json()).sha : undefined;
-    const res = await ghPath(workflowPath(), 'PUT', { message: 'KOSH: update notifications', content: toBase64(yml), branch: config.branch || 'main', ...(sha ? { sha } : {}) });
+    const res = await ghPath(workflowPath(), 'PUT', { message: 'FinRi: update notifications', content: toBase64(yml), branch: config.branch || 'main', ...(sha ? { sha } : {}) });
     if (res.status === 403 || res.status === 404) { notifyState.error = 'perm'; if (!quiet) showWorkflowManual(yml); return false; }
     if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
     notifyState.error = '';
@@ -6833,7 +6949,7 @@ function reviewTool() {
   return `<div class="flex items-center gap-3 mb-4"><label class="lbl !mb-0" for="ry">Year</label><select id="ry" class="inp !w-auto" data-p="review.year" data-rerender>${(years.length ? years : [y]).map((v) => `<option ${v === y ? 'selected' : ''}>${v}</option>`).join('')}</select>
       <button class="btn btn-sm" data-action="review-share"><i class="fa-solid fa-share-nodes"></i> Share</button></div>
     <section class="wrapped" id="wrapped">
-      <div class="wrap-head"><div class="display text-3xl font-semibold">${esc(db.settings.ownerName || 'Your')}'s ${y}</div><div class="hero-dim text-sm">in money, with KOSH</div></div>
+      <div class="wrap-head"><div class="display text-3xl font-semibold">${esc(db.settings.ownerName || 'Your')}'s ${y}</div><div class="hero-dim text-sm">in money, with FinRi</div></div>
       <div class="wrap-grid">
         ${tile('Money in', money(Math.round(income)))}${tile('Spent', money(Math.round(total)))}${tile('Invested', money(Math.round(inv)))}
         ${tile('Kept', kept === null ? '–' : `${kept}%`, 'of what came in')}
@@ -6848,8 +6964,9 @@ function reviewTool() {
 function shareReview() {
   const el = $('#wrapped'); if (!el) return;
   const text = [...el.querySelectorAll('.wrap-tile')].map((t) => `${t.querySelector('.wrap-label').textContent}: ${t.querySelector('.wrap-value').textContent}`).join('\n');
-  const msg = `${el.querySelector('.wrap-head .display').textContent}\n${text}\n\nTracked with KOSH`;
-  if (navigator.share) navigator.share({ text: msg }).catch(() => {});
+  const msg = `${el.querySelector('.wrap-head .display').textContent}\n${text}\n\nTracked with FinRi`;
+  if (typeof isNative === 'function' && isNative()) nativePlugin('Share')?.share({ text: msg, dialogTitle: 'Share your year' }).catch(() => {});
+  else if (navigator.share) navigator.share({ text: msg }).catch(() => {});
   else navigator.clipboard?.writeText(msg).then(() => toast('Copied. Paste it anywhere to share.', 'success'));
 }
 
@@ -7112,13 +7229,13 @@ function accountIcon(a, cls = '') {
 }
 
 /* ===== Several people, one GitHub repository (test setup) =====
-   Each person picks a KOSH username and gets their own data file:
+   Each person picks a FinRi username and gets their own data file:
      users/<username>/data.json        (their private ledger, synced as before)
    Small shared files sit next to them:
-     kosh/users.json                   who uses this KOSH (username, name)
+     kosh/users.json                   who uses this FinRi (username, name)
      kosh/shared.json                  shared splits and settle-ups between linked people
      kosh/portfolio/<username>.json    portfolio summary, only if that person chooses to share it
-   Link a person on your People page to their KOSH username. Then:
+   Link a person on your People page to their FinRi username. Then:
    - a bill you split with them appears in their app as what they owe you (or you owe them)
    - money you record giving or getting from them appears on their side too
    - family members can see each other's shared portfolios and a combined total
@@ -7168,14 +7285,24 @@ async function flushShared() {
     const list = (data && data.records) || [];
     let changed = false;
     for (const item of q) {
-      if (item.kind === 'post' && !list.some((x) => x.id === item.rec.id)) { list.push({ ...item.rec, at: new Date().toISOString() }); changed = true; }
-      if (item.kind === 'delete') { const r = list.find((x) => x.id === item.id && x.by === myUser()); if (r && !r.deleted) { r.deleted = true; changed = true; } }
+      const now = new Date().toISOString();
+      if (item.kind === 'post') {
+        const old = list.find((x) => x.id === item.rec.id);
+        if (!old) { list.push({ ...item.rec, at: item.rec.at || now }); changed = true; }
+        else if (item.replace && old.by === myUser() && !old.deleted) { Object.assign(old, item.rec, { at: now }); changed = true; } // an edit: the other side updates its copy
+      }
+      if (item.kind === 'delete') {
+        // the person who made it, or anyone it involves, can delete it; it then disappears from everyone's app
+        const r = list.find((x) => x.id === item.id && (x.by === myUser() || recordInvolves(x, myUser())));
+        if (r && !r.deleted) { r.deleted = true; r.deletedBy = myUser(); r.at = now; changed = true; }
+      }
     }
     return changed ? { records: list } : null;
-  }, `KOSH: shared entries from ${myUser()}`);
+  }, `FinRi: shared entries from ${myUser()}`);
   writeLS(SHARED_QUEUE, []);
 }
 const linkedOf = (personId) => accountById(personId)?.linkedUser || '';
+const recordInvolves = (r, u) => r.by === u || r.payer === u || r.payee === u || (r.shares || []).some((x) => x.user === u);
 /** A person's display name: from their profile (looked up by username), or from shared records that mention them. */
 function userName(u) {
   if (!u) return '';
@@ -7199,10 +7326,12 @@ function shareSplit({ splitId, payer, shares, d }) {
   return linkedShares.filter((x) => x.user !== myUser()).length;
 }
 /** Called after money is recorded with a linked person, and for home expenses they'll pay back. */
-function shareSettle(rec, personId, dir) {
+function shareSettle(rec, personId, dir, what = '', replace = false) {
   const other = linkedOf(personId);
   if (!sharedOn() || !other) return false;
-  queueShared({ kind: 'post', rec: { id: rec.id, type: 'settle', by: myUser(), byName: db.settings.ownerName || myUser(), date: rec.date, amount: rec.amount, note: rec.description, payer: dir === 'out' ? myUser() : other, payee: dir === 'out' ? other : myUser() } });
+  const kind = what || ({ Lent: 'lent', Repaid: 'repaid', Borrowed: 'borrowed', 'Got back': 'gotback' })[rec.category] || (dir === 'out' ? 'lent' : 'borrowed');
+  queueShared({ kind: 'post', replace, rec: { id: rec.id, type: 'settle', what: kind, by: myUser(), byName: db.settings.ownerName || myUser(), date: rec.date, amount: rec.amount, note: rec.description,
+    payer: dir === 'out' ? myUser() : other, payee: dir === 'out' ? other : myUser(), at: new Date().toISOString() } });
   return true;
 }
 function shareHomeClaim(rec) {
@@ -7225,25 +7354,37 @@ function personFor(user, ops, made) {
   return p.id;
 }
 function applyShared() {
-  const meU = myUser(), applied = new Set(db.settings.sharedApplied || []);
+  const meU = myUser(), applied = new Set(db.settings.sharedApplied || []), versions = { ...(db.settings.sharedVersions || {}) };
   const ops = [], made = {};
   const acc = db.settings.defaultAccountId && accountById(db.settings.defaultAccountId) ? db.settings.defaultAccountId : firstAccountOf(['bank']) || firstAccountOf(['cash']);
-  let added = 0, removed = 0;
+  let added = 0, removed = 0, updated = 0, waiting = 0;
+  const dropMirrors = (id) => { for (const t of db.transactions.filter((x) => x.sharedFrom === id || (x.relatedId === id && x.relatedType !== 'person'))) { ops.push(opDelete('transactions', t.id)); removed++; } };
   // Shared splits/settle-ups from others, plus every shared-flat entry (including your own, so your
   // ledger gets them the same way as your flatmates').
   for (const r of [...shared.records, ...(typeof flatRecords === 'function' ? flatRecords() : [])]) {
-    if (r.by === meU && !r.mirrorSelf) continue;
+    if (r.by === meU && !r.mirrorSelf) {
+      // something you shared was deleted by the other person: remove it from your app too
+      if (r.deleted && r.deletedBy && r.deletedBy !== meU) {
+        for (const t of db.transactions.filter((x) => x.id === r.id || (x.relatedType === 'split' && x.relatedId === r.id))) { ops.push(opDelete('transactions', t.id)); removed++; }
+      }
+      continue;
+    }
     const mine = r.type === 'split' ? r.shares.some((x) => x.user === meU) || r.payer === meU : r.payer === meU || r.payee === meU;
     if (!mine) continue;
     if (r.deleted) {
-      if (applied.has(r.id)) { for (const t of db.transactions.filter((x) => x.relatedId === r.id || x.sharedFrom === r.id)) { ops.push(opDelete('transactions', t.id)); removed++; } applied.delete(r.id); }
+      if (applied.has(r.id)) { dropMirrors(r.id); applied.delete(r.id); delete versions[r.id]; }
       continue;
     }
-    if (applied.has(r.id) || !acc) continue;
-    const base = { date: r.date, notes: r.flat ? `Shared flat: ${r.flat}` : `Shared by ${userName(r.by)} in KOSH`, sharedFrom: r.id };
+    // an entry the other person edited: replace your copy
+    if (applied.has(r.id)) {
+      if (r.type === 'settle' && r.at && versions[r.id] && versions[r.id] !== r.at) { dropMirrors(r.id); applied.delete(r.id); updated++; }
+      else continue;
+    }
+    if (!acc) { waiting++; continue; } // you need a bank or cash account to record it against
+    const base = { date: r.date, notes: r.flat ? `Shared flat: ${r.flat}` : `Shared by ${userName(r.by)} in FinRi`, sharedFrom: r.id };
     if (r.type === 'split') {
       const myShare = r.shares.find((x) => x.user === meU)?.amount || 0;
-      const common = { ...base, category: r.category || 'Other', description: r.flat ? r.desc : `${r.desc} (split)`, relatedType: r.flat ? 'flat' : 'split', relatedId: r.id, splitTotal: r.total, splitGroup: r.group || '', splitBy: r.flat ? '' : r.by };
+      const common = { ...base, category: r.category || 'Other', description: r.flat ? r.desc : `${r.desc} (split)`, relatedType: r.flat ? 'flat' : 'split', relatedId: r.id, splitTotal: r.total, splitGroup: r.group || '', splitBy: r.flat ? r.flat : userName(r.payer) };
       if (r.payer === meU) {
         if (myShare) ops.push(opUpsert('transactions', { ...common, id: uid('txn'), type: 'expense', amount: myShare, fromAccountId: acc, toAccountId: '' }));
         for (const x of r.shares.filter((y) => y.user !== meU && y.amount > 0)) ops.push(opUpsert('transactions', { ...common, id: uid('txn'), type: 'transfer', amount: x.amount, fromAccountId: acc, toAccountId: personFor(x.user, ops, made) }));
@@ -7251,15 +7392,20 @@ function applyShared() {
     } else if (r.type === 'settle') {
       const other = r.payer === meU ? r.payee : r.payer;
       const pid = personFor(other, ops, made);
-      ops.push(opUpsert('transactions', { ...base, id: uid('txn'), type: 'transfer', amount: r.amount, category: r.payee === meU ? 'Got back' : 'Repaid', description: `${r.payee === meU ? 'From' : 'To'} ${userName(other)}${r.note && !/^(Lent|Repaid|Borrowed|Got back) (to|from) /.test(r.note) ? `: ${r.note}` : ''}`,
+      // what it is from your side: they lent → you borrowed; they repaid → you got back; and the other way round
+      const mineKind = { lent: 'Borrowed', repaid: 'Got back', borrowed: 'Lent', gotback: 'Repaid' }[r.what] || (r.payee === meU ? 'Borrowed' : 'Lent');
+      ops.push(opUpsert('transactions', { ...base, id: uid('txn'), type: 'transfer', amount: r.amount, category: mineKind,
+        description: `${mineKind} ${r.payee === meU ? 'from' : 'to'} ${userName(other)}${r.note && !/^(Lent|Repaid|Borrowed|Got back)\b/.test(r.note) ? `: ${r.note}` : ''}`,
         fromAccountId: r.payee === meU ? pid : acc, toAccountId: r.payee === meU ? acc : pid, relatedType: 'person', relatedId: pid }));
     }
-    applied.add(r.id); added++;
+    applied.add(r.id); versions[r.id] = r.at || ''; added++;
   }
+  shared.waiting = waiting;
   if (!ops.length && !removed) return;
-  ops.push(opSettings({ sharedApplied: [...applied].slice(-3000) }));
-  commit(ops, `Shared entries from others (${added} new${removed ? `, ${removed} removed` : ''})`);
-  if (added) toast(`${added} shared entr${added === 1 ? 'y' : 'ies'} from people you're linked with ${added === 1 ? 'was' : 'were'} added.`, 'success');
+  const keep = [...applied].slice(-3000);
+  ops.push(opSettings({ sharedApplied: keep, sharedVersions: Object.fromEntries(Object.entries(versions).filter(([k]) => keep.includes(k))) }));
+  commit(ops, `Shared entries from others (${added} new${updated ? `, ${updated} changed` : ''}${removed ? `, ${removed} removed` : ''})`);
+  if (added || removed) toast(added && !updated ? `${added} shared entr${added === 1 ? 'y' : 'ies'} from people you're linked with ${added === 1 ? 'was' : 'were'} added.` : 'Shared entries were updated by the people you share them with.', 'success');
 }
 
 /* ----- Profiles, family portfolio, and the sync loop ----- */
@@ -7282,7 +7428,7 @@ async function syncShared(force = false) {
     if (db.settings.sharePortfolio) {
       const sum = portfolioSummary(), sig = JSON.stringify([sum.totals, sum.holdings]);
       if (localStorage.getItem('kosh.pfSig') !== sig) {
-        await updateJsonFile(pfFile(myUser()), () => sum, `KOSH: ${myUser()} portfolio summary`);
+        await updateJsonFile(pfFile(myUser()), () => sum, `FinRi: ${myUser()} portfolio summary`);
         localStorage.setItem('kosh.pfSig', sig);
       }
     }
@@ -7303,7 +7449,7 @@ async function syncShared(force = false) {
 /* ----- Family portfolio (on the Portfolio page) ----- */
 function familySection() {
   if (!sharedOn()) return `<section class="panel p-5 mt-6"><div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-people-roof mr-1.5 text-royal"></i>Family portfolio</h2></div>
-    <p class="text-sm text-ink-2">See your family's investments together, like a family account. Set your KOSH username in Settings (GitHub storage) to start.</p></section>`;
+    <p class="text-sm text-ink-2">See your family's investments together, like a family account. Set your FinRi username in Settings (GitHub storage) to start.</p></section>`;
   const incoming = familyIncoming();
   const members = (db.settings.familyMembers || []).filter((u) => familyStatus(u) === 'accepted').map((u) => ({ u, p: shared.portfolios[u] }));
   const waiting = (db.settings.familyMembers || []).filter((u) => ['waiting', 'declined'].includes(familyStatus(u)));
@@ -7337,7 +7483,7 @@ function familySection() {
 function openFamilyAdd() {
   openModal({
     title: 'Add a family member',
-    body: `${usernameField('u', 'Their KOSH username')}<p class="hint">Ask them for their username. They get an invitation to accept or decline; once they accept, you each see the other's portfolio, if the other person shares it.</p>`,
+    body: `${usernameField('u', 'Their FinRi username')}<p class="hint">Ask them for their username. They get an invitation to accept or decline; once they accept, you each see the other's portfolio, if the other person shares it.</p>`,
     submitLabel: 'Send invitation',
     onOpen: (form) => bindUsernameField(form, 'u'),
     onSubmit: async (d) => {
@@ -7347,14 +7493,14 @@ function openFamilyAdd() {
       if ((db.settings.familyMembers || []).includes(d.u) && familyStatus(d.u) !== 'none') { toast(`${userName(d.u)} is already in your family list.`); return false; }
       try { await sendFamilyInvite(d.u); } catch (e) { toast(`Couldn't send: ${e.message}`, 'error'); return false; }
       commit([opSettings({ familyMembers: [...new Set([...(db.settings.familyMembers || []), d.u])] })], 'Invite family member');
-      toast(`Invitation sent. ${userName(d.u)} will see it the next time they open KOSH.`, 'success');
+      toast(`Invitation sent. ${userName(d.u)} will see it the next time they open FinRi.`, 'success');
     },
   });
 }
-/** "People on this KOSH", for Settings. */
+/** "People on this FinRi", for Settings. */
 function sharedUsersList() {
-  if (!sharedOn()) return '<p class="hint">Set a KOSH username to share splits and portfolios with others who use this same repository.</p>';
-  return `<div class="callout text-sm">Your KOSH username is <b>@${esc(myUser())}</b>. Family and flatmates add you by typing it. Nobody can see a list of who uses KOSH.</div>`;
+  if (!sharedOn()) return '<p class="hint">Set a FinRi username to share splits and portfolios with others who use this same repository.</p>';
+  return `<div class="callout text-sm">Your FinRi username is <b>@${esc(myUser())}</b>. Family and flatmates add you by typing it. Nobody can see a list of who uses FinRi.</div>`;
 }
 
 /* ----- Family invitations (yes / no) ----- */
@@ -7374,7 +7520,7 @@ async function sendFamilyInvite(u) {
     const list = (d && d.invites) || [];
     if (list.some((x) => x.type === 'family' && x.from === myUser() && x.to === u && x.status === 'pending')) return null;
     return { invites: [...list, iv] };
-  }, `KOSH: ${myUser()} invited ${u} as family`);
+  }, `FinRi: ${myUser()} invited ${u} as family`);
   shared.invites = (next && next.invites) || shared.invites;
 }
 async function answerFamilyInvite(id, yes, share) {
@@ -7385,13 +7531,13 @@ async function answerFamilyInvite(id, yes, share) {
     if (!x || x.status !== 'pending') return null;
     x.status = yes ? 'accepted' : 'declined'; x.answeredAt = new Date().toISOString();
     return { invites: list };
-  }, `KOSH: ${myUser()} ${yes ? 'accepted' : 'declined'} a family invitation`);
+  }, `FinRi: ${myUser()} ${yes ? 'accepted' : 'declined'} a family invitation`);
   shared.invites = (next && next.invites) || shared.invites;
   const ops = [];
   if (yes) ops.push(opSettings({ familyMembers: [...new Set([...(db.settings.familyMembers || []), iv.from])], ...(share ? { sharePortfolio: true } : {}) }));
   if (ops.length) commit(ops, yes ? `Family with ${iv.from}` : 'Decline family invitation');
   if (share) localStorage.removeItem('kosh.pfSig');
-  toast(yes ? `You and ${userName(iv.from)} are now family in KOSH.` : 'Declined.', yes ? 'success' : undefined);
+  toast(yes ? `You and ${userName(iv.from)} are now family in FinRi.` : 'Declined.', yes ? 'success' : undefined);
   syncShared(true);
 }
 async function endFamily(u) {
@@ -7400,7 +7546,7 @@ async function endFamily(u) {
     let changed = false;
     for (const x of list) if (x.type === 'family' && ((x.from === myUser() && x.to === u) || (x.from === u && x.to === myUser())) && x.status !== 'ended') { x.status = 'ended'; x.endedAt = new Date().toISOString(); changed = true; }
     return changed ? { invites: list } : null;
-  }, `KOSH: ${myUser()} removed ${u} from family`).catch(() => {});
+  }, `FinRi: ${myUser()} removed ${u} from family`).catch(() => {});
 }
 /** Keep your family list in step: add people whose invitation you accepted elsewhere, drop ended ones. */
 function syncFamilyFromInvites() {
@@ -7454,7 +7600,7 @@ async function publishProfile() {
   if (localStorage.getItem('kosh.profileSig') === sig) return;
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await dirKey(me), enc(sig));
-  await updateJsonFile(`${DIR}/${await dirCode(me)}.json`, () => ({ v: 1, iv: b64(iv), data: b64(data), updated: todayStr() }), 'KOSH: profile card');
+  await updateJsonFile(`${DIR}/${await dirCode(me)}.json`, () => ({ v: 1, iv: b64(iv), data: b64(data), updated: todayStr() }), 'FinRi: profile card');
   localStorage.setItem('kosh.profileSig', sig);
 }
 /** Find a person by username: their profile card, or null if no one has that username. */
@@ -7473,7 +7619,7 @@ async function lookupUser(username) {
 }
 async function checkUsername(value) {
   const u = normUser(value);
-  if (!u) return { ok: false, msg: 'Type their KOSH username.' };
+  if (!u) return { ok: false, msg: 'Type their FinRi username.' };
   if (!/^[a-z0-9_-]{2,30}$/.test(u)) return { ok: false, msg: 'Usernames use only lowercase letters, numbers, - or _.' };
   if (u === myUser()) return { ok: false, msg: 'That is your own username.' };
   if (!navigator.onLine) return { ok: false, msg: 'You are offline. Checking a username needs the internet.' };
@@ -7520,11 +7666,11 @@ async function leaveOldUsersList() {
     if (!d || !d.users) return null;
     const list = d.users.filter((x) => x.username !== myUser());
     return list.length === d.users.length ? null : { users: list };
-  }, 'KOSH: leave the old people list').catch(() => {});
+  }, 'FinRi: leave the old people list').catch(() => {});
   localStorage.setItem('kosh.leftUsersList', myUser());
 }
 
-/* ===== Sign in with a KOSH username and password =====
+/* ===== Sign in with a FinRi username and password =====
    Each person has their own private data repository, and a GitHub token that can open
    only that repository and the shared one. The owner (you) makes a small login file for
    each person: their token and repository names, encrypted with the password they choose
@@ -7552,14 +7698,16 @@ async function openLoginFile(file, password) {
 }
 async function signIn(user, password) {
   user = normUser(user);
-  if (!/^[a-z0-9_-]{2,30}$/.test(user)) throw new Error('Enter your KOSH username.');
-  const res = await fetch(`logins/${user}.json`, { cache: 'no-store' });
+  if (!/^[a-z0-9_-]{2,30}$/.test(user)) throw new Error('Enter your FinRi username.');
+  const res = await fetch(loginUrl(user), { cache: 'no-store' });
   if (!res.ok) throw new Error('Wrong username or password.');
   const s = await openLoginFile(await res.json(), password);
   if (db.transactions.length && config.user && config.user !== user && !confirm('Another person\'s data is on this device. Sign in anyway? Their unsynced changes stay in this browser until they sign in again.')) return false;
   const switching = config.user !== user;
-  // Signed in with a login file → a member, not the owner (owner-only tools are hidden).
-  config = { owner: s.owner, repo: s.repo, sharedRepo: s.sharedRepo || '', branch: s.branch || 'main', path: s.path || 'data.json', token: s.token, user, role: 'member' };
+  // The login file says whose it is: the owner's own login makes this the owner's device;
+  // every other login is a member's (owner-only tools are hidden). The role sits inside the
+  // locked part of the file, so it can't be changed without the password.
+  config = { owner: s.owner, repo: s.repo, sharedRepo: s.sharedRepo || '', branch: s.branch || 'main', path: s.path || 'data.json', token: s.token, user, role: s.role === 'owner' ? 'owner' : 'member' };
   writeLS(STORAGE_KEYS.config, config);
   if (switching) { db = normalizeDB(emptyDB()); persist(); writeLS(STORAGE_KEYS.pending, []); }
   setSyncStatus('syncing');
@@ -7580,7 +7728,7 @@ function signOut() {
 function signInCard() {
   if (isConfigured()) return '';
   return `<section class="panel p-5 mb-6 signin-card"><div class="flex flex-col sm:flex-row sm:items-end gap-4">
-    <div class="flex-1"><h2 class="panel-title">Sign in to your KOSH</h2><p class="text-sm text-ink-2 mt-1">Use the username and password you were given. Your data stays in your own private repository.</p></div>
+    <div class="flex-1"><h2 class="panel-title">Sign in to your FinRi</h2><p class="text-sm text-ink-2 mt-1">Use the username and password you were given. Your data stays in your own private repository.</p></div>
     <form id="signinForm" class="flex flex-col sm:flex-row gap-2 sm:items-end" autocomplete="on">
       <input class="inp" name="user" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
       <input class="inp" name="password" type="password" placeholder="Password" autocomplete="current-password" required>
@@ -7599,7 +7747,7 @@ function openMakeLogin() {
   openModal({
     title: 'Create a login for someone',
     body: `<p class="text-sm text-ink-2">Before this: create a private repository for them (e.g. <code>kosh-rahul</code>) and a fine-grained token limited to that repository and your shared repository, with Contents: Read and write. Steps are in the README.</p>
-      ${twoCol(field('Their KOSH username', input('user', '', 'required placeholder="rahul" autocapitalize="none" spellcheck="false"')), field('Their name', input('name', '', 'placeholder="Rahul Sharma"')))}
+      ${twoCol(field('Their FinRi username', input('user', '', 'required placeholder="rahul" autocapitalize="none" spellcheck="false"')), field('Their name', input('name', '', 'placeholder="Rahul Sharma"')))}
       ${twoCol(field('Their data repository', input('repo', '', 'required placeholder="kosh-rahul" spellcheck="false"')), field('Shared repository', input('sharedRepo', config.sharedRepo || '', 'placeholder="kosh-shared" spellcheck="false"'), 'Leave empty if you do not use family features.'))}
       ${field('Their token', input('token', '', 'type="password" required placeholder="github_pat_…" autocomplete="off"'))}
       ${twoCol(field('Their password', input('password', '', 'type="password" required minlength="10" autocomplete="new-password"'), 'At least 10 characters; longer is safer.'), field('Password again', input('password2', '', 'type="password" required autocomplete="new-password"')))}`,
@@ -7609,12 +7757,39 @@ function openMakeLogin() {
       if (!/^[a-z0-9_-]{2,30}$/.test(user)) { toast('Username: 2 to 30 lowercase letters, numbers, - or _.', 'error'); return false; }
       if (d.password !== d.password2) { toast('The passwords don\'t match.', 'error'); return false; }
       if (String(d.password).length < 10) { toast('Use at least 10 characters for the password.', 'error'); return false; }
-      const file = await makeLoginFile(user, d.password, { owner: config.owner, repo: d.repo.trim(), sharedRepo: (d.sharedRepo || '').trim(), branch: 'main', path: 'data.json', token: d.token.trim(), name: d.name || '' });
+      if (user === myUser()) { toast('That is your own username. Use "Create my own login" instead.', 'error'); return false; }
+      const file = await makeLoginFile(user, d.password, { owner: config.owner, repo: d.repo.trim(), sharedRepo: (d.sharedRepo || '').trim(), branch: 'main', path: 'data.json', token: d.token.trim(), name: d.name || '', role: 'member' });
       download(`${user}.json`, JSON.stringify(file, null, 1), 'application/json');
       toast(`Downloaded ${user}.json. Upload it to the logins folder of your app's website repository.`, 'success');
     },
   });
 }
+
+/** The owner's own login: everything comes from this device's set-up; only a password is chosen.
+    Signing in with it on any device (phone app, another browser) makes that device the owner's. */
+function openMakeOwnLogin() {
+  if (!isOwner() || !isConfigured() || !myUser()) { toast('Only the owner can do this, on the device set up with GitHub.', 'error'); return; }
+  openModal({
+    title: 'Create my own login',
+    body: `<p class="text-sm text-ink-2">This makes a login for <b>@${esc(myUser())}</b> (${esc(db.settings.ownerName || myUser())}), the owner, using this device's GitHub set-up. Signing in with it on your phone or any other device opens your data <b>as the owner</b>, with all owner tools.</p>
+      <div class="callout text-sm"><b>Choose a strong password.</b> Your login file contains your GitHub token, locked with this password, and it sits on your public website like the others. Use at least 12 characters, ideally a short sentence only you know.</div>
+      ${twoCol(field('Password', input('password', '', 'type="password" required minlength="12" autocomplete="new-password"')), field('Password again', input('password2', '', 'type="password" required minlength="12" autocomplete="new-password"')))}
+      <ol class="list-decimal ml-5 text-sm space-y-1 mt-1"><li>Tap <b>Create my login</b>: <b>${esc(myUser())}.json</b> downloads.</li>
+        <li>Upload it to the <b>logins</b> folder of your website repository (the same place as other people's logins).</li>
+        <li>Wait 1–2 minutes, then sign in on your phone with <b>${esc(myUser())}</b> and this password.</li></ol>`,
+    submitLabel: 'Create my login',
+    onSubmit: async (d) => {
+      if (d.password !== d.password2) { toast('The passwords don\'t match.', 'error'); return false; }
+      if (String(d.password).length < 12) { toast('Use at least 12 characters for your password.', 'error'); return false; }
+      const file = await makeLoginFile(myUser(), d.password, { owner: config.owner, repo: config.repo, sharedRepo: config.sharedRepo || '', branch: config.branch || 'main', path: config.path || 'data.json', token: config.token, name: db.settings.ownerName || myUser(), role: 'owner' });
+      download(`${myUser()}.json`, JSON.stringify(file, null, 1), 'application/json');
+      toast(`Downloaded ${myUser()}.json. Upload it to the logins folder of your website repository.`, 'success');
+    },
+  });
+}
+
+/** Where login files live: next to the website, or (inside the phone app) on the FinRi website. */
+const loginUrl = (user) => `${window.FINRI_CONFIG?.loginBase || ''}logins/${encodeURIComponent(user)}.json`;
 
 /* ----- Owner or member -----
    The owner connects GitHub by hand in Settings; everyone else signs in with a login file.
@@ -7625,7 +7800,7 @@ const isOwner = () => config.role === 'owner';
 async function settleRole() {
   if (config.role || !isConfigured() || !myUser()) return;
   try {
-    const res = await fetch(`logins/${myUser()}.json`, { cache: 'no-store', method: 'GET' });
+    const res = await fetch(loginUrl(myUser()), { cache: 'no-store', method: 'GET' });
     if (res.status === 404 || res.ok) { config = { ...config, role: res.ok ? 'member' : 'owner' }; writeLS(STORAGE_KEYS.config, config); }
   } catch { /* offline: decide next time */ }
 }
@@ -7654,7 +7829,7 @@ async function goldSpot(date) {
   const cache = readLS(GOLD_CACHE, {});
   const hit = cache[isToday ? today : date];
   if (hit && (!isToday || Date.now() - hit.at < 12 * 3600e3)) return hit;
-  // 1. Prices saved by the daily job or by anyone on this KOSH
+  // 1. Prices saved by the daily job or by anyone on this FinRi
   const stored = goldFromStore(isToday ? today : date, isToday);
   if (stored) { stored.at = Date.now(); cache[isToday ? today : date] = stored; writeLS(GOLD_CACHE, cache); return stored; }
   let r = null;
@@ -7837,7 +8012,7 @@ function togglePfGroup(g) {
 }
 
 /* ===== Shared flat (flatmates) =====
-   A home is shared by people who each use KOSH. Its file lives in the shared repository:
+   A home is shared by people who each use FinRi. Its file lives in the shared repository:
      kosh/homes.json            list of homes and their members
      kosh/homes/<homeId>.json   members, recurring costs and every entry
    Anyone in the home can add expenses (rent, bills, groceries...), recurring costs post
@@ -7871,14 +8046,14 @@ async function saveHome(id, mutate, message) {
     if (i >= 0 && JSON.stringify(list[i]) === JSON.stringify(rec)) return null;
     if (i >= 0) list[i] = rec; else list.push(rec);
     return { homes: list };
-  }, 'KOSH: homes list');
+  }, 'FinRi: homes list');
   const meNow = myMembership(next);
   flats.list = flats.list.filter((h) => h.id !== id).concat(meNow && isActiveMember(meNow) && !meNow.left ? [{ id, name: next.name, members: next.members.map((m) => m.user) }] : []);
   flats.invites = (flats.invites || []).filter((h) => h.id !== id);
   applyShared(); render();
   return next;
 }
-const flatGuard = () => { if (!sharedOn()) { toast('Set your KOSH username and shared repository in Settings first.', 'error'); return false; } if (!navigator.onLine) { toast('You are offline. Flat entries need the internet.', 'error'); return false; } return true; };
+const flatGuard = () => { if (!sharedOn()) { toast('Set your FinRi username and shared repository in Settings first.', 'error'); return false; } if (!navigator.onLine) { toast('You are offline. Flat entries need the internet.', 'error'); return false; } return true; };
 
 /* ----- Money maths ----- */
 // Members join only after they accept the invitation; invited or declined people share no costs.
@@ -7935,7 +8110,7 @@ async function postDueRecurring(home) {
       added++;
     }
     return added ? data : null;
-  }, `KOSH: recurring costs for ${home.name}`).catch(() => {});
+  }, `FinRi: recurring costs for ${home.name}`).catch(() => {});
 }
 /** Home entries in the shape the personal-ledger mirror understands (see applyShared). */
 function flatRecords() {
@@ -7952,12 +8127,12 @@ function flatRecords() {
 /* ----- The page ----- */
 function renderFlat() {
   if (sharedOn() && !shared.busy && Date.now() - shared.last > 60000) setTimeout(() => syncShared(true), 0);
-  if (!sharedOn()) return `<section class="panel">${emptyState('fa-house-user', 'Shared flat needs your KOSH username and the shared repository (Settings → GitHub storage). Everyone in the flat needs KOSH too.')}</section>`;
+  if (!sharedOn()) return `<section class="panel">${emptyState('fa-house-user', 'Shared flat needs your FinRi username and the shared repository (Settings → GitHub storage). Everyone in the flat needs FinRi too.')}</section>`;
   const home = flats.homes[flats.current];
   const top = `${(flats.invites || []).length ? invitesCard() : ''}<div class="page-top"><p class="page-intro">Split rent, bills and groceries with flatmates. Everyone sees the same list, and their shares go into their own transactions.</p>
     <button class="btn btn-primary" data-action="flat-new"><i class="fa-solid fa-plus"></i> New home</button></div>
     ${flats.list.length > 1 ? `<div class="chip-row mb-4">${flats.list.map((h) => `<button class="chip ${h.id === flats.current ? 'on' : ''}" data-action="flat-switch" data-id="${h.id}"><i class="fa-solid fa-house-user mr-1"></i>${esc(h.name)}</button>`).join('')}</div>` : ''}`;
-  if (!home) return top + `<section class="panel">${emptyState('fa-house-user', shared.busy ? 'Loading your homes…' : 'No shared home yet. Create one, add your flatmates by their KOSH username, and add the rent.', '<button class="btn btn-primary" data-action="flat-new">Create a home</button>')}</section>`;
+  if (!home) return top + `<section class="panel">${emptyState('fa-house-user', shared.busy ? 'Loading your homes…' : 'No shared home yet. Create one, add your flatmates by their FinRi username, and add the rent.', '<button class="btn btn-primary" data-action="flat-new">Create a home</button>')}</section>`;
   const me = myUser(), net = flatBalances(home), plan = simplifyDebts(net);
   const month = flats.month || thisMonth();
   const monthEntries = home.entries.filter((e) => e.date.startsWith(month)).sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at));
@@ -8033,7 +8208,7 @@ function openHomeForm(existing) {
     body: `${twoCol(field('Home name', input('name', h.name, 'required maxlength="40" placeholder="e.g. Flat 302, Koregaon Park"')), field('Address (optional)', input('address', h.address || '', 'maxlength="80"')))}
       <div><span class="lbl">Who lives here</span><div data-rows>${rowHtml()}</div>
         <p class="hint">Untick someone to remove them (or cancel their invitation). Room share: a bigger room 1.5, others 1; leave all at 1 for equal.</p></div>
-      ${usernameField('addUser', 'Add a flatmate by their KOSH username')}
+      ${usernameField('addUser', 'Add a flatmate by their FinRi username')}
       <button type="button" class="btn btn-sm" data-add-flatmate><i class="fa-solid fa-user-plus"></i> Add to this home</button>
       <p class="hint">Ask flatmates for their username. They get an invitation and join when they tap Join.</p>`,
     submitLabel: isNew ? 'Create home' : 'Save',
@@ -8069,7 +8244,7 @@ function openHomeForm(existing) {
           }
           for (const m of base.members) if (!chosen.includes(m.user) && !m.left) { if (m.status === 'invited') m.status = 'cancelled'; m.left = todayStr(); }
           return base;
-        }, `KOSH: ${isNew ? 'create' : 'update'} home ${d.name}`);
+        }, `FinRi: ${isNew ? 'create' : 'update'} home ${d.name}`);
         flats.current = id; toast(isNew ? 'Home created. Flatmates get an invitation; add the rent once they join.' : 'Saved', 'success');
       } catch (e) { toast(`Couldn't save: ${e.message}`, 'error'); return false; }
     },
@@ -8098,7 +8273,7 @@ function openFlatExpense(home) {
       const r = flatFormShares(home, d);
       if (r.error) { toast(r.error, 'error'); return false; }
       const entry = { id: uid('fe'), date: d.date, desc: d.desc.trim(), amount: round2(num(d.amount)), category: d.category, payer: d.payer, shares: r.shares, kind: 'expense', by: myUser(), at: new Date().toISOString() };
-      try { await saveHome(home.id, (data) => { data.entries.push(entry); return data; }, `KOSH: ${home.name} expense`); toast('Added for everyone in the home.', 'success'); }
+      try { await saveHome(home.id, (data) => { data.entries.push(entry); return data; }, `FinRi: ${home.name} expense`); toast('Added for everyone in the home.', 'success'); }
       catch (e) { toast(`Couldn't save: ${e.message}`, 'error'); return false; }
     },
   });
@@ -8125,7 +8300,7 @@ function openFlatSettle(home, preset = {}) {
     onSubmit: async (d) => {
       if (d.payer === d.payee) { toast('Choose two different people.', 'error'); return false; }
       const entry = { id: uid('fs'), date: d.date, desc: 'Payment', amount: round2(num(d.amount)), category: 'Settle', payer: d.payer, payee: d.payee, kind: 'settle', by: myUser(), at: new Date().toISOString() };
-      try { await saveHome(home.id, (data) => { data.entries.push(entry); return data; }, `KOSH: ${home.name} payment`); toast('Payment recorded.', 'success'); }
+      try { await saveHome(home.id, (data) => { data.entries.push(entry); return data; }, `FinRi: ${home.name} payment`); toast('Payment recorded.', 'success'); }
       catch (e) { toast(`Couldn't save: ${e.message}`, 'error'); return false; }
     },
   });
@@ -8145,17 +8320,17 @@ function openFlatRecurring(home, id) {
     onSubmit: async (d) => {
       const rec = { ...r, id: id || uid('fr'), name: d.name.trim(), amount: round2(num(d.amount)), category: d.category, day: Math.min(28, Math.max(1, int(d.day))), payer: d.payer, split: d.split, active: id ? !!d.active : true, start: r.start || thisMonth() };
       try {
-        await saveHome(home.id, (data) => { const i = data.recurring.findIndex((x) => x.id === rec.id); if (i >= 0) data.recurring[i] = rec; else data.recurring.push(rec); return data; }, `KOSH: ${home.name} recurring ${rec.name}`);
+        await saveHome(home.id, (data) => { const i = data.recurring.findIndex((x) => x.id === rec.id); if (i >= 0) data.recurring[i] = rec; else data.recurring.push(rec); return data; }, `FinRi: ${home.name} recurring ${rec.name}`);
         await postDueRecurring(flats.homes[home.id]);
         toast('Saved', 'success');
       } catch (e) { toast(`Couldn't save: ${e.message}`, 'error'); return false; }
     },
-    onDelete: id ? async () => { if (!confirm(`Stop and remove ${r.name}? Past months stay.`)) return false; await saveHome(home.id, (data) => { data.recurring = data.recurring.filter((x) => x.id !== id); return data; }, 'KOSH: remove recurring'); } : null,
+    onDelete: id ? async () => { if (!confirm(`Stop and remove ${r.name}? Past months stay.`)) return false; await saveHome(home.id, (data) => { data.recurring = data.recurring.filter((x) => x.id !== id); return data; }, 'FinRi: remove recurring'); } : null,
   });
 }
 async function deleteFlatEntry(home, id) {
   if (!flatGuard() || !confirm('Remove this entry for everyone in the home?')) return;
-  await saveHome(home.id, (data) => { const e = data.entries.find((x) => x.id === id); if (!e || e.deleted) return null; e.deleted = true; e.deletedBy = myUser(); e.deletedAt = new Date().toISOString(); return data; }, 'KOSH: remove entry').catch((e) => toast(`Couldn't remove: ${e.message}`, 'error'));
+  await saveHome(home.id, (data) => { const e = data.entries.find((x) => x.id === id); if (!e || e.deleted) return null; e.deleted = true; e.deletedBy = myUser(); e.deletedAt = new Date().toISOString(); return data; }, 'FinRi: remove entry').catch((e) => toast(`Couldn't remove: ${e.message}`, 'error'));
 }
 function exportFlat(home) {
   const rows = [['date', 'kind', 'description', 'category', 'amount', 'paid_by', 'paid_to', ...home.members.map((m) => `share_${m.user}`), 'added_by', 'removed']];
@@ -8185,7 +8360,7 @@ async function answerFlatInvite(id, yes) {
       if (yes) { m.status = 'active'; m.joined = todayStr(); m.answeredAt = new Date().toISOString(); }
       else { m.status = 'declined'; m.left = todayStr(); m.answeredAt = new Date().toISOString(); }
       return data;
-    }, `KOSH: ${myUser()} ${yes ? 'joined' : 'declined'} a home`);
+    }, `FinRi: ${myUser()} ${yes ? 'joined' : 'declined'} a home`);
     if (yes) { flats.current = id; toast('You joined the home. Shared costs from today are split with you.', 'success'); }
     else toast('Declined. The home is not added to your app.');
   } catch (e) { toast(`Couldn't answer: ${e.message}`, 'error'); }
@@ -8207,8 +8382,8 @@ async function deleteHome(id) {
     : `Delete ${home.name} for everyone? Monthly costs stop. Expenses already added stay in each person's own transactions.`;
   if (!confirm(msg)) return false;
   try {
-    await updateJsonFile(homeFile(id), (data) => (data ? { ...data, deleted: true, deletedBy: myUser(), deletedAt: new Date().toISOString(), recurring: (data.recurring || []).map((r) => ({ ...r, active: false })) } : null), `KOSH: delete home ${home.name}`);
-    await updateJsonFile(HOMES_FILE, (data) => { const list = (data && data.homes) || []; return list.some((h) => h.id === id) ? { homes: list.filter((h) => h.id !== id) } : null; }, 'KOSH: homes list');
+    await updateJsonFile(homeFile(id), (data) => (data ? { ...data, deleted: true, deletedBy: myUser(), deletedAt: new Date().toISOString(), recurring: (data.recurring || []).map((r) => ({ ...r, active: false })) } : null), `FinRi: delete home ${home.name}`);
+    await updateJsonFile(HOMES_FILE, (data) => { const list = (data && data.homes) || []; return list.some((h) => h.id === id) ? { homes: list.filter((h) => h.id !== id) } : null; }, 'FinRi: homes list');
     delete flats.homes[id];
     flats.list = flats.list.filter((h) => h.id !== id);
     flats.invites = (flats.invites || []).filter((h) => h.id !== id);
@@ -8268,9 +8443,9 @@ function renderInsurance() {
       <button class="btn btn-primary" data-action="ins-add"><i class="fa-solid fa-plus"></i> Add policy</button></div>
     <section class="hero p-5 sm:p-7">
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-5">
-        <div><div class="hero-dim text-sm">Health cover</div><div class="display text-3xl font-semibold num">${money(S.health)}</div></div>
-        <div><div class="hero-dim text-sm">Life cover</div><div class="display text-3xl font-semibold num">${money(S.life)}</div></div>
-        <div><div class="hero-dim text-sm">Premiums a year</div><div class="display text-3xl font-semibold num">${money(Math.round(S.yearly))}</div><div class="hero-dim text-xs">${S.live.length} active polic${S.live.length === 1 ? 'y' : 'ies'}</div></div>
+        <div><div class="hero-dim text-sm">Health cover</div><div class="display ins-big font-semibold num">${money(S.health)}</div></div>
+        <div><div class="hero-dim text-sm">Life cover</div><div class="display ins-big font-semibold num">${money(S.life)}</div></div>
+        <div><div class="hero-dim text-sm">Premiums a year</div><div class="display ins-big font-semibold num">${money(Math.round(S.yearly))}</div><div class="hero-dim text-xs">${S.live.length} active polic${S.live.length === 1 ? 'y' : 'ies'}</div></div>
         <div><div class="hero-dim text-sm">Next renewal</div><div class="display text-xl font-semibold">${S.next ? esc(S.next.name) : '–'}</div><div class="hero-dim text-xs">${S.next ? `${fmtDate(S.next.nextDue)} · ${money(S.next.premium)}` : ''}</div></div>
       </div>
     </section>
@@ -8436,7 +8611,7 @@ function saveGoldRate(date, g24) {
     if (rates[date] && (!d.wanted || !d.wanted.includes(date))) return null;
     rates[date] = round2(g24);
     return { rates, wanted };
-  }, `KOSH: gold rate for ${date}`).catch(() => {});
+  }, `FinRi: gold rate for ${date}`).catch(() => {});
 }
 function wantGoldDate(date) {
   if (!sharedOn()) return;
@@ -8444,7 +8619,7 @@ function wantGoldDate(date) {
     const wanted = (d && d.wanted) || [];
     if (wanted.includes(date)) return null;
     return { rates: (d && d.rates) || {}, wanted: [...wanted, date].slice(-50) };
-  }, `KOSH: gold rate wanted for ${date}`).catch(() => {});
+  }, `FinRi: gold rate wanted for ${date}`).catch(() => {});
 }
 /** Latest stock price from the store if it's from the last 4 days. */
 function stockFromStore(ticker) {
@@ -8463,7 +8638,7 @@ function saveStockPrice(ticker, live) {
     const series = { ...(tickers[sym] || {}), [live.date]: live.price };
     tickers[sym] = Object.fromEntries(Object.entries(series).sort().slice(-30)); // a short recent window; the job keeps the long history
     return { tickers };
-  }, `KOSH: ${sym} price`).catch(() => {});
+  }, `FinRi: ${sym} price`).catch(() => {});
 }
 /** Tell the daily job which stock symbols you hold. */
 async function registerWatch() {
@@ -8476,7 +8651,7 @@ async function registerWatch() {
     for (const [t, users] of Object.entries(tickers)) { const u = users.filter((x) => x !== myUser()); if (u.length) tickers[t] = u; else delete tickers[t]; }
     for (const t of mine) tickers[t] = [...new Set([...(tickers[t] || []), myUser()])];
     return { tickers };
-  }, `KOSH: stocks held by ${myUser()}`);
+  }, `FinRi: stocks held by ${myUser()}`);
   localStorage.setItem('kosh.watchSig', sig);
 }
 
@@ -8534,12 +8709,12 @@ const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
   st.updatedAt = new Date().toISOString();
   write('stocks.json', st);
 })().catch((e) => { console.error(e); process.exit(1); });`;
-  return `# Daily prices for KOSH (gold and stocks). Created by the app.
+  return `# Daily prices for FinRi (gold and stocks). Created by the app.
 # Runs once a day at about 6:10 pm India time (12:40 UTC); you can also run it by hand from the Actions tab.
 # Needs two repository secrets (Settings → Secrets and variables → Actions):
 #   GOLDAPI_KEY        your GoldAPI.io key
 #   ALPHAVANTAGE_KEY   your Alpha Vantage key
-name: KOSH daily prices
+name: FinRi daily prices
 on:
   schedule:
     - cron: '40 12 * * *'
@@ -8565,18 +8740,18 @@ ${script.split('\n').map((l) => '          ' + l).join('\n')}
           git config user.email "kosh-prices@users.noreply.github.com"
           git add kosh/prices/gold.json kosh/prices/stocks.json
           git diff --cached --quiet && exit 0
-          git commit -m "KOSH: daily prices"
+          git commit -m "FinRi: daily prices"
           for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
           exit 1
 `;
 }
 async function setupPriceJob() {
-  if (!sharedOn()) { toast('Set your KOSH username and the shared repository in Settings first.', 'error'); return; }
+  if (!sharedOn()) { toast('Set your FinRi username and the shared repository in Settings first.', 'error'); return; }
   const yml = priceJobYml();
   try {
     const cur = await ghPath(PRICE_JOB, 'GET', undefined, sharedRepo());
     const sha = cur.ok ? (await cur.json()).sha : undefined;
-    const res = await ghPath(PRICE_JOB, 'PUT', { message: 'KOSH: daily prices job', content: toBase64(yml), branch: config.branch || 'main', ...(sha ? { sha } : {}) }, sharedRepo());
+    const res = await ghPath(PRICE_JOB, 'PUT', { message: 'FinRi: daily prices job', content: toBase64(yml), branch: config.branch || 'main', ...(sha ? { sha } : {}) }, sharedRepo());
     if (res.status === 403 || res.status === 404) { showWorkflowManual(yml, PRICE_JOB, sharedRepo()); return; }
     if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
     openModal({
@@ -8586,7 +8761,7 @@ async function setupPriceJob() {
           <li>Open <b>github.com/${esc(config.owner)}/${esc(sharedRepo())}</b> → <b>Settings</b> → <b>Secrets and variables</b> → <b>Actions</b>.</li>
           <li><b>New repository secret</b>: name <code>GOLDAPI_KEY</code>, value your GoldAPI key → Add secret.</li>
           <li>Again: name <code>ALPHAVANTAGE_KEY</code>, value your Alpha Vantage key → Add secret.</li>
-          <li>To fill today's prices now: <b>Actions</b> tab → <b>KOSH daily prices</b> → <b>Run workflow</b>.</li>
+          <li>To fill today's prices now: <b>Actions</b> tab → <b>FinRi daily prices</b> → <b>Run workflow</b>.</li>
         </ol>
         <p class="hint mt-3">After that it runs by itself every evening. Once it has run, the keys built into the app are only a fallback; you can remove them from <code>BUILTIN_KEYS</code> in app.js to keep them private.</p>`,
       submitLabel: 'Done', cancelLabel: 'Close', onSubmit: () => {},
@@ -8598,7 +8773,7 @@ function priceJobSection() {
   if (!sharedOn()) return '';
   const gDays = Object.keys(priceStore.gold).length, sCount = Object.keys(priceStore.stocks).length;
   const when = priceStore.goldUpdatedAt ? new Date(priceStore.goldUpdatedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '';
-  return `<div class="callout"><b>Daily prices</b> (gold and stocks, shared by everyone on this KOSH): ${when ? `last run ${esc(when)}, ${gDays} gold day${gDays === 1 ? '' : 's'} and ${sCount} stock${sCount === 1 ? '' : 's'} saved.` : 'not set up yet.'}
+  return `<div class="callout"><b>Daily prices</b> (gold and stocks, shared by everyone on this FinRi): ${when ? `last run ${esc(when)}, ${gDays} gold day${gDays === 1 ? '' : 's'} and ${sCount} stock${sCount === 1 ? '' : 's'} saved.` : 'not set up yet.'}
     <div class="mt-2"><button type="button" class="btn btn-sm" data-action="price-job"><i class="fa-solid fa-clock-rotate-left"></i> ${when ? 'Update the daily price job' : 'Set up the daily price job'}</button></div></div>`;
 }
 
@@ -8795,6 +8970,10 @@ td.n,th.n{text-align:right;white-space:nowrap}.in{color:#0E8F47}.out{color:#C218
 <table><thead><tr><th>Date</th><th>Description</th><th class="c-cat">Category</th><th class="c-acc">Account</th><th class="n">In</th><th class="n">Out</th>${acc ? '<th class="n">Balance</th>' : ''}</tr></thead><tbody>
 ${rows.map((r) => `<tr><td>${e(fmtDate(r.t.date))}</td><td>${e(r.t.description || r.t.category || '')}${r.extra ? `<div class="small">${e(r.extra)}</div>` : ''}<div class="small m-only">${e(r.t.category || '')} · ${e(r.flow)}</div></td><td class="c-cat">${e(r.t.category || '')}<div class="small">${e(r.type)}</div></td><td class="c-acc">${e(r.flow)}</td><td class="n in">${r.s > 0 ? m(r.s) : ''}</td><td class="n out">${r.s < 0 ? m(-r.s) : r.s === 0 ? `<span class="small">${m(r.t.amount)} moved</span>` : ''}</td>${acc ? `<td class="n">${m(r.bal)}</td>` : ''}</tr>`).join('')}
 </tbody></table></body></html>`;
+  if (typeof isNative === 'function' && isNative()) { // phone app: share the statement; open it in Chrome or Safari to print or save as PDF
+    nativeSaveAndShare(`${title.replace(/[^a-z0-9_-]+/gi, '-')}.html`, html, 'text/html').then(() => toast('Open the statement, then use Print → Save as PDF.'));
+    return;
+  }
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const w = window.open(url, '_blank');
@@ -8811,7 +8990,7 @@ ${rows.map((r) => `<tr><td>${e(fmtDate(r.t.date))}</td><td>${e(r.t.description |
 const HELP_TOPICS = [
   { id: 'start', page: 'dashboard', group: 'Getting started', icon: 'fa-rocket', title: 'Getting started',
     where: 'Open the app link in Safari (iPhone) or Chrome (Android)',
-    summary: 'KOSH tracks your money: spending, income, accounts, investments, EMIs, insurance, goals and more. Your data is saved in your own private GitHub repository, so it is backed up and shared across your devices.',
+    summary: 'FinRi tracks your money: spending, income, accounts, investments, EMIs, insurance, goals and more. Your data is saved in your own private GitHub repository, so it is backed up and shared across your devices.',
     steps: ['If you were given a username and password, type them in the Sign in card on the dashboard and tap Sign in.', 'Install the app: iPhone Safari → Share → Add to Home Screen; Android Chrome → menu (⋮) → Install app. On iPhone, sign in once more inside the installed app.', 'Add your accounts first (menu → Accounts): cash, bank accounts, credit cards and investments with today\'s balances.', 'Log expenses and income with the big + button at the bottom. Balances update by themselves.', 'Set your name and preferences in Settings (gear icon, top right).'],
     tips: ['The cloud icon at the top right shows sync status; tap it to sync now.', 'Use the bottom bar: Home, Activity (transactions), + (add), Calendar and More (every other page).', 'Tap ? at the top of any page for help with that page.'] },
   { id: 'dashboard', page: 'dashboard', group: 'Everyday', icon: 'fa-house', title: 'Dashboard',
@@ -8826,9 +9005,9 @@ const HELP_TOPICS = [
     tips: ['Fuel and vehicle costs: pick the vehicle and type the odometer reading (and litres) to track mileage.', 'Tax: choose the tax type (advance tax, TDS, property tax…) and the financial year; it is matched against your tax estimate.', 'Paid for home: tick "I\'ll take it back" for household spending someone will repay; it shows on the People page.', 'To change or delete an entry, tap it in Activity.'] },
   { id: 'voice', page: 'dashboard', group: 'Everyday', icon: 'fa-microphone', title: 'Speak and log',
     where: 'Dashboard → Speak to add; press and hold the + button; or Speak instead in the add form',
-    summary: 'Say a transaction in your own words and KOSH fills in the form for you: amount, category, account, date, note, and for fuel the vehicle, odometer and litres. Nothing is saved until you check it.',
+    summary: 'Say a transaction in your own words and FinRi fills in the form for you: amount, category, account, date, note, and for fuel the vehicle, odometer and litres. Nothing is saved until you check it.',
     steps: ['Tap Speak to add on the dashboard (or press and hold the + button). The mic turns pink while it listens.', 'Speak naturally, in any order, for example "Spent 250 on lunch at Vaishali from cash yesterday". The words appear as you speak.', 'Check the card under What I understood. Parts marked guessed or not said were filled in for you; tap Did you mean to switch to another account.', 'Tap Add now to save it, or Review & add to open the usual form with everything filled in and change anything first.', 'Say several at once with "and": "200 on lunch and 50 on tea from cash". Tap Add all to save them together.', 'If a word was misheard, correct it in the What I heard box and tap Understand.'],
-    tips: ['Understood: amounts in words (two fifty, 1.5 lakh, 10k), today, yesterday, on 6th, last Friday, 2 days ago, kal, aaj, card ending 9950, income ("received salary in SBI"), transfers ("moved 10k from HDFC to SBI", "paid card bill"), lending ("gave 500 to Dad"), taxes ("paid advance tax"), and corrections ("50, no, 60").', 'If you call an account something KOSH does not know ("my red card"), pick the right one in Review once and it is remembered.', 'iPhone: allow the microphone for Safari, and turn on Dictation (Settings → General → Keyboard). Android: allow the microphone for Chrome.', 'Turn it off, or change the language, in Settings → Preferences → Speak and log.'] },
+    tips: ['Understood: amounts in words (two fifty, 1.5 lakh, 10k), today, yesterday, on 6th, last Friday, 2 days ago, kal, aaj, card ending 9950, income ("received salary in SBI"), transfers ("moved 10k from HDFC to SBI", "paid card bill"), lending ("gave 500 to Dad"), taxes ("paid advance tax"), and corrections ("50, no, 60").', 'If you call an account something FinRi does not know ("my red card"), pick the right one in Review once and it is remembered.', 'iPhone: allow the microphone for Safari, and turn on Dictation (Settings → General → Keyboard). Android: allow the microphone for Chrome.', 'Turn it off, or change the language, in Settings → Preferences → Speak and log.'] },
   { id: 'transactions', page: 'transactions', group: 'Everyday', icon: 'fa-list', title: 'Transactions (Activity)',
     where: 'Bottom bar → Activity',
     summary: 'Every transaction, grouped by day with each day\'s total, with search and filters.',
@@ -8883,16 +9062,16 @@ const HELP_TOPICS = [
     where: 'More → Split bills (or the Split a bill quick action)',
     summary: 'Share a bill with friends or family and see who owes whom.',
     steps: ['Tap Split a bill: what it was, the total, the date, who paid, and who shared it (add new people right there).', 'Split equally, by amounts or by percentages, and add a group like "Goa trip" if you like.', 'The page shows friends who owe you and whom you owe; Settle up records a payment with the amount filled in.'],
-    tips: ['Link a person to their KOSH username (People page) and the split appears in their app too.'] },
+    tips: ['Link a person to their FinRi username (People page) and the split appears in their app too.'] },
   { id: 'flat', page: 'flat', group: 'Shared', icon: 'fa-house-user', title: 'Shared flat',
     where: 'More → Shared flat',
-    summary: 'For flatmates who each use KOSH: rent, bills and groceries split fairly, with one shared list.',
-    steps: ['New home: name it, add each flatmate by typing their KOSH username (Check shows found or not found), and set room shares if rooms differ. Each flatmate gets an invitation and taps Join.', 'Add recurring for rent, Wi-Fi, maid or cook: amount, day of the month, who pays it and how it is split. It is added for everyone on that day each month.', 'Add expense for one-off costs: who paid, who shares it, and how.', 'Balances shows who gets back and who owes, with the fewest payments to settle up; tap Record after paying.', 'Activity lists the month\'s entries; Export downloads them.', 'Delete a home: Home settings → Delete (the person who created it; or anyone still living there if they moved out). Monthly costs stop for everyone; past expenses stay in each person\'s transactions.'],
+    summary: 'For flatmates who each use FinRi: rent, bills and groceries split fairly, with one shared list.',
+    steps: ['New home: name it, add each flatmate by typing their FinRi username (Check shows found or not found), and set room shares if rooms differ. Each flatmate gets an invitation and taps Join.', 'Add recurring for rent, Wi-Fi, maid or cook: amount, day of the month, who pays it and how it is split. It is added for everyone on that day each month.', 'Add expense for one-off costs: who paid, who shares it, and how.', 'Balances shows who gets back and who owes, with the fewest payments to settle up; tap Record after paying.', 'Activity lists the month\'s entries; Export downloads them.', 'Delete a home: Home settings → Delete (the person who created it; or anyone still living there if they moved out). Monthly costs stop for everyone; past expenses stay in each person\'s transactions.'],
     tips: ['Type usernames with or without @; the app checks them as you type.', 'Invite flatmates before adding rent; costs are split with them from the day they join.', 'Your share of each cost also appears in your own transactions.'] },
   { id: 'people', page: 'people', group: 'Shared', icon: 'fa-user-group', title: 'People',
     where: 'More → People',
     summary: 'Money you lend or borrow, and household spending someone will pay back.',
-    steps: ['Add person, then use I gave or I got to record money handed over.', 'Home expenses to take back lists expenses marked "Paid for home"; tick the ones repaid and tap Mark ticked as taken back.', 'Edit a person and type their KOSH username (Check confirms it) to link them, so splits and payments with them show in their app too.'],
+    steps: ['Add person, then use I gave or I got to record money handed over.', 'Home expenses to take back lists expenses marked "Paid for home"; tick the ones repaid and tap Mark ticked as taken back.', 'Edit a person and type their FinRi username (Check confirms it) to link them, so splits and payments with them show in their app too.'],
     tips: ['Balances with people count in your net worth.'] },
   { id: 'recurring', page: 'subscriptions', group: 'Money', icon: 'fa-rotate', title: 'Recurring: subscriptions, bills, taxes and income',
     where: 'More → Recurring',
@@ -8937,13 +9116,13 @@ const HELP_TOPICS = [
   { id: 'settings', page: 'dashboard', group: 'Tools', icon: 'fa-gear', title: 'Settings',
     where: 'The gear icon at the top right',
     summary: 'Where your data is stored, your username, preferences and price keys.',
-    steps: ['GitHub storage: your repository, token, KOSH username, file path and shared repository. Most people simply sign in instead.', 'Preferences: your name, categories, whether SIPs count as spending, sharing your portfolio with family, year of birth.', 'Sign out removes your token and data from this device; your data stays safe in your repository.', 'Create a login for someone: only on the owner\'s device (the one connected to GitHub by hand); people who sign in with a username and password do not see it.'],
+    steps: ['GitHub storage: your repository, token, FinRi username, file path and shared repository. Most people simply sign in instead.', 'Preferences: your name, categories, whether SIPs count as spending, sharing your portfolio with family, year of birth.', 'Sign out removes your token and data from this device; your data stays safe in your repository.', 'Create a login for someone: only on the owner\'s device; people who sign in with a member login do not see it.', 'Create my own login (owner): makes a login for you, marked as the owner\'s. Upload it to the logins folder; then signing in with your username and password on any device, including the phone app, makes it an owner\'s device.'],
     tips: ['If sync shows an error, check the token has not expired.'] },
   { id: 'family', page: 'portfolio', group: 'Shared', icon: 'fa-people-roof', title: 'Family and invitations',
     where: 'Portfolio → Family portfolio; Dashboard → Invitations',
     summary: 'See your family\'s investments together, and answer invitations from family and flatmates.',
-    steps: ['Share mine (in Family portfolio) lets family see your holdings\' values; never your transactions or bank balances.', 'Add member: type their KOSH username and tap Check; Send invitation. Nothing is shared until they tap Accept.', 'Invitations you receive appear on the dashboard: Accept or Decline.', 'Remove a member with ×; the link ends for both of you.'],
-    tips: ['Values update whenever each person opens the app.', 'Nobody can see a list of who uses KOSH; you need someone\'s username to add them, and your username is shown in Settings.'] },
+    steps: ['Share mine (in Family portfolio) lets family see your holdings\' values; never your transactions or bank balances.', 'Add member: type their FinRi username and tap Check; Send invitation. Nothing is shared until they tap Accept.', 'Invitations you receive appear on the dashboard: Accept or Decline.', 'Remove a member with ×; the link ends for both of you.'],
+    tips: ['Values update whenever each person opens the app.', 'Nobody can see a list of who uses FinRi; you need someone\'s username to add them, and your username is shown in Settings.'] },
   { id: 'faq', page: 'dashboard', group: 'Help', icon: 'fa-circle-question', title: 'Common questions',
     where: 'Anywhere',
     summary: 'Quick answers when something looks wrong.',
@@ -8958,7 +9137,7 @@ function renderHelp() {
   const match = (t) => !q || [t.title, t.where, t.summary, ...t.steps, ...t.tips].join(' ').toLowerCase().includes(q);
   const list = HELP_TOPICS.filter(match);
   const groups = [...new Set(list.map((t) => t.group))];
-  return `<div class="page-top"><p class="page-intro">Everything KOSH can do, where to find it and how to use it. Tap ? at the top of any page for help with that page.</p></div>
+  return `<div class="page-top"><p class="page-intro">Everything FinRi can do, where to find it and how to use it. Tap ? at the top of any page for help with that page.</p></div>
     <input class="inp mb-4" type="search" data-help-search value="${esc(helpState.q)}" placeholder="Search help, e.g. fuel, SIP, statement, split" aria-label="Search help">
     ${list.length ? groups.map((g) => `<h2 class="section-title mt-5 mb-2">${esc(g)}</h2><div class="space-y-2">${list.filter((t) => t.group === g).map((t) => `
       <details class="help-topic panel" id="help-${t.id}" ${helpState.open === t.id || (q && list.length <= 4) ? 'open' : ''}>
@@ -8978,7 +9157,7 @@ function openHelpFor(page) {
 }
 
 /* ===== Speak and log =====
-   Say a transaction the way you would tell a friend, and KOSH fills in the form:
+   Say a transaction the way you would tell a friend, and FinRi fills in the form:
      "Spent 25 rupees on food and dining on 6th from HDFC savings"
      "Received salary 92,000 in SBI yesterday"
      "Paid 2800 for petrol in the Swift, odometer 25,420, 26 litres"
@@ -8998,7 +9177,7 @@ const VoiceParser = (() => {
   const CURRENCY = new Set(['rs', 'rupees', 'rupee', 'rupaye', 'rupay', 'rupaiye', 'rupiya', 'rupiye', 'inr', 'bucks', 'rupees.']);
   const AMOUNT_LEAD = new Set(['spent', 'spend', 'paid', 'pay', 'bought', 'cost', 'costs', 'costing', 'for', 'of', 'worth', 'received', 'receive', 'got', 'earned', 'transferred', 'transfer', 'moved', 'move', 'sent', 'send', 'gave', 'give', 'lent', 'lend', 'borrowed', 'borrow', 'credited', 'debited', 'withdrew', 'withdraw', 'deposited', 'deposit', 'is', 'was', 'total', 'bill', 'amount', 'invested', 'kharcha', 'kharch', 'diya', 'liya', 'mila', 'returned', 'repaid']);
   const CORRECTION = new Set(['no', 'sorry', 'actually', 'correction', 'mean', 'rather', 'nahi', 'nahin']);
-  const FILLER = new Set(['please', 'add', 'log', 'record', 'note', 'um', 'umm', 'uh', 'uhh', 'hmm', 'okay', 'ok', 'hey', 'kosh', 'just', 'so', 'like', 'i', "i've", 'ive', 'have', 'has', 'had', 'was', 'were', 'is', 'are', 'my', 'me', 'the', 'a', 'an', 'it', 'that', 'this', 'which', 'and', 'also', 'then', 'plus', 'today', 'yesterday', 'ji', 'maine', 'mera', 'meri', 'ne', 'ka', 'ki', 'ke', 'hai', 'tha', 'thi', 'liya', 'diya', 'kiya', 'kar', 'karo', 'expense', 'transaction', 'entry', 'amount', 'of', 'rupees', 'rs', 'inr', 'rupee', 'rupaye', 'rupay', 'bucks', 'only', 'ending', 'number', 'can', 'could', 'would', 'will', 'you', 'u', 'kindly', 'need', 'want', 'quickly', 'record', 'that', 'us', 'go', 'ahead', 'put', 'down', 'enter']);
+  const FILLER = new Set(['please', 'add', 'log', 'record', 'note', 'um', 'umm', 'uh', 'uhh', 'hmm', 'okay', 'ok', 'hey', 'kosh', 'finri', 'fin', 'ri', 'just', 'so', 'like', 'i', "i've", 'ive', 'have', 'has', 'had', 'was', 'were', 'is', 'are', 'my', 'me', 'the', 'a', 'an', 'it', 'that', 'this', 'which', 'and', 'also', 'then', 'plus', 'today', 'yesterday', 'ji', 'maine', 'mera', 'meri', 'ne', 'ka', 'ki', 'ke', 'hai', 'tha', 'thi', 'liya', 'diya', 'kiya', 'kar', 'karo', 'expense', 'transaction', 'entry', 'amount', 'of', 'rupees', 'rs', 'inr', 'rupee', 'rupaye', 'rupay', 'bucks', 'only', 'ending', 'number', 'can', 'could', 'would', 'will', 'you', 'u', 'kindly', 'need', 'want', 'quickly', 'record', 'that', 'us', 'go', 'ahead', 'put', 'down', 'enter']);
   const EDGE_WORDS = new Set(['on', 'for', 'at', 'from', 'to', 'in', 'of', 'via', 'using', 'with', 'by', 'through', 'into', 'and', 'my', 'the', 'a', 'an', 'se', 'mein', 'me', 'pe', 'par', 'ke', 'liye', 'ka', 'ki', ',', '.']);
   const FROM_PREP = new Set(['from', 'using', 'via', 'with', 'by', 'through', 'frm', 'off', 'se']);
   const TO_PREP = new Set(['to', 'into', 'in', 'towards', 'mein', 'me']);
@@ -9535,7 +9714,7 @@ const VOICE_EXAMPLES = [
   'Moved 10,000 from HDFC to SBI',
   '200 on groceries and 50 on tea',
 ];
-const voiceSupported = () => !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+const voiceSupported = () => (typeof isNative === 'function' && isNative()) || !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 const voiceOn = () => db.settings.voiceOn !== false;
 const voice = { rec: null, listening: false, drafts: [], text: '', alts: [], pending: null };
 
@@ -9617,7 +9796,22 @@ function voiceUnsupportedText() {
   return ios ? 'Speech recognition isn\'t available here. Type below, or tap the mic on your keyboard to dictate (Settings → General → Keyboard → Enable Dictation).'
     : 'Speech recognition isn\'t available in this browser. Type below, or use the mic on your keyboard. On Android, Chrome supports speaking directly.';
 }
+/** Listening ended: pick the hearing that makes the most sense as a transaction, then understand it. */
+function voiceFinish(form, said, alts = [], finals = '') {
+  voice.listening = false;
+  const box = form.elements.voiceText, status = $('[data-voice-status]', form), mic = $('[data-voice-mic]', form);
+  if (!box) return;
+  mic?.classList.remove('on'); box.disabled = false;
+  if (said) {
+    const ctx = voiceContext();
+    const candidates = uniq([said, ...alts.map((a) => (finals && finals.trim().endsWith(String(a).trim()) ? said : String(a).trim()))]).filter(Boolean);
+    let best = said, bestScore = -1;
+    for (const c of candidates) { const sc = draftScore(VoiceParser.parse(c, ctx).drafts); if (sc > bestScore) { best = c; bestScore = sc; } }
+    box.value = best; understand(form, best);
+  } else if (status && !/blocked|internet|turned off|microphone was|not available/.test(status.textContent)) status.textContent = 'Tap the mic to try again, or type below.';
+}
 function startListening(form) {
+  if (typeof isNative === 'function' && isNative()) return startNativeListening(form); // the phone's own speech recognition
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const box = form.elements.voiceText, status = $('[data-voice-status]', form), mic = $('[data-voice-mic]', form);
   if (!SR) { box.disabled = false; box.focus(); return; }
@@ -9649,22 +9843,12 @@ function startListening(form) {
     if (msg) status.textContent = msg;
     if (e.error !== 'aborted' && e.error !== 'no-speech') box.disabled = false;
   };
-  rec.onend = () => {
-    voice.listening = false; voice.rec = null; mic.classList.remove('on'); box.disabled = false;
-    const said = box.value.trim();
-    if (said) {
-      // several possible hearings: keep the one that makes the most sense as a transaction
-      const ctx = voiceContext();
-      const candidates = uniq([said, ...alts.map((a) => (finals.trim().endsWith(a.trim()) ? said : a.trim()))]).filter(Boolean);
-      let best = said, bestScore = -1;
-      for (const c of candidates) { const sc = draftScore(VoiceParser.parse(c, ctx).drafts); if (sc > bestScore) { best = c; bestScore = sc; } }
-      box.value = best; understand(form, best);
-    } else if (!/blocked|internet|turned off|microphone was/.test(status.textContent)) status.textContent = 'Tap the mic to try again, or type below.';
-  };
+  rec.onend = () => { voice.rec = null; voiceFinish(form, box.value.trim(), alts, finals); };
   voice.rec = rec;
   try { rec.start(); } catch { status.textContent = 'Couldn\'t start listening. Tap the mic again.'; box.disabled = false; }
 }
 function stopListening(abort = false) {
+  if (typeof isNative === 'function' && isNative()) return stopNativeListening(abort);
   if (!voice.rec) return;
   try { abort ? voice.rec.abort() : voice.rec.stop(); } catch { /* already stopped */ }
   if (abort) { voice.rec = null; voice.listening = false; }
@@ -9752,7 +9936,7 @@ function saveDrafts(indexes) {
   const ok = indexes.filter((k) => voice.drafts[k] && !draftProblems(voice.drafts[k]).length);
   const skipped = indexes.length - ok.length;
   if (!ok.length) { toast('Fill in the missing parts first (tap Edit).', 'error'); return; }
-  const recs = ok.map((k) => { const d = voice.drafts[k]; return d.type === 'person' ? draftToPersonTxn(d) : { ...draftToTxn(d), amount: round2(d.amount) }; });
+  const recs = ok.map((k) => { const d = voice.drafts[k]; return d.type === 'person' ? { ...draftToPersonTxn(d), ...(sharedOn() && linkedOf(d.personId) ? { sharedOut: true } : {}) } : { ...draftToTxn(d), amount: round2(d.amount) }; });
   commit(recs.map((r) => opUpsert('transactions', r)), `Added by voice: ${recs.length} transaction${recs.length === 1 ? '' : 's'}`);
   for (const r of recs) { if (typeof rememberDescription === 'function' && r.description && r.relatedType !== 'person') rememberDescription(r); if (r.fromAccountId && accountById(r.fromAccountId)?.type !== 'person') localStorage.setItem(LAST_ACCOUNT_KEY, r.fromAccountId); }
   for (const k of [...ok].sort((a, b) => b - a)) voice.drafts.splice(k, 1);
@@ -9784,6 +9968,109 @@ function learnVoiceAlias(voiceInfo, rec) {
   if (!phrase || !id || phrase.length < 3) return null;
   const aliases = { ...(db.settings.voiceAliases || {}), [phrase]: id };
   return opSettings({ voiceAliases: aliases });
+}
+
+/* ===== Inside the FinRi phone app (Android and iOS) =====
+   The same app runs in a browser and inside the native FinRi app (built with Capacitor).
+   In the native app a few things work differently, and this file handles them:
+   - speech: the phone's own speech recognition (browser speech isn't available inside apps)
+   - files: saved to the phone, then offered through the share sheet (Files, Drive, WhatsApp…)
+   - Android back button: closes a form or the menu, goes back, or leaves the app
+   - status bar colours, splash screen, and screen edges (notch, home bar)
+   Everything here does nothing in a browser. */
+const isNative = () => !!window.Capacitor?.isNativePlatform?.();
+const nativePlatform = () => window.Capacitor?.getPlatform?.() || 'web';
+const nativePlugins = {};
+function nativePlugin(name) {
+  if (!isNative() || !window.Capacitor?.registerPlugin) return null;
+  return (nativePlugins[name] ||= window.Capacitor.registerPlugin(name));
+}
+const blobToBase64 = (blob) => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result).split(',')[1] || '');
+  r.onerror = () => reject(r.error);
+  r.readAsDataURL(blob);
+});
+/** Save a file in the app's cache and open the share sheet so the person can keep or send it. */
+async function nativeSaveAndShare(filename, content, mime = 'text/plain') {
+  try {
+    const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
+    const safe = String(filename).replace(/[\\/:*?"<>|]+/g, '-');
+    const res = await nativePlugin('Filesystem').writeFile({ path: safe, data: await blobToBase64(blob), directory: 'CACHE' });
+    await nativePlugin('Share').share({ title: safe, files: [res.uri], dialogTitle: 'Save or send' });
+  } catch (e) {
+    if (!/cancel/i.test(String(e?.message || e))) toast(`Couldn't save the file: ${e?.message || e}`, 'error');
+  }
+}
+
+/* ----- speech ----- */
+const nativeVoice = { listeners: [], timer: 0, hard: 0, matches: [], gotAny: false };
+async function startNativeListening(form) {
+  const SR = nativePlugin('SpeechRecognition');
+  const box = form.elements.voiceText, status = $('[data-voice-status]', form), mic = $('[data-voice-mic]', form);
+  const fail = (msg) => { voice.listening = false; mic.classList.remove('on'); box.disabled = false; status.textContent = msg; };
+  try {
+    if (!(await SR.available()).available) return fail('Speech recognition is not available on this phone. Type below, or use the mic on your keyboard.');
+    let perm = await SR.checkPermissions();
+    if (perm.speechRecognition !== 'granted') perm = await SR.requestPermissions();
+    if (perm.speechRecognition !== 'granted') return fail(nativePlatform() === 'ios'
+      ? 'Microphone or speech recognition is blocked. iPhone: Settings → FinRi → turn on Microphone and Speech Recognition.'
+      : 'Microphone is blocked. Android: Settings → Apps → FinRi → Permissions → Microphone → Allow.');
+    await stopNativeListening(true);
+    nativeVoice.matches = []; nativeVoice.gotAny = false;
+    const finish = () => {
+      clearTimeout(nativeVoice.timer); clearTimeout(nativeVoice.hard);
+      if (!voice.listening) return;
+      SR.stop().catch(() => {});
+      const said = (nativeVoice.matches[0] || box.value || '').trim();
+      voiceFinish(form, said, nativeVoice.matches.slice(1));
+      removeNativeVoiceListeners();
+    };
+    nativeVoice.listeners.push(await SR.addListener('partialResults', (data) => {
+      const m = (data?.matches || []).filter(Boolean);
+      if (!m.length) return;
+      nativeVoice.matches = m; nativeVoice.gotAny = true; box.value = m[0];
+      // iPhone keeps listening until told to stop: stop after a short pause in speech
+      clearTimeout(nativeVoice.timer); nativeVoice.timer = setTimeout(finish, 1700);
+    }));
+    nativeVoice.listeners.push(await SR.addListener('listeningState', (data) => { if (data?.status === 'stopped') finish(); }));
+    voice.listening = true; mic.classList.add('on'); status.textContent = 'Listening… say the amount and what it was for.';
+    navigator.vibrate?.(12);
+    nativeVoice.hard = setTimeout(finish, 15000); // never listen for more than 15 seconds
+    nativeVoice.timer = setTimeout(() => { if (!nativeVoice.gotAny) finish(); }, 7000); // nothing said
+    await SR.start({ language: db.settings.voiceLang || 'en-IN', maxResults: 3, partialResults: true, popup: false });
+  } catch (e) {
+    removeNativeVoiceListeners();
+    fail(`Couldn't start listening: ${e?.message || e}. Tap the mic to try again, or type below.`);
+  }
+}
+async function stopNativeListening(abort = false) {
+  clearTimeout(nativeVoice.timer); clearTimeout(nativeVoice.hard);
+  const SR = nativePlugin('SpeechRecognition');
+  if (!SR) return;
+  if (abort) { voice.listening = false; removeNativeVoiceListeners(); }
+  try { await SR.stop(); } catch { /* not listening */ }
+}
+function removeNativeVoiceListeners() {
+  for (const l of nativeVoice.listeners.splice(0)) { try { l.remove(); } catch { /* gone */ } }
+}
+
+/* ----- app shell: back button, status bar, splash, screen edges ----- */
+const navIsOpen = () => !!$('#sidebar')?.classList.contains('open');
+function initNative() {
+  if (!isNative()) return;
+  document.documentElement.classList.add('native', `native-${nativePlatform()}`);
+  const App = nativePlugin('App'), StatusBar = nativePlugin('StatusBar'), Splash = nativePlugin('SplashScreen');
+  StatusBar?.setStyle({ style: 'LIGHT' }).catch(() => {}); // dark icons on FinRi's light header (screen edges are handled by Capacitor's SystemBars + CSS)
+  App?.addListener('backButton', () => {
+    if (!$('#modal').classList.contains('hidden')) return closeModal();
+    if (navIsOpen()) return toggleNav(false);
+    if (!['', '#dashboard'].includes(location.hash)) return history.back();
+    App.exitApp();
+  });
+  // returning to the app: refresh data from storage
+  App?.addListener('appStateChange', ({ isActive }) => { if (isActive && isConfigured()) Promise.resolve(runSync()).catch(() => {}); });
+  setTimeout(() => Splash?.hide().catch(() => {}), 250);
 }
 
 /* ---------------------------------------------------------------------
@@ -9829,8 +10116,19 @@ function openTxnForm(existing, preset = {}) {
   const incCats = uniq([...db.settings.incomeCategories, t.type === 'income' ? t.category : '']);
   const defFrom = t.fromAccountId || (t.type === 'transfer' ? firstAccountOf(['bank']) : lastOk) || firstAccountOf(['cash', 'bank', 'credit_card']);
   const defTo = t.toAccountId || firstAccountOf(['bank', 'cash']);
-  const types = [['expense', 'Expense'], ['income', 'Income'], ['transfer', 'Transfer'], ['tax', 'Tax']];
+  const types = [['expense', 'Expense'], ['income', 'Income'], ['transfer', 'Transfer'], ['person', 'Lend'], ['tax', 'Tax']];
   if (t.taxKind || (preset.type === 'tax' && !existing)) t.type = 'tax';
+  // Lend: money given to or received from a person (lent, paid back, borrowed, got back)
+  const LEND_KINDS = [['lent', 'I lent / gave money'], ['repaid', 'I paid back what I owed'], ['borrowed', 'I borrowed / took money'], ['gotback', 'They paid me back']];
+  const LEND_LABEL = { lent: 'Lent', repaid: 'Repaid', borrowed: 'Borrowed', gotback: 'Got back' };
+  if (existing?.relatedType === 'person' && !existing.forHome) {
+    const pid = accountById(existing.toAccountId)?.type === 'person' ? existing.toAccountId : existing.fromAccountId;
+    const out = pid === existing.toAccountId;
+    Object.assign(t, { type: 'person', personId: pid, lendAcc: out ? existing.fromAccountId : existing.toAccountId,
+      lendWhat: Object.entries(LEND_LABEL).find(([, l]) => l === existing.category)?.[0] || (out ? 'lent' : 'borrowed') });
+  }
+  if (preset.type === 'person' && !existing) Object.assign(t, { type: 'person', personId: preset.personId || '', lendWhat: preset.lendWhat || 'lent' });
+  const people = db.accounts.filter((a) => a.type === 'person' && (!a.archived || a.id === t.personId));
 
   // Filled in from speech: show what was heard and which fields were guessed; or offer to speak instead
   const vo = preset.voice;
@@ -9855,6 +10153,13 @@ function openTxnForm(existing, preset = {}) {
       field('From', accountSelect('fromAccountId', t.type === 'transfer' ? t.fromAccountId || defFrom : firstAccountOf(['bank']))),
       field('To', accountSelect('toAccountId', t.type === 'transfer' ? t.toAccountId : ''))) +
       '<p class="hint">Use a transfer for ATM withdrawals, paying a credit card bill, or moving money into an FD or SIP. Transfers are not counted as income or spending.</p>')}
+    ${showFor('person', twoCol(
+      field('Person', select('personId', [...people.map((a) => [a.id, a.linkedUser ? `${a.name} (@${a.linkedUser})` : a.name]), ['__new', '+ New person']], t.personId || people[0]?.id || '__new')),
+      field('What was it?', select('lendWhat', LEND_KINDS, t.lendWhat || 'lent')))
+      + `<div data-newlend ${people.length && t.personId !== '__new' ? 'hidden' : ''}>${field('Their name', input('newLendName', '', 'maxlength="60" placeholder="e.g. Rahul, Dad"'))}</div>`
+      + field('From / into my', accountSelect('lendAcc', t.lendAcc || firstAccountOf(['bank', 'cash']), { types: ['cash', 'bank', 'credit_card'] }))
+      + (existing?.sharedFrom ? `<p class="hint">${esc(accountName(t.personId))} recorded this; your changes stay in your app. Deleting it removes it for both of you.</p>`
+        : '<p class="hint">It shows on the People page. If the person is linked to their FinRi username, it appears in their app too.</p>'))}
     ${showFor('tax', twoCol(field('Tax', select('taxKind', TAX_KINDS, t.taxKind || 'Advance tax')), field('Paid from', accountSelect('fromAccountId', t.fromAccountId || firstAccountOf(['bank']), { types: MONEY_TYPES })))
       + twoCol(field('For financial year', select('taxFy', [fyOf(addMonths(todayStr(), -12)), fyOf(todayStr()), fyOf(addMonths(todayStr(), 12))].filter((v, i, a) => a.indexOf(v) === i).map((f) => [f, `FY ${f}`]), t.taxFy || fyOf(t.date || todayStr()))), field('Challan / reference (optional)', input('taxRef', t.taxRef || '', 'maxlength="40" placeholder="e.g. BSR code and challan no."')))
       + '<p class="hint">Income tax payments (advance, self-assessment, TDS) are matched against your estimated tax in Planners → Tax estimate.</p>')}
@@ -9896,11 +10201,14 @@ function openTxnForm(existing, preset = {}) {
         if (e.target.name === 'claimPersonId') newP.hidden = e.target.value !== '__new';
       }, sig);
       if (form.elements.claimPersonId && form.elements.claimPersonId.value === '__new') newP.hidden = false;
+      const newLend = $('[data-newlend]', form);
+      form.addEventListener('change', (e) => { if (e.target.name === 'personId') newLend.hidden = e.target.value !== '__new'; }, sig);
     },
     onSubmit: (d) => {
       const amount = round2(num(d.amount));
       if (amount <= 0) { toast('Enter an amount above zero.', 'error'); return false; }
       if (d.type === 'transfer' && d.fromAccountId === d.toAccountId) { toast('Choose two different accounts for a transfer.', 'error'); return false; }
+      if (d.type === 'person') return saveLendFromForm(d, existing, isNew, amount, LEND_LABEL);
       const extraOps = [];
       let claimTo = '';
       if (d.type === 'expense' && d.forHome) {
@@ -9960,12 +10268,16 @@ function openTxnForm(existing, preset = {}) {
   });
 }
 
-function deleteTxn(id) {
+function deleteTxn(id, opts = {}) {
   const t = db.transactions.find((x) => x.id === id);
   if (!t) return;
-  if (!confirm(`Delete this ${t.type} of ${money(t.amount)}${t.description ? ` (${t.description})` : ''}? Balances will be recalculated.`)) return false;
+  // a lend/borrow entry shared with a linked person (yours or theirs) is removed for both of you
+  const sharedId = t.relatedType === 'person' && sharedOn() ? (t.sharedFrom || (t.sharedOut ? t.id : '')) : '';
+  const who = sharedId ? accountName(t.relatedId) : '';
+  if (!opts.quiet && !confirm(`Delete this ${t.type === 'transfer' && t.relatedType === 'person' ? t.category.toLowerCase() || 'entry' : t.type} of ${money(t.amount)}${t.description ? ` (${t.description})` : ''}?${sharedId ? `\n\nIt will also be removed from ${who}'s FinRi.` : ''} Balances will be recalculated.`)) return false;
   commit([...learnFromEntries([t]), opDelete('transactions', id)], `Delete ${t.type} ${money(t.amount)}`); // its category stays remembered
-  toast('Transaction deleted');
+  if (sharedId) queueShared({ kind: 'delete', id: sharedId });
+  if (!opts.quiet) toast(sharedId ? `Deleted, here and in ${who}'s app.` : 'Transaction deleted');
 }
 
 function openAdjustmentEdit(t) {
@@ -10173,7 +10485,7 @@ function openEmiForm(existing) {
     ${twoCol(field('Loan amount (principal)', moneyInput('principal', e.principal, 'required min="1"')), field('Interest rate (% per year)', input('annualRate', e.annualRate ?? '', 'type="number" step="0.01" min="0" placeholder="0 for no-cost EMI"')))}
     ${twoCol(field('Tenure (months)', input('tenureMonths', e.tenureMonths, 'type="number" min="1" max="600" required')), field('First EMI date', input('startDate', e.startDate, 'type="date" required')))}
     ${twoCol(field('Monthly EMI (optional)', moneyInput('emiAmount', e.emiAmount, 'min="0"'), 'Leave empty to calculate it. Enter the exact figure from your lender if it differs.'),
-      field('EMIs already paid', input('paidInstallments', e.paidInstallments ?? 0, 'type="number" min="0"'), 'For loans that started before you began using KOSH.'))}
+      field('EMIs already paid', input('paidInstallments', e.paidInstallments ?? 0, 'type="number" min="0"'), 'For loans that started before you began using FinRi.'))}
     <div id="emiPreview" class="callout" aria-live="polite"></div>
     ${checkbox('autoLog', e.autoLog, 'Record each EMI automatically on its due date', 'The app adds the expense when you open the app on or after the due date.')}
     ${isNew ? '' : checkbox('closed', e.closed, 'Closed early', 'Tick if you prepaid or foreclosed it. It stops counting as a liability.')}
@@ -10488,6 +10800,7 @@ function toCSV(rows, cols) {
 }
 
 function download(filename, content, mime = 'text/plain') {
+  if (typeof isNative === 'function' && isNative()) return nativeSaveAndShare(filename, content, mime); // phone app: save, then the share sheet
   const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -10517,7 +10830,7 @@ async function exportZip() {
   for (const [t, cols] of Object.entries(TABLE_COLUMNS)) folder.file(`${t}.csv`, toCSV(tables[t], cols));
   folder.file('kosh-data.json', JSON.stringify(db, null, 2));
   folder.file('README.txt', [
-    "KOSH export (Kundan On Savings Hustle)", `Created ${new Date().toString()}`, '',
+    "FinRi export", `Created ${new Date().toString()}`, '',
     'All CSV files are UTF-8, comma separated, one header row, dates as YYYY-MM-DD.',
     'Relationships (for Power BI model view):',
     '  transactions.from_account_id / to_account_id -> accounts.account_id',
@@ -10544,7 +10857,7 @@ async function handleImport(e) {
   try { data = JSON.parse(await file.text()); }
   catch { toast('That file is not valid JSON.', 'error'); return; }
   if (!data || typeof data !== 'object' || !COLLECTIONS.some((c) => Array.isArray(data[c]))) {
-    toast('That file does not look like a KOSH backup.', 'error'); return;
+    toast('That file does not look like a FinRi backup.', 'error'); return;
   }
   const d = normalizeDB(data);
   if (!confirm(`Replace ALL current data with this backup?\n\n${d.accounts.length} accounts, ${d.transactions.length} transactions, ${d.emis.length} EMIs, ${d.subscriptions.length} subscriptions, ${d.sips.length} SIPs.\n\nYour current data will be overwritten${isConfigured() ? ' on GitHub too (older versions stay in the repository history)' : ''}.`)) return;
@@ -10626,10 +10939,10 @@ function openSettings() {
       </div>
       ${twoCol(field('GitHub username', input('owner', config.owner, 'autocomplete="off" spellcheck="false" placeholder="your-username"')),
         field('Data repository name', input('repo', config.repo, 'autocomplete="off" spellcheck="false" placeholder="kosh-data"')))}
-      ${twoCol(field('Your KOSH username', input('user', config.user || '', 'autocomplete="off" spellcheck="false" placeholder="e.g. kundan" autocapitalize="none" title="2 to 30 lowercase letters, numbers, - or _ (no @)"'), 'Lets several people use this same repository, each with their own data file, and share splits and portfolios.'),
+      ${twoCol(field('Your FinRi username', input('user', config.user || '', 'autocomplete="off" spellcheck="false" placeholder="e.g. kundan" autocapitalize="none" title="2 to 30 lowercase letters, numbers, - or _ (no @)"'), 'Lets several people use this same repository, each with their own data file, and share splits and portfolios.'),
         field('File path', input('path', config.path || 'data.json', 'spellcheck="false"'), 'Your own data file. For a second person: users/their-username/data.json'))}
       ${twoCol(field('Branch', input('branch', config.branch || 'main', 'spellcheck="false"')), field('Shared repository (optional)', input('sharedRepo', config.sharedRepo || '', 'spellcheck="false" placeholder="kosh-shared"'), 'When each person has their own repository, family features use this one.'))}
-      <div class="flex gap-2 flex-wrap"><button type="button" class="btn btn-sm" data-action="make-login" ${isOwner() ? '' : 'hidden'}><i class="fa-solid fa-key"></i> Create a login for someone</button>${isConfigured() ? '<button type="button" class="btn btn-sm" data-action="sign-out"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>' : ''}</div>
+      <div class="flex gap-2 flex-wrap"><button type="button" class="btn btn-sm" data-action="make-own-login" ${isOwner() ? '' : 'hidden'}><i class="fa-solid fa-user-shield"></i> Create my own login</button><button type="button" class="btn btn-sm" data-action="make-login" ${isOwner() ? '' : 'hidden'}><i class="fa-solid fa-key"></i> Create a login for someone</button>${isConfigured() ? '<button type="button" class="btn btn-sm" data-action="sign-out"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>' : ''}</div>
       ${sharedUsersList()}
       ${isOwner() ? priceJobSection() : ''}
       ${field('Personal access token', `<div class="flex gap-2">${input('token', config.token, 'type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"')}<button type="button" class="btn" id="toggleToken">Show</button></div>`,
@@ -10652,8 +10965,8 @@ function openSettings() {
       ${twoCol(field('Units are allotted at the NAV of', select('navLagDays', [['0', 'The same day'], ['1', '1 working day later'], ['2', '2 working days later'], ['3', '3 working days later']], String(s.navLagDays ?? 1)), 'Default for lump sums and new SIPs. Each SIP can have its own.'),
         '<div class="pt-6">' + checkbox('stampDuty', s.stampDuty !== false, 'Deduct 0.005% stamp duty', 'Mutual fund purchases in India lose 0.005% to stamp duty, so a few fewer units are allotted.') + '</div>')}
       ${field('Year of birth (optional)', input('birthYear', s.birthYear || '', 'type="number" min="1940" max="2015" placeholder="e.g. 2001"'), 'Used by the financial freedom planner and the cool-off list to show ages.')}
-      ${checkbox('sharePortfolio', !!s.sharePortfolio, 'Share my portfolio with family on this KOSH', 'Others using this repository can add you to their family portfolio and see your holdings\' values.')}
-      ${checkbox('voiceOn', s.voiceOn !== false, 'Speak and log', 'Say a transaction ("spent 250 on lunch from cash") and KOSH fills in the form. Shows Speak to add on the dashboard; press and hold + to speak.')}
+      ${checkbox('sharePortfolio', !!s.sharePortfolio, 'Share my portfolio with family on this FinRi', 'Others using this repository can add you to their family portfolio and see your holdings\' values.')}
+      ${checkbox('voiceOn', s.voiceOn !== false, 'Speak and log', 'Say a transaction ("spent 250 on lunch from cash") and FinRi fills in the form. Shows Speak to add on the dashboard; press and hold + to speak.')}
       ${field('Speaking language', select('voiceLang', [['en-IN', 'English (India)'], ['en-GB', 'English (UK)'], ['en-US', 'English (US)']], s.voiceLang || 'en-IN'), 'Hindi words like kal, aaj, rupaye and se are understood in all of these.')}
       ${checkbox('showNwToggles', s.showNwToggles !== false, 'Show the net worth switches on the dashboard', 'Small switches on the net worth card to leave out investments or credit card dues.')}
       ${checkbox('sipAsSpending', s.sipAsSpending, 'Count SIPs as money going out', 'Shows SIPs and other money you invest in the spending chart and monthly totals. Net worth is not affected, because the money is still yours in the fund.')}
@@ -10708,8 +11021,8 @@ function openSettings() {
       });
       $('#clearLocal', form).addEventListener('click', () => {
         const warn = isConfigured()
-          ? `Remove all KOSH data from this browser?${pending.length ? `\n\n${pending.length} change(s) have NOT reached GitHub yet and will be lost.` : ''}\n\nThe copy on GitHub stays; it will download again next time you connect.`
-          : 'Remove all KOSH data from this browser?\n\nYou are not connected to GitHub, so this deletes your data permanently. Download a backup first if unsure.';
+          ? `Remove all FinRi data from this browser?${pending.length ? `\n\n${pending.length} change(s) have NOT reached GitHub yet and will be lost.` : ''}\n\nThe copy on GitHub stays; it will download again next time you connect.`
+          : 'Remove all FinRi data from this browser?\n\nYou are not connected to GitHub, so this deletes your data permanently. Download a backup first if unsure.';
         if (!confirm(warn)) return;
         Object.values(STORAGE_KEYS).forEach((k) => localStorage.removeItem(k));
         localStorage.removeItem(LAST_ACCOUNT_KEY);
@@ -10842,6 +11155,7 @@ const ACTIONS = {
   'split-settle': (d) => openPersonMoney(d.id, d.dir, d.amt),
   'dash-customize': () => openDashCustomize(),
   'make-login': () => (isOwner() ? openMakeLogin() : toast('Only the owner can create logins.', 'error')),
+  'make-own-login': () => openMakeOwnLogin(),
   'gold-add': () => openGoldForm(null),
   'voice-open': () => openVoice(),
   help: () => openHelpFor((location.hash || '#dashboard').slice(1) || 'dashboard'),
@@ -10869,7 +11183,7 @@ const ACTIONS = {
   'family-remove': async (d) => { if (!confirm(`Remove ${userName(d.u)} from your family? You'll both stop seeing each other's portfolio here.`)) return; commit([opSettings({ familyMembers: (db.settings.familyMembers || []).filter((u) => u !== d.u) })], 'Remove family member'); await endFamily(d.u); syncShared(true); },
   'inv-family': (d) => (d.yes ? openFamilyAnswer(d.id) : answerFamilyInvite(d.id, false)),
   'inv-flat': (d) => answerFlatInvite(d.id, !!d.yes),
-  'family-share': () => { commit([opSettings({ sharePortfolio: !db.settings.sharePortfolio })], db.settings.sharePortfolio ? 'Stop sharing portfolio' : 'Share portfolio'); localStorage.removeItem('kosh.pfSig'); syncShared(true); toast(db.settings.sharePortfolio ? 'Your portfolio is shared with family on this KOSH.' : 'Stopped sharing. Family members keep the last copy until it is replaced.'); },
+  'family-share': () => { commit([opSettings({ sharePortfolio: !db.settings.sharePortfolio })], db.settings.sharePortfolio ? 'Stop sharing portfolio' : 'Share portfolio'); localStorage.removeItem('kosh.pfSig'); syncShared(true); toast(db.settings.sharePortfolio ? 'Your portfolio is shared with family on this FinRi.' : 'Stopped sharing. Family members keep the last copy until it is replaced.'); },
   'cool-new': () => openCoolOff(),
   'cool-decide': (d) => openCoolDecide(d.id),
   'cool-skip': (d) => coolSkip(d.id),
@@ -10900,6 +11214,8 @@ const ACTIONS = {
   'person-edit': (d) => openPersonForm(accountById(d.id)),
   'person-money': (d) => openPersonMoney(d.id, d.dir),
   'person-history': (d) => openPersonHistory(d.id),
+  'person-txn-edit': (d) => { const t = db.transactions.find((x) => x.id === d.id); if (t) openTxnForm(t); },
+  'person-txn-del': (d) => { const pid = d.person; closeModal(); if (deleteTxn(d.id) !== false && accountById(pid)) setTimeout(() => openPersonHistory(pid), 60); else if (accountById(pid)) openPersonHistory(pid); },
   'home-settle': () => settleHomeExpenses(),
   'home-unsettle': (d) => unsettleHome(d.id),
   'edit-txn': (d) => openTxnForm(db.transactions.find((t) => t.id === d.id)),
@@ -10946,6 +11262,7 @@ const ACTIONS = {
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
 function init() {
+  initNative();          // inside the FinRi phone app: back button, status bar, splash
   registerServiceWorker();
   bindModal();
 

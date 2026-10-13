@@ -1,7 +1,7 @@
 {
-  "name": "Kundan's Finance",
-  "short_name": "KOSH",
-  "description": "KOSH: Kundan On Savings Hustle. Expenses, investments, goals and insights.",
+  "name": "FinRi",
+  "short_name": "FinRi",
+  "description": "FinRi: your money in one place.",
   "start_url": "./#dashboard",
   "scope": "./",
   "display": "standalone",
@@ -14,7 +14,7 @@
     { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Add expense", "url": "./#transactions" },
-    { "name": "Insights", "url": "./#insights" }
+    { "name": "FinRi", "url": "./#transactions" },
+    { "name": "FinRi", "url": "./#insights" }
   ]
 }
