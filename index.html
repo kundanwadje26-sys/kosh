@@ -57,12 +57,40 @@
 </head>
 <body class="bg-paper text-ink antialiased">
   <div id="splash" aria-hidden="true">
-    <img id="splashEnd" src="icons/finri-intro-end.jpg" alt="" hidden>
-    <video id="splashVideo" muted playsinline autoplay preload="auto" disablepictureinpicture disableremoteplayback poster="icons/finri-intro-start.jpg">
-      <source src="icons/finri-intro.mp4" type="video/mp4">
-      <source src="icons/finri-intro.webm" type="video/webm">
-    </video>
+    <div class="sp-wrap">
+      <svg class="sp-logo" viewBox="70 52 750 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="FinRi">
+        <defs>
+          <radialGradient id="spCoin" cx=".36" cy=".3" r=".78"><stop offset="0" stop-color="#FFE59A"/><stop offset=".5" stop-color="#F7BC3F"/><stop offset="1" stop-color="#DE9212"/></radialGradient>
+          <clipPath id="spClip1"><circle cx="301" cy="120.5" r="41.8"/></clipPath>
+          <clipPath id="spClip2"><circle cx="754" cy="113" r="45.9"/></clipPath>
+        </defs>
+        <g fill="#FFFFFF">
+          <path class="sp-l sp-l1" d="M88.9 340.7V128H142.6V340.7ZM131.5 261.2V215.9H236.8V261.2ZM131.5 173.3V128H241.6V173.3Z"/><path class="sp-l sp-l2" d="M274.9 340.7V194H327.1V340.7Z"/><path class="sp-l sp-l3" d="M452.8 340.7V257.9Q452.8 247.7 446.8 241.8Q440.8 236 431.5 236Q425.2 236 420.2 238.7Q415.3 241.4 412.6 246.2Q409.9 251 409.9 257.9L389.5 248.3Q389.5 230.6 397.3 217.8Q405.1 205.1 418.8 198.1Q432.4 191 449.8 191Q465.7 191 478.2 198.3Q490.6 205.7 497.8 218Q505 230.3 505 245.9V340.7ZM357.7 340.7V194H409.9V340.7Z"/>
+          <path class="sp-l sp-l4" d="M578.8 254.6V216.2H619.3Q632.5 216.2 639.5 209.8Q646.6 203.3 646.6 192.2Q646.6 181.4 639.5 174.7Q632.5 167.9 619.3 167.9H578.8V128H626.8Q648.4 128 664.8 136.1Q681.1 144.2 690.4 158.3Q699.7 172.4 699.7 191.3Q699.7 210.2 690.2 224.4Q680.8 238.7 664 246.6Q647.2 254.6 624.7 254.6ZM536.2 340.7V128H589.9V340.7ZM651.4 340.7 589.6 249.5 637.9 237.8 713.5 340.7Z"/><path class="sp-l sp-l5" d="M727.9 340.7V194H780.1V340.7Z"/>
+        </g>
+        <g class="sp-coin sp-c1">
+<circle class="sp-ring" cx="301" cy="120.5" r="41.8" fill="none" stroke="#FFD66B" stroke-width="5"/>
+<g class="sp-drop"><g class="sp-flip">
+<circle cx="301" cy="120.5" r="41.8" fill="url(#spCoin)"/>
+<circle cx="301" cy="120.5" r="40.599999999999994" fill="none" stroke="#C47F0A" stroke-opacity=".55" stroke-width="2.4"/>
+<circle cx="301" cy="120.5" r="33.4" fill="none" stroke="#FFF2C4" stroke-opacity=".55" stroke-width="2.5"/>
+<path d="M302.6 142.6 284.2 127.8V120.4H300Q301.8 120.4 303.1 119.7Q304.5 119 305.2 117.7Q305.9 116.4 305.9 114.8Q305.9 113.1 305.2 111.8Q304.5 110.6 303.1 109.8Q301.8 109.1 300 109.1H284.2V101.7H317.8V106.7H308.3L310.4 105Q312.3 106.7 313.4 109.1Q314.5 111.5 314.5 114.8Q314.5 119 312.6 121.9Q310.7 124.8 307.4 126.3Q304.1 127.8 300 127.8H293.1L293.9 125.4L315 142.6ZM284.2 117.2V112.3H317.8V117.2Z" fill="#FFE9A8"/><path d="M302.6 140.1 284.2 125.3V117.9H300Q301.8 117.9 303.1 117.2Q304.5 116.5 305.2 115.2Q305.9 113.9 305.9 112.3Q305.9 110.6 305.2 109.3Q304.5 108 303.1 107.3Q301.8 106.6 300 106.6H284.2V99.2H317.8V104.1H308.3L310.4 102.5Q312.3 104.2 313.4 106.6Q314.5 109 314.5 112.3Q314.5 116.5 312.6 119.4Q310.7 122.3 307.4 123.8Q304.1 125.3 300 125.3H293.1L293.9 122.9L315 140.1ZM284.2 114.7V109.7H317.8V114.7Z" fill="#8F5600"/>
+<g clip-path="url(#spClip1)"><g transform="rotate(24 301 120.5)"><rect class="sp-glint" x="287" y="58.7" width="22" height="123.6" fill="#FFFFFF" opacity=".65"/></g></g>
+</g></g></g>
+        <g class="sp-coin sp-c2">
+<circle class="sp-ring" cx="754" cy="113" r="45.9" fill="none" stroke="#FFD66B" stroke-width="5"/>
+<g class="sp-drop"><g class="sp-flip">
+<circle cx="754" cy="113" r="45.9" fill="url(#spCoin)"/>
+<circle cx="754" cy="113" r="44.699999999999996" fill="none" stroke="#C47F0A" stroke-opacity=".55" stroke-width="2.4"/>
+<circle cx="754" cy="113" r="36.7" fill="none" stroke="#FFF2C4" stroke-opacity=".55" stroke-width="2.8"/>
+<path d="M755.8 137.3 735.6 121V112.9H752.9Q754.9 112.9 756.4 112.1Q757.8 111.3 758.6 109.9Q759.4 108.5 759.4 106.7Q759.4 104.8 758.6 103.4Q757.8 102.1 756.4 101.3Q754.9 100.5 752.9 100.5H735.6V92.3H772.4V97.8H762L764.3 96Q766.4 97.8 767.6 100.5Q768.8 103.1 768.8 106.7Q768.8 111.3 766.7 114.5Q764.6 117.7 761 119.4Q757.4 121 752.9 121H745.3L746.2 118.4L769.4 137.3ZM735.6 109.4V103.9H772.4V109.4Z" fill="#FFE9A8"/><path d="M755.8 134.6 735.6 118.3V110.1H752.9Q754.9 110.1 756.4 109.3Q757.8 108.5 758.6 107.2Q759.4 105.8 759.4 104Q759.4 102.1 758.6 100.7Q757.8 99.3 756.4 98.5Q754.9 97.7 752.9 97.7H735.6V89.6H772.4V95H762L764.3 93.2Q766.4 95.1 767.6 97.7Q768.8 100.4 768.8 104Q768.8 108.5 766.7 111.7Q764.6 115 761 116.6Q757.4 118.3 752.9 118.3H745.3L746.2 115.7L769.4 134.6ZM735.6 106.6V101.2H772.4V106.6Z" fill="#8F5600"/>
+<g clip-path="url(#spClip2)"><g transform="rotate(24 754 113)"><rect class="sp-glint sp-last" x="740" y="47.099999999999994" width="22" height="131.8" fill="#FFFFFF" opacity=".65"/></g></g>
+</g></g></g>
+      </svg>
+      <div class="sp-tag">Your money, in one place</div>
+    </div>
   </div>
+  <script>try { if (sessionStorage.getItem('finri.introPlayed') === '1') document.getElementById('splash').classList.add('sp-static'); } catch (e) { /* storage blocked */ }</script>
   <a href="#view" class="skip-link">Skip to content</a>
 
   <div class="min-h-screen lg:flex">

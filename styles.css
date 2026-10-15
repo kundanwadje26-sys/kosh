@@ -1009,13 +1009,49 @@ img, svg, canvas, video { max-width: 100%; }
 .setup-steps li.done b { color: var(--ink-3); text-decoration: line-through; }
 .setup-text { display: block; font-size: .82rem; color: var(--ink-3); margin-top: .1rem; }
 
-/* ================= Intro video (launch screen) =================
-   Kundan's 2.5 s intro: "Fin", "Ri", then the ₹ coins drop in. The background matches the
-   video's first frame exactly, so there's no flash before it plays. */
-#splash { background: linear-gradient(180deg, #0F673D 0%, #107243 25%, #127A49 50%, #169055 75%, #1CA763 100%); animation: splashFailsafe .4s ease 5.5s forwards; }
-#splash video, #splash #splashEnd { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-#splash #splashEnd { z-index: 1; }
+/* ================= Launch screen (vector intro) =================
+   Drawn with the real logo paths (SVG), so it is sharp on every screen and always fits with margins.
+   Story: "Fin" rises in, then "Ri", then the two ₹ coins spin down onto the i's, bounce, and glint.
+   The resting styles below ARE the final frame; the animations only play from the start into it,
+   so "reduce motion", a quick reload (.sp-static) or a slow phone all end on the full logo. */
+#splash { background:
+    radial-gradient(85% 50% at 50% 45%, rgba(255,255,255,.08) 0%, rgba(255,255,255,0) 72%),
+    linear-gradient(180deg, #0F673D 0%, #107243 25%, #127A49 50%, #169055 75%, #1CA763 100%);
+  animation: splashFailsafe .4s ease 5.5s forwards; overflow: hidden; }
 #splash.out { opacity: 0; transform: scale(1.02); }
+#splash .sp-wrap { display: grid; justify-items: center; gap: clamp(.6rem, 2.2vw, 1rem); margin-bottom: 4vh; }
+#splash .sp-logo { display: block; width: min(74vw, 380px, 110vh); height: auto; overflow: visible; }
+#splash .sp-tag { color: #D3F5E2; font: 500 clamp(.95rem, 4vw, 1.12rem)/1.2 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: .01em; opacity: .92; animation: spTag .5s cubic-bezier(.2,.8,.25,1) 1.75s both; }
+#splash .sp-l, #splash .sp-drop, #splash .sp-flip, #splash .sp-ring { transform-box: fill-box; transform-origin: center; }
+#splash .sp-l { animation: spRise .55s cubic-bezier(.2,.9,.25,1) both; }
+#splash .sp-l1 { animation-delay: .10s; } #splash .sp-l2 { animation-delay: .17s; } #splash .sp-l3 { animation-delay: .24s; }
+#splash .sp-l4 { animation-delay: .50s; } #splash .sp-l5 { animation-delay: .57s; }
+#splash .sp-drop { animation: spDrop .85s linear both; }
+#splash .sp-flip { animation: spFlip .85s linear both; }
+#splash .sp-ring { opacity: 0; animation: spRing .6s ease-out forwards; } /* forwards only: hidden until its coin lands */
+#splash .sp-glint { transform: translateX(140px); animation: spGlint .5s ease-in-out both; }
+#splash .sp-c1 .sp-drop, #splash .sp-c1 .sp-flip { animation-delay: .95s; }
+#splash .sp-c2 .sp-drop, #splash .sp-c2 .sp-flip { animation-delay: 1.12s; }
+#splash .sp-c1 .sp-ring { animation-delay: 1.44s; } #splash .sp-c2 .sp-ring { animation-delay: 1.61s; }
+#splash .sp-c1 .sp-glint { animation-delay: 1.62s; } #splash .sp-c2 .sp-glint { animation-delay: 1.80s; }
+@keyframes spRise { from { opacity: 0; transform: translateY(46px); } to { opacity: 1; transform: none; } }
+@keyframes spTag  { from { opacity: 0; transform: translateY(8px); } to { opacity: .92; transform: none; } }
+@keyframes spDrop {
+  0%   { opacity: 0; transform: translateY(-360px); animation-timing-function: cubic-bezier(.55,0,1,.55); }
+  14%  { opacity: 1; }
+  58%  { transform: translateY(0); animation-timing-function: cubic-bezier(0,.45,.45,1); }
+  72%  { transform: translateY(-32px); animation-timing-function: cubic-bezier(.55,0,1,.45); }
+  84%  { transform: translateY(0); animation-timing-function: cubic-bezier(0,.45,.45,1); }
+  92%  { transform: translateY(-7px); animation-timing-function: cubic-bezier(.55,0,1,.45); }
+  100% { opacity: 1; transform: none; } }
+@keyframes spFlip { 0% { transform: scaleX(1); } 15% { transform: scaleX(.08); } 30% { transform: scaleX(1); }
+  44% { transform: scaleX(.08); } 58% { transform: scaleX(1); } 61% { transform: scale(1.06, .92); } 68%, 100% { transform: none; } }
+@keyframes spRing  { 0% { opacity: .75; transform: scale(1); } 100% { opacity: 0; transform: scale(1.75); } }
+@keyframes spGlint { from { transform: translateX(-60px); } to { transform: translateX(140px); } }
+#splash.sp-static *, #splash.sp-static { animation: none !important; }
+#splash.sp-static { animation: splashFailsafe .4s ease 5.5s forwards !important; }
+@media (prefers-reduced-motion: reduce) { #splash * { animation: none !important; } }
 
 /* Sidebar: the FinRi app icon */
 .logo-mark.logo-img { background: none; padding: 0; overflow: hidden; box-shadow: 0 6px 14px rgba(10,107,70,.3); }

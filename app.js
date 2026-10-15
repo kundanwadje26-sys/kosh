@@ -11799,26 +11799,23 @@ function maybeWelcomeTour() {
   setTimeout(() => { if (!toursDone().welcome && $('#modal').classList.contains('hidden')) startTour('welcome'); }, 700);
 }
 
-/* ----- Launch screen: the FinRi intro video -----
-   Plays once when the app opens (2.5 s), holds the final logo for a moment, then fades into the app.
-   Falls back to the final frame (still image) if video can't play, when "reduce motion" is on,
-   or on a reload in the same session. Tap to skip. Never stays more than about 4 s. */
+/* ----- Launch screen: the FinRi intro (vector, drawn in index.html, animated by styles.css) -----
+   Plays once when the app opens (about 2.3 s), holds the full logo for a moment, then fades into the app.
+   Shows the finished logo straight away when "reduce motion" is on or on a reload in the same session.
+   Tap to skip. Never stays more than about 4 s. */
 const splash = { ready: false, done: false, shownAt: performance.now() };
 function setupSplash() {
-  const el = document.getElementById('splash'), v = document.getElementById('splashVideo'), end = document.getElementById('splashEnd');
+  const el = document.getElementById('splash');
   if (!el) return;
-  const still = () => { if (end) end.hidden = false; if (v) { try { v.pause(); } catch { /* not playing */ } v.style.visibility = 'hidden'; } };
   const finish = (holdMs) => { if (!splash.done) { splash.done = true; setTimeout(closeSplash, holdMs); } };
   el.addEventListener('click', () => finish(0), { once: true }); // tap to skip
-  const quick = reducedMotion() || sessionStorage.getItem('finri.introPlayed') === '1';
-  if (!v || quick) { still(); finish(reducedMotion() ? 500 : 650); return; }
-  sessionStorage.setItem('finri.introPlayed', '1');
-  if (v.ended) { finish(200); return; }
-  v.addEventListener('ended', () => finish(220), { once: true });
-  // a format the phone can't play is skipped (the next one is tried); give up only when none can play
-  v.addEventListener('error', (e) => { if (e.target?.tagName === 'SOURCE' && e.target.nextElementSibling) return; still(); finish(900); }, true);
-  const p = v.play?.(); if (p && p.catch) p.catch(() => { still(); finish(900); }); // autoplay refused
-  setTimeout(() => { if (!splash.done && (v.paused || v.readyState < 2)) { still(); finish(800); } }, 1200); // didn't start in time
+  let quick = reducedMotion();
+  try { quick = quick || sessionStorage.getItem('finri.introPlayed') === '1'; sessionStorage.setItem('finri.introPlayed', '1'); } catch { /* storage blocked */ }
+  if (quick) { el.classList.add('sp-static'); finish(reducedMotion() ? 500 : 650); return; }
+  const last = el.querySelector('.sp-last'); // the final glint: when it ends, the logo is complete
+  const anims = last?.getAnimations?.() || null;
+  if (!last || (anims && anims.length && anims.every(a => a.playState === 'finished'))) { finish(350); return; } // already played (slow start)
+  last.addEventListener('animationend', () => finish(350), { once: true });
   setTimeout(() => finish(0), 4200); // never longer than this
 }
 function closeSplash() {
@@ -11828,6 +11825,6 @@ function closeSplash() {
   el.dataset.out = '1'; el.classList.add('out');
   setTimeout(() => { el.remove(); maybeWelcomeTour(); }, 450);
 }
-function hideSplash() { splash.ready = true; splash.readyAt = performance.now(); } // called when the app has started; the video decides when to go
+function hideSplash() { splash.ready = true; splash.readyAt = performance.now(); } // called when the app has started; the intro decides when to go
 
 document.addEventListener('DOMContentLoaded', () => { setupSplash(); init(); });
