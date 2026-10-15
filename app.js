@@ -11799,12 +11799,35 @@ function maybeWelcomeTour() {
   setTimeout(() => { if (!toursDone().welcome && $('#modal').classList.contains('hidden')) startTour('welcome'); }, 700);
 }
 
-/* ----- Launch animation ----- */
-function hideSplash() {
+/* ----- Launch screen: the FinRi intro video -----
+   Plays once when the app opens (2.5 s), holds the final logo for a moment, then fades into the app.
+   Falls back to the final frame (still image) if video can't play, when "reduce motion" is on,
+   or on a reload in the same session. Tap to skip. Never stays more than about 4 s. */
+const splash = { ready: false, done: false, shownAt: performance.now() };
+function setupSplash() {
+  const el = document.getElementById('splash'), v = document.getElementById('splashVideo'), end = document.getElementById('splashEnd');
+  if (!el) return;
+  const still = () => { if (end) end.hidden = false; if (v) { try { v.pause(); } catch { /* not playing */ } v.style.visibility = 'hidden'; } };
+  const finish = (holdMs) => { if (!splash.done) { splash.done = true; setTimeout(closeSplash, holdMs); } };
+  el.addEventListener('click', () => finish(0), { once: true }); // tap to skip
+  const quick = reducedMotion() || sessionStorage.getItem('finri.introPlayed') === '1';
+  if (!v || quick) { still(); finish(reducedMotion() ? 500 : 650); return; }
+  sessionStorage.setItem('finri.introPlayed', '1');
+  if (v.ended) { finish(200); return; }
+  v.addEventListener('ended', () => finish(220), { once: true });
+  // a format the phone can't play is skipped (the next one is tried); give up only when none can play
+  v.addEventListener('error', (e) => { if (e.target?.tagName === 'SOURCE' && e.target.nextElementSibling) return; still(); finish(900); }, true);
+  const p = v.play?.(); if (p && p.catch) p.catch(() => { still(); finish(900); }); // autoplay refused
+  setTimeout(() => { if (!splash.done && (v.paused || v.readyState < 2)) { still(); finish(800); } }, 1200); // didn't start in time
+  setTimeout(() => finish(0), 4200); // never longer than this
+}
+function closeSplash() {
   const el = document.getElementById('splash');
   if (!el || el.dataset.out) return;
-  const since = performance.now(), min = reducedMotion() ? 200 : 1500; // let the logo animation finish
-  setTimeout(() => { el.dataset.out = '1'; el.classList.add('out'); setTimeout(() => { el.remove(); maybeWelcomeTour(); }, 450); }, Math.max(0, min - since));
+  if (!splash.ready) { setTimeout(closeSplash, 120); return; } // the app behind it isn't ready yet
+  el.dataset.out = '1'; el.classList.add('out');
+  setTimeout(() => { el.remove(); maybeWelcomeTour(); }, 450);
 }
+function hideSplash() { splash.ready = true; splash.readyAt = performance.now(); } // called when the app has started; the video decides when to go
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => { setupSplash(); init(); });

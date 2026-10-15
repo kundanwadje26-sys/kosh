@@ -1,10 +1,10 @@
-/* Service worker for Kundan's Finance (KOSH).
+/* Service worker for FinRi.
    - App files (this site): network first, so updates arrive straight away;
      the cached copy is used when you're offline.
    - Libraries and fonts from CDNs: cached after first use, so the app opens offline.
    - GitHub, price and notification services are never cached. */
-const VERSION = 'finri-v32';
-const APP_FILES = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/apple-touch-icon.png'];
+const VERSION = 'finri-v33';
+const APP_FILES = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/apple-touch-icon.png', './icons/finri-intro-start.jpg', './icons/finri-intro-end.jpg'];
 const NEVER_CACHE = ['api.github.com', 'api.mfapi.in', 'www.alphavantage.co', 'ntfy.sh', 'www.goldapi.io'];
 
 self.addEventListener('install', (e) => {
@@ -16,6 +16,7 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
+  if (req.destination === 'video' || /\.(mp4|webm)$/.test(new URL(req.url).pathname)) return; // the intro video streams normally (phones ask for it in pieces)
   const url = new URL(req.url);
   if (NEVER_CACHE.includes(url.hostname) || url.pathname.includes('currency-api') || url.pathname.startsWith('/logins/') || url.pathname.includes('/logins/')) return; // live rates and login files are never cached
   if (url.origin === self.location.origin) {

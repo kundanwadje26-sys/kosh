@@ -1008,3 +1008,15 @@ img, svg, canvas, video { max-width: 100%; }
 .setup-steps li.done .setup-tick { background: var(--gain); border-color: var(--gain); color: #fff; }
 .setup-steps li.done b { color: var(--ink-3); text-decoration: line-through; }
 .setup-text { display: block; font-size: .82rem; color: var(--ink-3); margin-top: .1rem; }
+
+/* ================= Intro video (launch screen) =================
+   Kundan's 2.5 s intro: "Fin", "Ri", then the ₹ coins drop in. The background matches the
+   video's first frame exactly, so there's no flash before it plays. */
+#splash { background: linear-gradient(180deg, #0F673D 0%, #107243 25%, #127A49 50%, #169055 75%, #1CA763 100%); animation: splashFailsafe .4s ease 5.5s forwards; }
+#splash video, #splash #splashEnd { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+#splash #splashEnd { z-index: 1; }
+#splash.out { opacity: 0; transform: scale(1.02); }
+
+/* Sidebar: the FinRi app icon */
+.logo-mark.logo-img { background: none; padding: 0; overflow: hidden; box-shadow: 0 6px 14px rgba(10,107,70,.3); }
+.logo-mark.logo-img img { width: 100%; height: 100%; display: block; object-fit: cover; }
