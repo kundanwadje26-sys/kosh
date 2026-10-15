@@ -45,7 +45,7 @@ const ACCOUNT_TYPES = {
   credit_card: { label: 'Credit cards',          single: 'Credit card',    icon: 'fa-credit-card' },
   investment:  { label: 'Investments & savings', single: 'Investment',     icon: 'fa-seedling' },
   // A person you lend to or borrow from (Dad, friends). Balance above zero =
-  // they owe you; below zero = you owe them. Managed on the People page.
+  // they owe you; below zero = you owe them. Managed on the Lend & borrow page.
   person:      { label: 'People',                single: 'Person',         icon: 'fa-user' },
 };
 const MONEY_TYPES = ['cash', 'bank', 'credit_card', 'investment']; // everything except people
@@ -92,7 +92,7 @@ const DEFAULT_SETTINGS = {
   sipAsSpending: true,       // show SIPs / money invested in monthly spending charts
   autoPrices: true,          // refresh mutual fund NAVs / stock prices when the app opens
   stockApiKey: '',           // your own Alpha Vantage key (optional; the built-in one is used otherwise)
-  showNwToggles: true,       // small switches on the net worth card
+  showNwToggles: true,       // small switches on the total money card
   navLagDays: 1,             // SIP/lump sum units use the NAV this many working days after payment
   remindInApp: true,         // dashboard nudge when nothing is logged today (after 7 pm)
   reminderTime: '21:00',     // daily reminder time (calendar / phone notification)
@@ -100,8 +100,8 @@ const DEFAULT_SETTINGS = {
   taxRegime: 'new',          // for the tax estimate: 'new' or 'old'
   salaried: true,            // standard deduction applies
   stampDuty: true,           // deduct 0.005% stamp duty when working out mutual fund units
-  nwInvestments: true,       // net worth includes investments / portfolio
-  nwCardDues: true,          // net worth subtracts credit card dues
+  nwInvestments: true,       // total money includes investments / portfolio
+  nwCardDues: true,          // total money subtracts credit card dues
   expenseCategories: ['Food & dining', 'Groceries', 'Transport', 'Fuel', 'Utilities', 'Rent', 'Shopping',
     'Health', 'Education', 'Entertainment', 'Travel', 'Subscriptions', 'EMI', 'Insurance',
     'Personal care', 'Family', 'Gifts & donations', 'Fees & charges', 'Other'],
@@ -554,7 +554,7 @@ function setSyncStatus(state, detail = '') {
   if (foot) {
     foot.innerHTML = isConfigured()
       ? `Data file: <a class="underline" href="${esc(gh().webUrl)}" target="_blank" rel="noopener">${esc(config.owner)}/${esc(config.repo)}/${esc(config.path)}</a>`
-      : 'Not connected to GitHub yet. Your data is only in this browser.';
+      : 'Not signed in yet. Your data is only on this device.';
   }
 }
 
@@ -562,7 +562,7 @@ function setSyncStatus(state, detail = '') {
    6. CALCULATIONS
    ---------------------------------------------------------------------
    Balances are never stored; they are always worked out from:
-     opening balance (as on its date) + money in - money out
+     starting balance (as on its date) + money in - money out
    so editing or deleting any transaction automatically fixes balances.
 
    Sign convention (also used in exports):
@@ -883,7 +883,7 @@ function emiTxn(e, k, c = emiCalc(e)) {
    day, startDate, nextDate, endDate, stepUpPercent, autoLog, active }.
    Each instalment is a TRANSFER from your bank to the fund's investment
    account: your bank balance goes down (like an expense) and the fund's
-   value goes up by the same amount, so net worth stays correct. */
+   value goes up by the same amount, so total money stays correct. */
 function sipAmountOn(x, date) {
   const base = num(x.amount);
   const step = num(x.stepUpPercent);
@@ -1135,28 +1135,28 @@ function bindModal() {
 
 /* ----- Router: #dashboard, #accounts, ... ----- */
 const PAGES = {
-  dashboard:     { title: 'Dashboard',        icon: 'fa-house',           group: 'Overview' },
-  insights:      { title: 'Insights',         icon: 'fa-lightbulb',       group: 'Overview' },
+  dashboard:     { title: 'Home',        icon: 'fa-house',           group: 'Overview' },
+  insights:      { title: 'Monthly report', short: 'Report',         icon: 'fa-lightbulb',       group: 'Overview' },
   health:        { title: 'Money health',     short: 'Health', icon: 'fa-heart-pulse', group: 'Overview' },
   calendar:      { title: 'Calendar',         icon: 'fa-calendar-days',   group: 'Overview' },
-  transactions:  { title: 'Transactions',     icon: 'fa-list',            group: 'Money' },
+  transactions:  { title: 'Activity',     icon: 'fa-list',            group: 'Money' },
   accounts:      { title: 'Accounts',         icon: 'fa-building-columns', group: 'Money' },
   split:         { title: 'Split bills',      short: 'Split', icon: 'fa-people-arrows', group: 'Money' },
-  flat:          { title: 'Shared flat',      short: 'Flat', icon: 'fa-house-user', group: 'Money' },
-  people:        { title: 'People',           icon: 'fa-user-group',      group: 'Money' },
-  subscriptions: { title: 'Recurring',        icon: 'fa-rotate',          group: 'Money' },
-  emis:          { title: 'EMIs & loans',     icon: 'fa-calendar-check',  group: 'Money' },
+  flat:          { title: 'Flatmates',        short: 'Flat', icon: 'fa-house-user', group: 'Money' },
+  people:        { title: 'Lend & borrow',           icon: 'fa-user-group',      group: 'Money' },
+  subscriptions: { title: 'Regular payments', short: 'Bills',        icon: 'fa-rotate',          group: 'Money' },
+  emis:          { title: 'Loans & EMIs',     icon: 'fa-calendar-check',  group: 'Money' },
   budgets:       { title: 'Budgets',          icon: 'fa-bullseye',        group: 'Money' },
   insurance:     { title: 'Insurance',        icon: 'fa-shield-halved',   group: 'Money' },
-  portfolio:     { title: 'Portfolio',        icon: 'fa-chart-line',      group: 'Grow' },
+  portfolio:     { title: 'Investments',        icon: 'fa-chart-line',      group: 'Grow' },
   goals:         { title: 'Goals & wishlist', short: 'Goals', icon: 'fa-flag-checkered', group: 'Grow' },
-  planner:       { title: 'Planners',         icon: 'fa-compass',         group: 'Grow' },
+  planner:       { title: 'Calculators',         icon: 'fa-compass',         group: 'Grow' },
   import:        { title: 'Import statement', short: 'Import', icon: 'fa-file-import', group: 'Tools' },
   charts:        { title: 'Charts',           icon: 'fa-chart-simple',    group: 'Tools' },
-  notifications: { title: 'Notifications',    icon: 'fa-bell',            group: 'Tools' },
-  data:          { title: 'Export & backup',  short: 'Export', icon: 'fa-file-export', group: 'Tools' },
+  notifications: { title: 'Reminders',    icon: 'fa-bell',            group: 'Tools' },
+  data:          { title: 'Backup & export',  short: 'Backup', icon: 'fa-file-export', group: 'Tools' },
   help:          { title: 'Help',             icon: 'fa-circle-question', group: 'Tools' },
-  tax:           { title: 'Tax helper',       icon: 'fa-file-invoice',    hidden: true }, // now a tab in Planners
+  tax:           { title: 'Tax helper',       icon: 'fa-file-invoice',    hidden: true }, // now a tab in Calculators
 };
 const currentPage = () => { const h = location.hash.replace(/^#\/?/, ''); return PAGES[h] ? h : 'dashboard'; };
 
@@ -1167,7 +1167,7 @@ function renderNav() {
   const cur = currentPage();
   let lastGroup = '';
   $('#nav').innerHTML = Object.entries(PAGES).filter(([, p]) => !p.hidden).map(([k, p]) =>
-    `${p.group !== lastGroup ? `<div class="nav-group">${(lastGroup = p.group)}</div>` : ''}<a href="#${k}" class="nav-link ${k === cur ? 'active' : ''}" ${k === cur ? 'aria-current="page"' : ''}><i class="fa-solid ${p.icon}"></i>${p.title}${k === 'portfolio' && M?.reviews?.length ? `<span class="nav-badge" title="Units to confirm">${M.reviews.length}</span>` : ''}${k === 'people' && typeof pendingHome === 'function' && pendingHome().length ? `<span class="nav-badge" title="Home expenses to take back">${pendingHome().length}</span>` : ''}</a>`).join('');
+    `${p.group !== lastGroup ? `<div class="nav-group">${(lastGroup = p.group)}</div>` : ''}<a href="#${k}" class="nav-link ${k === cur ? 'active' : ''}" ${k === cur ? 'aria-current="page"' : ''}><i class="fa-solid ${p.icon}"></i>${p.title}${k === 'portfolio' && M?.reviews?.length ? `<span class="nav-badge" title="Check units">${M.reviews.length}</span>` : ''}${k === 'people' && typeof pendingHome === 'function' && pendingHome().length ? `<span class="nav-badge" title="Home expenses to take back">${pendingHome().length}</span>` : ''}</a>`).join('');
 }
 
 /** Redraws the current page from `db`. Called after every change. */
@@ -1214,6 +1214,45 @@ const emptyState = (icon, text, actionHtml = '') =>
    --------------------------------------------------------------------- */
 
 /* ===== Shared row renderers ===== */
+/** Status of an entry you shared with someone: waiting for them, said no, or a change/removal waiting. */
+function shareBadge(t) {
+  if (t.sharedFrom || !(t.sharedOut || t.relatedType === 'split') || !t.shareState) return '';
+  const w = esc(t.shareWith || 'them');
+  if (t.shareDelete === 'pending') return `<span class="pill due">Removal waiting for ${w}</span>`;
+  if (t.shareChange === 'pending') return `<span class="pill due">Change waiting for ${w}</span>`;
+  if (t.shareState === 'rejected') return `<span class="pill out">${w} said not right</span>`;
+  if (t.shareState === 'pending') return `<span class="pill due">Waiting for ${w}</span>`;
+  if (t.shareDelete === 'rejected') return `<span class="pill out">${w} said keep it</span>`;
+  if (t.shareChange === 'rejected') return `<span class="pill out">${w} didn't agree to the change</span>`;
+  return `<span class="pill in">Confirmed</span>`;
+}
+
+/** A friendly icon and colour for each kind of spending or income (like the merchant icons in payment apps). */
+const CATEGORY_LOOKS = [
+  [/food|dining|restaurant|swiggy|zomato|cafe|snack/, 'fa-utensils', '#EA580C'], [/grocer|vegetable|kirana|mart/, 'fa-basket-shopping', '#16A34A'],
+  [/fuel|petrol|diesel|cng/, 'fa-gas-pump', '#DC2626'], [/travel|trip|flight|hotel|holiday/, 'fa-plane-departure', '#0284C7'],
+  [/transport|cab|uber|ola|metro|auto|bus|train|parking|toll/, 'fa-car-side', '#2563EB'], [/shopping|clothes|amazon|flipkart/, 'fa-bag-shopping', '#DB2777'],
+  [/utilit|electric|water|gas bill|recharge|internet|wifi|mobile|phone/, 'fa-bolt', '#CA8A04'], [/rent|house|home|maintenance/, 'fa-house', '#7C3AED'],
+  [/subscri|netflix|ott|spotify|prime/, 'fa-tv', '#E11D48'], [/health|medic|doctor|hospital|pharma|gym/, 'fa-heart-pulse', '#EF4444'],
+  [/educat|fee|school|college|course|book/, 'fa-graduation-cap', '#0891B2'], [/entertain|movie|game|outing/, 'fa-film', '#9333EA'],
+  [/insurance|premium/, 'fa-shield-heart', '#0F766E'], [/emi|loan/, 'fa-building-columns', '#475569'], [/tax/, 'fa-landmark', '#334155'],
+  [/gift|donat|charity/, 'fa-gift', '#DB2777'], [/personal care|salon|haircut|grooming/, 'fa-scissors', '#A855F7'], [/family|kids|parents/, 'fa-people-roof', '#D97706'],
+  [/pet/, 'fa-paw', '#B45309'], [/salary|stipend|bonus/, 'fa-briefcase', '#059669'], [/freelance|business|client/, 'fa-laptop', '#0D9488'],
+  [/interest|dividend|cashback|reward|refund/, 'fa-coins', '#CA8A04'], [/credit card payment|card bill/, 'fa-credit-card', '#0A6FB0'],
+  [/withdraw/, 'fa-money-bill-wave', '#16A34A'],
+];
+function categoryLook(t) {
+  if (t.type === 'adjustment') return { icon: 'fa-scale-balanced', color: '#64748B' };
+  if (t.forHome) return { icon: 'fa-house-chimney-user', color: '#7C3AED' };
+  if (t.relatedType === 'person') return { icon: 'fa-hand-holding-dollar', color: '#0A6FB0' };
+  if (t.relatedType === 'sip' || (t.type === 'transfer' && isInvestmentOutflow(t))) return { icon: 'fa-seedling', color: '#B45309' };
+  const c = String(t.category || '').toLowerCase();
+  for (const [re, icon, color] of CATEGORY_LOOKS) if (re.test(c)) return { icon, color };
+  if (t.type === 'income') return { icon: 'fa-arrow-down', color: '#059669' };
+  if (t.type === 'transfer') return { icon: 'fa-right-left', color: '#475569' };
+  return { icon: 'fa-receipt', color: '#64748B' };
+}
+
 function txnRow(t, withActions = true) {
   const kind = {
     expense:    { icon: 'fa-arrow-up', cls: 'out', label: 'Expense' },
@@ -1233,7 +1272,7 @@ function txnRow(t, withActions = true) {
   else if (t.type === 'transfer') { amountHtml = money(amt); flow = `${accountName(t.fromAccountId)} to ${accountName(t.toAccountId)}`; }
   else { const up = !!t.toAccountId; amountHtml = `<span class="${up ? 'text-gain' : 'text-loss'}">${up ? '+' : '−'}${money(amt)}</span>`; flow = accountName(t.toAccountId || t.fromAccountId); }
   return `<div class="row txn-row" data-action="edit-txn" data-id="${t.id}" role="button" tabindex="0" aria-label="Edit ${esc(t.description || t.category || kind.label)}">
-    <div class="row-icon ${kind.cls}" title="${kind.label}"><i class="fa-solid ${kind.icon}"></i></div>
+    ${(() => { const lk = categoryLook(t); return `<div class="row-icon cat ${kind.cls}" style="--c:${lk.color}" title="${esc(t.category || kind.label)}"><i class="fa-solid ${lk.icon}"></i></div>`; })()}
     <div class="min-w-0 flex-1">
       <div class="font-medium truncate">${esc(t.description || t.category || kind.label)}</div>
       <div class="text-xs text-ink-3 flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
@@ -1241,7 +1280,8 @@ function txnRow(t, withActions = true) {
         ${t.category ? `<span class="pill">${esc(t.category)}</span>` : ''}
         ${t.units !== undefined && t.units !== null && t.units !== '' && (accountById(t.toAccountId)?.type === 'investment' || accountById(t.fromAccountId)?.type === 'investment')
           ? `<button class="pill blue" data-action="review-units" data-id="${t.id}" title="Units and NAV (click to change)">${num(t.units).toLocaleString('en-IN', { maximumFractionDigits: 3 })} units${t.unitNav ? ` at ${money(t.unitNav)}` : ''}</button>`
-          : M?.reviews?.some((r) => r.t.id === t.id) ? `<button class="pill" style="background:var(--violet-tint);color:var(--violet)" data-action="review-units" data-id="${t.id}">Units to confirm</button>` : ''}
+          : M?.reviews?.some((r) => r.t.id === t.id) ? `<button class="pill" style="background:var(--violet-tint);color:var(--violet)" data-action="review-units" data-id="${t.id}">Check units</button>` : ''}
+        ${shareBadge(t)}
         <span class="truncate">${esc(flow)}</span>
       </div>
     </div>
@@ -1267,7 +1307,7 @@ let dashMonth = thisMonth();
 const DASH_SECTIONS = [
   ['suggestions', 'Suggestions', true], ['quick', 'Quick actions', true], ['month', 'This month', true], ['budgets', 'Budgets', true],
   ['insights', 'Insights', true], ['due', 'Due soon', true], ['recent', 'Recent transactions', true], ['pinned', 'Your pinned charts', true],
-  ['health', 'Money health card', false], ['portfolio', 'Portfolio card', false], ['subscriptions', 'Subscriptions card', false], ['goals', 'Goals card', false],
+  ['health', 'Money health card', false], ['portfolio', 'Investments card', false], ['subscriptions', 'Subscriptions card', false], ['goals', 'Goals card', false],
   ['charts', 'Spending charts (category pie, 6-month bars)', false],
 ];
 const dashOn = (k) => { const o = db.settings.dashShow || {}; return k in o ? !!o[k] : DASH_SECTIONS.find((x) => x[0] === k)[2]; };
@@ -1301,17 +1341,18 @@ function renderDashboard() {
   return `
     ${signInCard()}
     ${invitesCard()}
+    ${sharedRequestsCard()}
     ${installCard()}
     ${gettingStarted()}
     ${logNudge()}
     ${netWorthPanel(T)}
-    ${dashOn('suggestions') ? `<div class="mt-5">${nudgeStrip(1, true)}</div>` : ''}
-    ${dashOn('quick') ? `<div class="quick-actions" aria-label="Quick actions">
-      ${voiceOn() ? '<button class="qa" data-action="voice-open"><i class="fa-solid fa-microphone"></i><span>Speak to add</span></button>' : '<button class="qa" data-action="add-txn" data-type="expense"><i class="fa-solid fa-plus"></i><span>Add expense</span></button>'}
-      <button class="qa" data-action="split-new"><i class="fa-solid fa-people-arrows"></i><span>Split a bill</span></button>
-      <button class="qa" data-action="cool-new"><i class="fa-solid fa-hourglass-half"></i><span>I want to buy this</span></button>
-      <a class="qa" href="#health"><i class="fa-solid fa-heart-pulse"></i><span>Money health</span></a>
+    ${dashOn('quick') ? `<div class="quick-actions" aria-label="Shortcuts">
+      ${voiceOn() ? '<button class="qa" data-action="voice-open"><i class="fa-solid fa-microphone"></i><span>Speak</span></button>' : '<button class="qa" data-action="add-txn" data-type="expense"><i class="fa-solid fa-plus"></i><span>Add</span></button>'}
+      <button class="qa" data-action="add-txn" data-type="person"><i class="fa-solid fa-hand-holding-dollar"></i><span>Lend</span></button>
+      <button class="qa" data-action="split-new"><i class="fa-solid fa-people-arrows"></i><span>Split bill</span></button>
+      <a class="qa" href="#health"><i class="fa-solid fa-heart-pulse"></i><span>Health</span></a>
     </div>` : ''}
+    ${dashOn('suggestions') ? `<div class="mt-5">${nudgeStrip(1, true)}</div>` : ''}
 
     ${dashOn('month') || dashOn('budgets') ? `<div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mt-6">
       ${dashOn('month') ? monthPanel : ''}
@@ -1349,7 +1390,7 @@ function renderDashboard() {
 
 function gettingStarted() {
   const steps = [
-    { done: isConfigured(), text: 'Connect your GitHub repository so your data is backed up and synced.', action: '<button class="btn btn-sm" data-action="open-settings">Open settings</button>' },
+    { done: isConfigured(), text: 'Sign in, so your data is backed up and works on all your phones.', action: '<button class="btn btn-sm" data-action="open-settings">Open settings</button>' },
     { done: db.accounts.some((a) => a.type !== 'cash' || num(a.openingBalance) !== 0), text: 'Add your bank accounts, credit cards and investments with today\'s balances.', action: '<a class="btn btn-sm" href="#accounts">Add accounts</a>' },
     { done: db.transactions.length > 0, text: 'Log an expense or income. Balances update on their own from then on.', action: '<button class="btn btn-sm" data-action="add-txn" data-type="expense">Add transaction</button>' },
   ];
@@ -1374,7 +1415,7 @@ function greeting() {
   return n ? `${part}, ${n}` : part;
 }
 
-/** The net worth "equation": assets minus liabilities, drawn to scale,
+/** The total money "equation": assets minus liabilities, drawn to scale,
     on the bright hero band at the top of the dashboard. */
 function netWorthPanel(T) {
   // The two switches (Settings can hide them) leave investments or card dues out of the figure.
@@ -1401,11 +1442,11 @@ function netWorthPanel(T) {
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <p class="hero-hello">${esc(greeting())}</p>
-        <div class="text-sm hero-dim mt-4 mb-1">Net worth${left.length ? ` <span class="nw-note">without ${left.join(' and ')}</span>` : ''}</div>
+        <div class="text-sm hero-dim mt-4 mb-1">Total money${left.length ? ` <span class="nw-note">without ${left.join(' and ')}</span>` : ''}</div>
         <div class="display nw-figure num ${shown < 0 ? 'neg' : ''}">${money(Math.round(shown))}</div>
       </div>
       <div class="flex flex-col items-end gap-2">
-        ${db.settings.showNwToggles !== false ? `<div class="nw-toggles" role="group" aria-label="What net worth includes">
+        ${db.settings.showNwToggles !== false ? `<div class="nw-toggles" role="group" aria-label="What total money includes">
           ${miniSwitch('nwInvestments', incInv, 'Investments')}
           ${miniSwitch('nwCardDues', incCard, 'Card dues')}
         </div>` : ''}
@@ -1436,12 +1477,12 @@ function portfolioMini() {
   const nextSip = db.sips.filter((x) => x.active && x.nextDate).sort((a, b) => a.nextDate.localeCompare(b.nextDate))[0];
   if (!M.P.holdings.length && !db.sips.length) {
     return `<section class="panel p-5">
-      <div class="panel-head"><h2 class="panel-title">Portfolio</h2></div>
+      <div class="panel-head"><h2 class="panel-title">Investments</h2></div>
       ${emptyState('fa-seedling', 'Add your mutual funds, stocks and FDs, and set up SIPs to invest automatically.', '<a class="btn btn-sm btn-primary" href="#portfolio">Set up investments</a>')}
     </section>`;
   }
   return `<section class="panel p-5 accent-leaf">
-    <div class="panel-head"><h2 class="panel-title">Portfolio</h2><a href="#portfolio" class="text-sm link">Open</a></div>
+    <div class="panel-head"><h2 class="panel-title">Investments</h2><a href="#portfolio" class="text-sm link">Open</a></div>
     ${M.reviews.length ? `<a href="#portfolio" class="callout block mb-3 text-sm" style="background:var(--violet-tint)"><i class="fa-solid fa-clipboard-check mr-1" style="color:var(--violet)"></i>${M.reviews.length} instalment${M.reviews.length === 1 ? '' : 's'}: units to confirm</a>` : ''}
     <div class="stat-label">Current value</div>
     <div class="display text-3xl font-semibold num">${money(P.value)}</div>
@@ -1570,7 +1611,7 @@ function renderAccounts() {
     return `<section class="${type === 'credit_card' ? '' : 'panel p-5'} mt-6 first:mt-0">
       <div class="panel-head">
         <div class="flex items-baseline gap-3"><h2 class="panel-title">${meta.label}</h2><span class="text-sm text-ink-3 num">${list.length ? totalLabel : ''}</span></div>
-        <div class="flex gap-2">${type === 'investment' ? '<a class="btn btn-sm" href="#portfolio"><i class="fa-solid fa-chart-line"></i> Portfolio & SIPs</a>' : ''}
+        <div class="flex gap-2">${type === 'investment' ? '<a class="btn btn-sm" href="#portfolio"><i class="fa-solid fa-chart-line"></i> Investments & SIPs</a>' : ''}
         <button class="btn btn-sm" data-action="add-account" data-type="${type}"><i class="fa-solid fa-plus"></i> Add ${meta.single.toLowerCase()}</button></div>
       </div>
       ${body}
@@ -1671,11 +1712,11 @@ function renderTransactions() {
   const filterSel = (name, opts, val, label) =>
     `<select class="inp text-sm" data-filter="${name}" aria-label="${label}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${v === val ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   return `
-    <div class="flex flex-wrap gap-2 mb-5">
+    <div class="flex flex-wrap gap-2 mb-5 action-strip">
       <button class="btn btn-primary hide-phone" data-action="add-txn" data-type="expense"><i class="fa-solid fa-arrow-up"></i> Add expense</button>
       <button class="btn" data-action="add-txn" data-type="income"><i class="fa-solid fa-arrow-down"></i> Add income</button>
-      <button class="btn" data-action="add-txn" data-type="transfer"><i class="fa-solid fa-right-left"></i> Transfer money</button>
-      <a class="btn" href="#import"><i class="fa-solid fa-file-import"></i> Import statement</a>
+      <button class="btn" data-action="add-txn" data-type="transfer"><i class="fa-solid fa-right-left"></i> Move money</button>
+      <a class="btn" href="#import"><i class="fa-solid fa-file-import"></i> Import</a>
       <button class="btn" data-action="stmt-download"><i class="fa-solid fa-file-arrow-down"></i> Download</button>
       ${voiceOn() ? '<button class="btn" data-action="voice-open"><i class="fa-solid fa-microphone"></i> Speak</button>' : ''}
     </div>
@@ -1732,14 +1773,14 @@ function renderEmis() {
   const sum = (f) => active.reduce((s, x) => s + f(x), 0);
   return `
     <div class="page-top">
-      <p class="page-intro">Track loans and credit card EMIs. Remaining principal counts against your net worth, and card EMIs block part of the card's limit until paid.</p>
+      <p class="page-intro">Your loans and card EMIs: how much is paid, how much is left, and when the next one is due.</p>
       <button class="btn btn-primary" data-action="add-emi"><i class="fa-solid fa-plus"></i> Add EMI or loan</button>
     </div>
     ${list.length ? `
     <section class="panel p-5 mb-6">
       <dl class="kv">
         <div><dt>Monthly EMIs</dt><dd class="text-lg">${money(sum((x) => x.c.emi))}</dd></div>
-        <div><dt>Principal left</dt><dd class="text-lg">${money(sum((x) => x.c.remaining))}</dd></div>
+        <div><dt>Loan left</dt><dd class="text-lg">${money(sum((x) => x.c.remaining))}</dd></div>
         <div><dt>Interest still to pay</dt><dd class="text-lg">${money(sum((x) => x.c.interestLeft))}</dd></div>
         <div><dt>Card limit blocked</dt><dd class="text-lg">${money(sum((x) => (x.e.kind === 'credit_card' ? x.c.remaining : 0)))}</dd></div>
       </dl>
@@ -1769,7 +1810,7 @@ function emiTile({ e, c }) {
       <div><dt>Monthly EMI</dt><dd>${money(c.emi)}</dd></div>
       <div><dt>Interest rate</dt><dd>${num(e.annualRate)}% p.a.</dd></div>
       <div><dt>Principal</dt><dd>${money(e.principal)}</dd></div>
-      <div><dt>Principal left</dt><dd>${money(c.remaining)}</dd></div>
+      <div><dt>Loan left</dt><dd>${money(c.remaining)}</dd></div>
       <div><dt>Total interest</dt><dd>${money(c.totalInterest)}</dd></div>
       <div><dt>Interest left</dt><dd>${money(c.interestLeft)}</dd></div>
       <div><dt>Next due</dt><dd class="${overdue ? 'text-loss' : ''}">${c.nextDue ? fmtDate(c.nextDue) : 'None'}</dd></div>
@@ -1797,7 +1838,7 @@ function renderSubscriptions() {
   const inMonthly = perMonth(sorted.filter((s) => recurKind(s) === 'income'));
   return `
     <div class="page-top">
-      <p class="page-intro">Everything that repeats: subscriptions, bills like rent, and regular income like salary. Tick "record automatically" and they log themselves on the date.</p>
+      <p class="page-intro">Payments that repeat, like rent, Netflix or your salary. FinRi reminds you before they're due, and can add them for you.</p>
     </div>
     <section class="panel p-5 mb-6"><dl class="kv">
       <div><dt>Going out per month</dt><dd class="text-lg">${money(Math.round(outMonthly))}</dd></div>
@@ -1957,7 +1998,7 @@ function subscriptionPanel() {
 }
 
 /* ===== Investments & SIPs (portfolio) =====
-   Holdings are investment accounts (one per fund, stock, FD...).
+   Your investments are investment accounts (one per fund, stock, FD...).
    SIPs live in db.sips and create a bank -> fund transfer on each date. */
 const GROUP_ICONS = {
   'Mutual funds': 'fa-seedling', 'Stocks & ETFs': 'fa-arrow-trend-up', 'Deposits': 'fa-piggy-bank',
@@ -1983,7 +2024,7 @@ function renderPortfolio() {
   const anyLive = db.accounts.some((a) => a.type === 'investment' && (hasLivePrice(a) || isGoldItem(a)));
   return `
     <div class="page-top">
-      <p class="page-intro">Your funds and shares at today's prices. Search a fund or company, enter the units and average cost once, and the value stays live.</p>
+      <p class="page-intro">Your mutual funds, shares, FDs and gold, at today's prices. Add each one once and FinRi keeps the value up to date.</p>
       <div class="flex gap-2 flex-wrap">
         <button class="btn" data-action="add-account" data-type="investment"><i class="fa-solid fa-plus"></i> Add holding</button>
         <button class="btn" data-action="gold-add"><i class="fa-solid fa-ring"></i> Add gold</button>
@@ -2018,7 +2059,7 @@ function renderPortfolio() {
     ${!F.sel.length || F.sel.includes('Gold') ? goldSection() : ''}
 
     ${groups.length ? `<section class="panel mt-6 overflow-hidden">
-      <div class="panel-head px-5 pt-5"><h2 class="panel-title">Holdings</h2><span class="text-sm text-ink-3">${F.holdings.length} holding${F.holdings.length === 1 ? '' : 's'}</span></div>
+      <div class="panel-head px-5 pt-5"><h2 class="panel-title">Your investments</h2><span class="text-sm text-ink-3">${F.holdings.length} holding${F.holdings.length === 1 ? '' : 's'}</span></div>
       <div class="overflow-x-auto relative"><table class="holdings">
         <thead><tr><th>Name</th><th>Units</th><th>Avg. cost</th><th>Invested</th><th>Latest price</th><th>Current value</th><th>Profit / loss</th><th aria-label="Actions"></th></tr></thead>
         ${groups.map((g) => {
@@ -2043,9 +2084,9 @@ function renderPortfolio() {
           : emptyState('fa-seedling', 'No SIPs yet. Add one: it goes out of your bank on its date and asks you for the units a few days later.', '<button class="btn btn-primary" data-action="add-sip"><i class="fa-solid fa-seedling"></i> Add your first SIP</button>')}
       </section>
       <section class="panel p-5 lg:col-span-2">
-        <div class="panel-head"><h2 class="panel-title">Allocation</h2></div>
+        <div class="panel-head"><h2 class="panel-title">Mix</h2></div>
         ${P.allocation.length ? `
-          <div class="relative h-56" id="allocBox"><canvas id="allocChart" role="img" aria-label="Portfolio allocation chart"></canvas></div>
+          <div class="relative h-56" id="allocBox"><canvas id="allocChart" role="img" aria-label="Investments allocation chart"></canvas></div>
           <div class="space-y-3 mt-5">${P.allocation.map((g) => {
             const share = T.value > 0 ? g.value / T.value : 0;
             return `<div><div class="flex justify-between text-sm mb-1 gap-2"><span class="font-medium">${esc(g.group)}</span>
@@ -2060,7 +2101,7 @@ function renderPortfolio() {
 
 function reviewPanel() {
   return `<section class="panel p-5 mt-6 review-panel">
-    <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-clipboard-check mr-1.5" style="color:var(--violet)"></i>Units to confirm</h2>
+    <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-clipboard-check mr-1.5" style="color:var(--violet)"></i>Check units</h2>
       <span class="text-sm text-ink-3">The app couldn't work these out by itself. Enter them from your statement.</span></div>
     <div class="divider">${M.reviews.map(reviewRow).join('')}</div>
   </section>`;
@@ -2181,7 +2222,7 @@ function openSipForm(existing, presetFundId) {
     ${twoCol(field('Next SIP date', input('nextDate', x.nextDate, 'type="date" required'), 'Monthly SIPs repeat on this day, e.g. the 1st of every month.'),
       field('Paid from', accountSelect('fromAccountId', x.fromAccountId || firstAccountOf(['bank']), { types: ['bank', 'cash'], placeholder: 'Choose a bank account' })))}
     ${twoCol(field('Units are allotted at the NAV of', select('navLagDays', [['0', 'The SIP date'], ['1', '1 working day later'], ['2', '2 working days later'], ['3', '3 working days later']], String(x.navLagDays ?? db.settings.navLagDays ?? 1)), 'How long your platform takes to place the order. The app uses the NAV of that day to work out the units.'),
-      field('Expense ratio % (optional)', input('expenseRatio', existing ? accountById(x.fundAccountId)?.expenseRatio ?? '' : '', 'type="number" step="0.01" min="0" max="5" placeholder="e.g. 0.63"'), 'From the fund\'s factsheet. Already inside the NAV; shown as a yearly cost.'))}
+      field('Fund fee (expense ratio) % (optional)', input('expenseRatio', existing ? accountById(x.fundAccountId)?.expenseRatio ?? '' : '', 'type="number" step="0.01" min="0" max="5" placeholder="e.g. 0.63"'), 'From the fund\'s factsheet. Already inside the NAV; shown as a yearly cost.'))}
     ${twoCol(field('Yearly step-up % (optional)', input('stepUpPercent', x.stepUpPercent || '', 'type="number" min="0" max="100" step="0.5" placeholder="e.g. 10"'), 'Raises the SIP amount once a year.'),
       field('Stop after (optional)', input('endDate', x.endDate, 'type="date"')))}
     ${checkbox('autoLog', x.autoLog, 'Record automatically on the SIP date', 'The amount goes out of your bank as money spent on the SIP date. Once the NAV of the allotment day is published, the app works out the units and adds them to your holding. You can check or change the units and NAV any time. A date in the past fills in missed instalments.')}
@@ -2598,7 +2639,7 @@ function bindInstrumentPicker(form, { onPick } = {}) {
    The expense ratio is NOT subtracted again: a fund's NAV is already
    published after its expenses. The app only shows what it costs you a year.
    Anything that can't be worked out (stocks, unlinked funds, NAV not found
-   a few days after it was due) goes on the "Units to confirm" list. */
+   a few days after it was due) goes on the "Check units" list. */
 const REVIEW_DAYS = 5;          // manual entries: remind after 5 days
 const AUTO_GRACE_DAYS = 3;      // auto entries: remind if the NAV still isn't found 3 days after the allotment date
 const STAMP_DUTY = 0.00005;     // 0.005% on mutual fund purchases (India, since July 2020)
@@ -2754,7 +2795,7 @@ function openReview(txnId) {
   });
 }
 
-/** Annualised return (XIRR) of dated cash flows: money in negative, money out positive. */
+/** Yearly return (XIRR) of dated cash flows: money in negative, money out positive. */
 function xirr(flows) {
   if (flows.length < 2 || !flows.some((f) => f.amount < 0) || !flows.some((f) => f.amount > 0)) return null;
   const t0 = parseDate(flows[0].date);
@@ -2822,7 +2863,7 @@ function openUnitsHistory(accountId) {
         <div><span>Units</span><b class="num">${fmtU(U.units)}</b></div>
         <div><span>Latest ${isMF(a) ? 'NAV' : 'price'}</span><b class="num">${nav ? nav.toFixed(4) : '—'}</b></div>
       </div>
-      <p class="text-xs text-ink-3">${num(a.expenseRatio) ? `Expense ratio ${num(a.expenseRatio)}% a year. ` : ''}The fund's expense ratio is taken out of the NAV every day, so it is already in the price above and isn't deducted again at allotment. At purchase only stamp duty (0.005%) is deducted${a.priceDate ? `. NAV as on ${fmtDate(a.priceDate)}` : ''}.</p>
+      <p class="text-xs text-ink-3">${num(a.expenseRatio) ? `Fund fee (expense ratio) ${num(a.expenseRatio)}% a year. ` : ''}The fund's expense ratio is taken out of the NAV every day, so it is already in the price above and isn't deducted again at allotment. At purchase only stamp duty (0.005%) is deducted${a.priceDate ? `. NAV as on ${fmtDate(a.priceDate)}` : ''}.</p>
       <div class="space-y-3">${list.map(card).join('')}
         ${num(a.units) > 0 ? `<div class="cyc done"><div class="cyc-foot"><span>Units you entered when adding the holding: <b class="num">${fmtU(a.units)}</b> on ${fmtDate(a.unitsDate || a.openingDate)}</span><button type="button" class="link text-sm" data-action="edit-account" data-id="${a.id}">Change</button></div></div>` : ''}
         ${!list.length && !num(a.units) ? '<p class="text-sm text-ink-3">No instalments yet.</p>' : ''}</div>`,
@@ -2860,8 +2901,8 @@ const PALETTE = ['#0B84C6', '#E0306E', '#F59E0B', '#12A150', '#7C3AED', '#06B6D4
   '#0F766E', '#A855F7', '#65A30D', '#DC2626', '#0891B2', '#C026D3', '#4F46E5', '#CA8A04', '#059669', '#9333EA'];
 const FIXED_COLORS = {
   'Money in': '#12A150', Income: '#12A150', Spent: '#E0306E', Expenses: '#E0306E', Invested: '#F59E0B',
-  'SIP & investments': '#F59E0B', 'Net worth': '#0A6FB0', Assets: '#12A150', Liabilities: '#E0306E',
-  Budget: '#94A3B8', Other: '#94A3B8', 'Left over': '#0A6FB0', 'Money with me': '#0B84C6', 'Savings rate': '#12A150',
+  'SIP & investments': '#F59E0B', 'Total money': '#0A6FB0', Assets: '#12A150', Liabilities: '#E0306E',
+  Budget: '#94A3B8', Other: '#94A3B8', 'Left over': '#0A6FB0', 'Money with me': '#0B84C6', 'Money saved': '#12A150',
   Cash: '#EAB308', Bank: '#0B84C6', 'Credit card': '#E0306E', Investments: '#12A150', 'Card credit': '#94A3B8',
   'Card dues': '#E0306E', Loans: '#DB2777', 'Card EMIs': '#F97316', EMIs: '#DB2777', SIPs: '#F59E0B',
   'Current value': '#12A150', 'This month': '#0A6FB0', 'Last month': '#94A3B8',
@@ -3082,8 +3123,8 @@ const CHART_VALUES = {
     build: () => toCat(new Map([['Card dues', M.T.cardDebt], ['Loans', M.T.loans], ['Card EMIs', M.T.cardEmis], ['I owe', M.T.iOwe]]), 'Owed') },
   balances_now: { group: 'Money with me', label: 'All account balances today', shape: 'cat', top: true,
     build: (c) => toCat(new Map(db.accounts.filter((a) => !a.archived && MONEY_TYPES.includes(a.type) && a.type !== 'credit_card').map((a) => [a.name, M.balances.get(a.id) || 0])), 'Balance', c.top) },
-  networth_trend: { group: 'Money with me', label: 'Net worth at each month end', shape: 'series', period: true,
-    build: (c, r) => endsSeries(r, [['Net worth', 'net']]) },
+  networth_trend: { group: 'Money with me', label: 'Total money at each month end', shape: 'series', period: true,
+    build: (c, r) => endsSeries(r, [['Total money', 'net']]) },
   assets_liab: { group: 'Money with me', label: 'Assets vs liabilities at each month end', shape: 'series', period: true, multi: true,
     build: (c, r) => endsSeries(r, [['Assets', 'assets'], ['Liabilities', 'liab']]) },
 
@@ -3146,10 +3187,10 @@ const CHART_VALUES = {
     ], f) },
   leftover_trend: { group: 'Income and savings', label: 'Money left over by month', shape: 'series', period: true, signed: true,
     build: (c, r) => monthSeries(r, [{ name: 'Left over', fn: (t) => (t.type === 'income' ? num(t.amount) : t.type === 'expense' || isInvestmentOutflow(t) ? -num(t.amount) : 0) }]) },
-  savings_rate: { group: 'Income and savings', label: 'Savings rate by month (% of income not spent)', shape: 'series', period: true, unit: 'pct', signed: true,
+  savings_rate: { group: 'Income and savings', label: 'Money saved by month (% of income not spent)', shape: 'series', period: true, unit: 'pct', signed: true,
     build: (c, r) => {
       const d = monthSeries(r, [{ name: 'in', fn: (t) => (t.type === 'income' ? num(t.amount) : 0) }, { name: 'out', fn: (t) => (t.type === 'expense' ? num(t.amount) : 0) }]);
-      return { labels: d.labels, series: [{ name: 'Savings rate', data: d.series[0].data.map((inc, i) => (inc > 0 ? round2(((inc - d.series[1].data[i]) / inc) * 100) : 0)) }] };
+      return { labels: d.labels, series: [{ name: 'Money saved', data: d.series[0].data.map((inc, i) => (inc > 0 ? round2(((inc - d.series[1].data[i]) / inc) * 100) : 0)) }] };
     } },
   cashflow_waterfall: { group: 'Income and savings', label: 'Where the money went (money in, spent, invested, left)', shape: 'cat', period: true, signed: true, waterfall: true, ordered: true,
     build: (c, r) => {
@@ -3191,18 +3232,18 @@ const CHART_VALUES = {
       ['SIPs', M.P.totals.sipMonthly],
     ]), 'Per month') },
 
-  // Portfolio
-  portfolio_mix: { group: 'Portfolio', label: 'Portfolio by type', shape: 'cat',
+  // Investments
+  portfolio_mix: { group: 'Investments', label: 'Investments by type', shape: 'cat',
     build: () => toCat(new Map(M.P.allocation.map((g) => [g.group, g.value])), 'Value') },
-  holdings_value: { group: 'Portfolio', label: 'Holdings by current value', shape: 'cat', top: true, pf: true,
+  holdings_value: { group: 'Investments', label: 'Your investments by current value', shape: 'cat', top: true, pf: true,
     build: (c, r, f) => toCat(new Map(holdingsF(f).map((h) => [h.a.name, h.value])), 'Current value', c.top) },
-  holdings_cost_value: { group: 'Portfolio', label: 'Invested vs current value by holding', shape: 'cat2', pf: true,
+  holdings_cost_value: { group: 'Investments', label: 'Invested vs current value by holding', shape: 'cat2', pf: true,
     build: (c, r, f) => { const hs = holdingsF(f).filter((h) => h.invested > 0).sort((a, b) => b.value - a.value); return { labels: hs.map((h) => h.a.name), series: [{ name: 'Invested', data: hs.map((h) => h.invested) }, { name: 'Current value', data: hs.map((h) => h.value) }] }; } },
-  holdings_pl: { group: 'Portfolio', label: 'Profit or loss by holding', shape: 'cat', top: true, signed: true, pf: true,
+  holdings_pl: { group: 'Investments', label: 'Profit or loss by holding', shape: 'cat', top: true, signed: true, pf: true,
     build: (c, r, f) => toCat(new Map(holdingsF(f).filter((h) => h.invested > 0).map((h) => [h.a.name, h.gain])), 'Profit / loss', c.top) },
-  holdings_return: { group: 'Portfolio', label: 'Return (%) by holding', shape: 'cat', signed: true, pf: true, unit: 'pct',
+  holdings_return: { group: 'Investments', label: 'Return (%) by holding', shape: 'cat', signed: true, pf: true, unit: 'pct',
     build: (c, r, f) => toCat(new Map(holdingsF(f).filter((h) => h.invested > 0).map((h) => [h.a.name, h.gainPct * 100])), 'Return') },
-  sip_by_fund: { group: 'Portfolio', label: 'Monthly SIP by fund', shape: 'cat',
+  sip_by_fund: { group: 'Investments', label: 'Monthly SIP by fund', shape: 'cat',
     build: () => { const m = new Map(); for (const x of db.sips.filter((s) => s.active)) m.set(accountName(x.fundAccountId) || x.name, (m.get(accountName(x.fundAccountId) || x.name) || 0) + sipAmountOn(x, todayStr()) * perMonthOf(x.frequency)); return toCat(m, 'SIP per month'); } },
 
   // Heatmaps
@@ -3791,16 +3832,17 @@ function renderPeople() {
   const pendTotal = pend.reduce((s, t) => s + num(t.amount), 0);
   return `
     <div class="page-top">
-      <p class="page-intro">Money you lend or borrow, with family and friends, and home expenses you'll take back. Balances count in your net worth.</p>
+      <p class="page-intro">Money you gave to or took from family and friends, and home costs someone will pay you back for.</p>
       <div class="flex gap-2 flex-wrap">
         <button class="btn" data-action="person-add"><i class="fa-solid fa-user-plus"></i> Add person</button>
         <button class="btn btn-primary" data-action="add-txn" data-type="expense" data-home="1"><i class="fa-solid fa-house"></i> Add home expense</button>
       </div>
     </div>
+    ${sharedRequestsCard()}
     ${shared.waiting ? `<div class="callout mb-4"><b>${shared.waiting} shared entr${shared.waiting === 1 ? 'y is' : 'ies are'} waiting for you.</b> Someone you're linked with recorded money with you. Add a bank or cash account (More → Accounts) and they appear here automatically.</div>` : ''}
     <section class="panel p-5 mb-6"><dl class="kv">
-      <div><dt>People owe me</dt><dd class="text-lg text-gain">${money(M.T.owedToMe)}</dd></div>
-      <div><dt>I owe people</dt><dd class="text-lg text-loss">${money(M.T.iOwe)}</dd></div>
+      <div><dt>You'll get back</dt><dd class="text-lg text-gain">${money(M.T.owedToMe)}</dd></div>
+      <div><dt>You need to pay</dt><dd class="text-lg text-loss">${money(M.T.iOwe)}</dd></div>
       <div><dt>Home expenses to take back</dt><dd class="text-lg">${money(pendTotal)}</dd></div>
     </dl></section>
 
@@ -3920,10 +3962,10 @@ function openPersonHistory(personId) {
     const signed = t.toAccountId === p.id ? num(t.amount) : -num(t.amount);
     const shared = t.relatedType === 'person' && (t.sharedFrom || t.sharedOut);
     const r = `<tr><td>${fmtDate(t.date)}</td>
-      <td>${esc(t.forHome ? `Home: ${t.description || t.category}` : t.description || t.category)}<div class="text-xs text-ink-3">${esc(label[personSource(t)])}${shared ? ` · shared with ${esc(p.name)}` : ''}${t.forHome ? (t.homeSettled ? ' · taken back' : ' · to take back') : ''}</div></td>
+      <td>${esc(t.forHome ? `Home: ${t.description || t.category}` : t.description || t.category)} ${shareBadge(t)}<div class="text-xs text-ink-3">${esc(label[personSource(t)])}${shared ? ` · shared with ${esc(p.name)}` : ''}${t.forHome ? (t.homeSettled ? ' · taken back' : ' · to take back') : ''}</div></td>
       <td class="${signed > 0 ? 'text-gain' : 'text-loss'} num">${signed > 0 ? '+' : '−'}${money(Math.abs(signed))}</td><td class="num">${money(run)}</td>
       <td class="whitespace-nowrap"><button type="button" class="icon-btn sm" data-action="person-txn-edit" data-id="${t.id}" aria-label="Edit"><i class="fa-regular fa-pen-to-square"></i></button>
-        <button type="button" class="icon-btn sm" data-action="person-txn-del" data-id="${t.id}" data-person="${p.id}" aria-label="Delete"><i class="fa-regular fa-trash-can"></i></button></td></tr>`;
+        ${t.sharedFrom ? `<span class="icon-btn sm locked" title="Recorded by ${esc(sharedOwnerName(t))}: only they can change or delete it"><i class="fa-solid fa-lock"></i></span>` : `<button type="button" class="icon-btn sm" data-action="person-txn-del" data-id="${t.id}" data-person="${p.id}" aria-label="Delete"><i class="fa-regular fa-trash-can"></i></button>`}</td></tr>`;
     run -= signed;
     return r;
   });
@@ -3935,14 +3977,31 @@ function openPersonHistory(personId) {
       ${parts.length ? `<div class="person-bd mb-3">${parts.map(([k, l]) => `<div><span>${esc(l)}</span><b class="num ${bd[k] > 0 ? 'text-gain' : 'text-loss'}">${sourceText(bd[k])}</b></div>`).join('')}</div>` : ''}
       <div class="overflow-x-auto"><table class="sched"><thead><tr><th>Date</th><th>What</th><th>Change</th><th>Balance after</th><th></th></tr></thead>
       <tbody>${rows.join('')}<tr class="done"><td>${fmtDate(p.openingDate)}</td><td>Starting balance</td><td></td><td class="num">${money(p.openingBalance)}</td><td>${num(p.openingBalance) ? `<button type="button" class="icon-btn sm" data-action="person-edit" data-id="${p.id}" aria-label="Change the starting balance"><i class="fa-regular fa-pen-to-square"></i></button>` : ''}</td></tr></tbody></table></div>
-      <p class="hint mt-2">Deleting an entry shared with a linked person removes it from their app too. Split bills and shared-flat entries are managed on their own pages.</p>`,
+      <p class="hint mt-2">Entries you recorded: deleting one removes it from the other person's app too. Entries with a <i class="fa-solid fa-lock"></i> were recorded by the other person; only they can change or delete them.</p>`,
     submitLabel: 'Done', cancelLabel: 'Close', onSubmit: () => {},
   });
+}
+
+/** Someone else's entry: amount, date, kind and person can't be changed (they're shown, not editable). */
+function lockSharedFields(form, t) {
+  for (const name of ['amount', 'date', 'personId', 'lendWhat', 'newLendName', 'description']) for (const el of form.querySelectorAll(`[name="${name}"]`)) { el.setAttribute('readonly', ''); el.classList.add('is-locked'); if (el.tagName === 'SELECT') el.setAttribute('data-locked', ''); }
+  for (const el of form.querySelectorAll('input[name="type"]')) if (!el.checked) el.disabled = true;
+  for (const el of form.querySelectorAll('[data-setdate]')) el.disabled = true;
+  for (const sel of form.querySelectorAll('select[data-locked]')) { const keep = sel.value; sel.addEventListener('change', () => { sel.value = keep; }, { signal: modalSignal() }); }
+  if (!t.relatedType || t.relatedType !== 'person') form.insertAdjacentHTML('afterbegin', `<p class="callout text-sm"><i class="fa-solid fa-lock mr-1"></i>${esc(sharedOwnerName(t))} recorded this, so the amount and date can only be changed there. You can change the category, your account and notes.</p>`);
 }
 
 /** Save a Lend entry from the Add transaction form (also used to edit one). */
 function saveLendFromForm(d, existing, isNew, amount, LEND_LABEL) {
   const ops = [];
+  if (existing?.sharedFrom) { // someone else's record: only your account and notes change
+    const p = accountById(existing.relatedId);
+    const mineAcc = existing.toAccountId === p?.id ? 'fromAccountId' : 'toAccountId';
+    if (!d.lendAcc) { toast('Choose your account.', 'error'); return false; }
+    commit([opUpsert('transactions', { ...existing, [mineAcc]: d.lendAcc, notes: d.notes || '' })], 'Edit shared entry');
+    toast('Saved (your account and notes).', 'success');
+    return;
+  }
   let p = accountById(d.personId);
   if (!p || d.personId === '__new') {
     const name = String(d.newLendName || '').trim();
@@ -3971,6 +4030,11 @@ function deletePerson(p) {
   const list = db.transactions.filter((t) => t.fromAccountId === p.id || t.toAccountId === p.id);
   const home = list.filter((t) => t.forHome), shares = list.filter((t) => ['split', 'flat'].includes(t.relatedType));
   const lend = list.filter((t) => !t.forHome && !['split', 'flat'].includes(t.relatedType));
+  const theirs = list.filter((t) => t.sharedFrom);
+  if (theirs.length) {
+    alert(`${p.name} recorded ${theirs.length} entr${theirs.length === 1 ? 'y' : 'ies'} with you, so ${p.name} has to remove them first. You can tick "Hide" instead to keep ${p.name} out of your lists.`);
+    return false;
+  }
   if (shares.length) {
     alert(`${p.name} is part of ${shares.length} split bill or shared-flat entr${shares.length === 1 ? 'y' : 'ies'}. Remove those on the Split bills or Shared flat page first, or tick "Hide (archive)" to keep the history and hide ${p.name}.`);
     return false;
@@ -4092,7 +4156,7 @@ function renderGoals() {
   const wantedTotal = wants.filter((w) => w.status !== 'bought').reduce((s, w) => s + num(w.price), 0);
   return `
     <div class="page-top">
-      <p class="page-intro">Save towards things that matter, and keep a list of what you want to buy. The app tells you how much to put aside each month.</p>
+      <p class="page-intro">Save for the things you want. FinRi tells you how much to keep aside each month.</p>
       <div class="flex gap-2 flex-wrap"><button class="btn" data-action="cool-new"><i class="fa-solid fa-hourglass-half"></i> I want to buy this</button><button class="btn" data-action="wish-add"><i class="fa-solid fa-plus"></i> Add to wishlist</button>
         <button class="btn btn-primary" data-action="goal-new"><i class="fa-solid fa-bullseye"></i> New goal</button></div>
     </div>
@@ -4311,7 +4375,7 @@ function computeInsights(mk) {
   const fixed = db.subscriptions.filter((s) => s.active && recurKind(s) !== 'income').reduce((s, x) => s + num(x.amount) * (FREQUENCIES[x.frequency]?.perMonth || 1), 0)
     + M.emis.filter(({ c }) => c.status === 'active').reduce((s, { c }) => s + c.emi, 0);
 
-  // Regular payments not yet in Recurring: same place in each of the last 3 months, similar amount
+  // Regular payments not yet in Regular payments: same place in each of the last 3 months, similar amount
   const last3 = lastMonths(mk, 3);
   const known = new Set(db.subscriptions.map((s) => normMerchant(s.name)));
   const recurring = [];
@@ -4375,7 +4439,7 @@ function insightCards(I) {
   if (M.T.iOwe) add('neutral', 'fa-hand-holding-dollar', `You owe ${money(M.T.iOwe)}`, db.accounts.filter((a) => a.type === 'person' && (M.balances.get(a.id) || 0) < 0).map((a) => `${a.name} ${money(-(M.balances.get(a.id)))}`).join(', ') + '.');
   if (I.card) add('neutral', 'fa-credit-card', `${money(I.card)} spent on credit cards`, `${S.spent ? Math.round((I.card / S.spent) * 100) : 0}% of your spending. Card dues right now: ${money(M.T.cardDebt)}.`);
   if (I.atm) add('neutral', 'fa-money-bill-wave', `${money(I.atm)} withdrawn as cash`, 'Cash spending is easy to forget: log it in the Cash account.');
-  for (const r of I.recurring) add('neutral', 'fa-rotate', `${r.name} looks like a regular payment`, `About ${money(r.amount)} every month for 3 months. Add it to Recurring so it logs itself.`, `<button class="btn btn-sm" data-action="recurring-from" data-name="${esc(r.name)}" data-amount="${r.amount}" data-category="${esc(r.category || '')}">Add to Recurring</button>`);
+  for (const r of I.recurring) add('neutral', 'fa-rotate', `${r.name} looks like a regular payment`, `About ${money(r.amount)} every month for 3 months. Add it to Regular payments so it logs itself.`, `<button class="btn btn-sm" data-action="recurring-from" data-name="${esc(r.name)}" data-amount="${r.amount}" data-category="${esc(r.category || '')}">Add to Regular payments</button>`);
   const days = I.elapsed;
   if (days >= 5) add(I.loggedDays / days >= 0.6 ? 'good' : 'neutral', 'fa-pen-to-square', `You logged on ${I.loggedDays} of ${days} days`, I.loggedDays / days >= 0.6 ? 'Great habit: your numbers are reliable.' : 'Logging a little every day makes these insights more accurate. Turn on a daily reminder in Settings.');
   const wish = db.wishlist.filter((w) => w.status !== 'bought').sort((a, b) => num(a.price) - num(b.price))[0];
@@ -4397,7 +4461,7 @@ function renderInsights() {
   const maxCat = Math.max(1, ...I.cats.map((c) => Math.max(c.cur, c.usual)));
   return `
     <div class="page-top">
-      <p class="page-intro">A report on your month, compared with your own usual (the average of the ${I.base.length || 'previous'} month${I.base.length === 1 ? '' : 's'} before it).</p>
+      <p class="page-intro">How this month is going compared with your usual months.</p>
       ${monthSelect('insightMonth', insightMonth)}
     </div>
     <section class="panel p-5">
@@ -4793,7 +4857,7 @@ function renderImport() {
   const noDigits = db.accounts.filter((a) => ['bank', 'credit_card'].includes(a.type) && !a.archived && !a.last4);
   return `
     <div class="page-top">
-      <p class="page-intro">Bring in transactions from a PhonePe statement (PDF) or a bank or card statement (CSV, Excel or PDF). You check every row before anything is added, and the app remembers your choices for next time.</p>
+      <p class="page-intro">Add many entries at once from a PhonePe, bank or card statement. You check each one before it's added.</p>
       <div class="flex gap-2 flex-wrap">${batchCount ? `<button class="btn btn-sm" data-action="import-undo" data-batch="${lastBatch}"><i class="fa-solid fa-rotate-left"></i> Undo last import (${batchCount})</button>` : ''}
         <button class="btn btn-sm" data-action="rules-open"><i class="fa-solid fa-brain"></i> Remembered choices (${db.rules.length})</button></div>
     </div>
@@ -5106,7 +5170,7 @@ function learnFromEntriesOnce() {
    limits. Slabs for FY 2025-26 and 2026-27 (unchanged by Budget 2026):
      New regime: 0-4L nil, 4-8L 5%, 8-12L 10%, 12-16L 15%, 16-20L 20%, 20-24L 25%, above 30%;
                  no tax up to 12L taxable income (rebate), standard deduction 75,000 (salaried).
-     Old regime: 0-2.5L nil, 2.5-5L 5%, 5-10L 20%, above 30%; rebate up to 5L;
+     Old tax option: 0-2.5L nil, 2.5-5L 5%, 5-10L 20%, above 30%; rebate up to 5L;
                  standard deduction 50,000; deductions such as Section 123/80C apply.
    4% cess is added. Surcharge, special rates (capital gains etc.), HRA and
    other exemptions are not modelled. Update TAX_RULES when budgets change. */
@@ -5167,7 +5231,7 @@ function renderTax() {
   const better = D.taxNew <= D.taxOld ? 'new' : 'old';
   return `
     <div class="page-top">
-      <p class="page-intro">A rough estimate from the income you log, to plan ahead. Not tax advice: surcharge, capital gains, HRA and other exemptions aren't included. Check with a CA before filing.</p>
+      <p class="page-intro">A rough idea of your income tax, from the income you've added. For filing, please check with a tax expert.</p>
       <select class="inp !w-auto !py-1.5 text-sm" data-filter="taxFy" aria-label="Financial year">${fys.map((f) => `<option value="${f}" ${f === taxFy ? 'selected' : ''}>FY ${f}</option>`).join('')}</select>
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -5176,11 +5240,11 @@ function renderTax() {
         <div class="divider mt-3">${[...D.income.entries()].sort((a, b) => b[1] - a[1]).map(([c, v]) => `<div class="row text-sm"><div class="flex-1">${esc(c)}</div><div class="num">${money(v)}</div></div>`).join('') || '<p class="text-sm text-ink-3">No income logged in this year.</p>'}</div></section>
       <section class="panel p-5 lg:col-span-2"><div class="panel-head"><h2 class="panel-title">Estimated tax</h2><span class="text-xs text-ink-3">${D.salaried ? 'Includes the standard deduction for salary' : ''}</span></div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          ${['new', 'old'].map((rg) => `<div class="stat-tile ${better === rg ? 'in' : ''}"><div class="stat-label">${rg === 'new' ? 'New regime (default)' : 'Old regime'} ${better === rg && D.gross ? '<span class="pill in">Lower</span>' : ''}</div>
+          ${['new', 'old'].map((rg) => `<div class="stat-tile ${better === rg ? 'in' : ''}"><div class="stat-label">${rg === 'new' ? 'New tax option (default)' : 'Old tax option'} ${better === rg && D.gross ? '<span class="pill in">Lower</span>' : ''}</div>
             <div class="stat-value num">${money(rg === 'new' ? D.taxNew : D.taxOld)}</div>
             <div class="text-xs text-ink-3 mt-1">Taxable income ${money(rg === 'new' ? D.taxableNew : D.taxableOld)}${rg === 'old' ? `, after ${money(D.allowed)} of deductions` : ''}</div></div>`).join('')}
         </div>
-        <p class="text-sm text-ink-2 mt-4">${D.gross <= 1275000 && D.salaried ? 'Under the new regime, salary up to ₹12.75 lakh a year (₹12 lakh taxable income) has no income tax.' : D.gross <= 1200000 ? 'Under the new regime, taxable income up to ₹12 lakh has no income tax.' : `The ${better} regime looks cheaper for you by about ${money(Math.abs(D.taxNew - D.taxOld))}.`}</p></section>
+        <p class="text-sm text-ink-2 mt-4">${D.gross <= 1275000 && D.salaried ? 'Under the new tax option, salary up to ₹12.75 lakh a year (₹12 lakh taxable income) has no income tax.' : D.gross <= 1200000 ? 'Under the new tax option, taxable income up to ₹12 lakh has no income tax.' : `The ${better} tax option looks cheaper for you by about ${money(Math.abs(D.taxNew - D.taxOld))}.`}</p></section>
     </div>
     ${(() => { const P = taxesPaid(taxFy), est = Math.min(D.taxNew, D.taxOld); return `<section class="panel p-5 mt-6">
       <div class="panel-head"><h2 class="panel-title">Taxes paid in FY ${taxFy}</h2><button class="btn btn-sm" data-action="add-txn" data-type="tax"><i class="fa-solid fa-plus"></i> Add tax payment</button></div>
@@ -5189,11 +5253,11 @@ function renderTax() {
         <div class="stat-tile"><div class="stat-label">Estimated tax</div><div class="stat-value num">${money(est)}</div><div class="text-xs text-ink-3">lower regime</div></div>
         <div class="stat-tile ${est - P.incomeTax > 0 ? 'out' : 'in'}"><div class="stat-label">${est - P.incomeTax > 0 ? 'Still to pay (estimate)' : 'Possible refund'}</div><div class="stat-value num">${money(Math.abs(Math.round(est - P.incomeTax)))}</div></div>
       </div>
-      ${P.list.length ? `<div class="divider mt-4">${P.list.sort((a, b) => b.date.localeCompare(a.date)).map((t) => `<div class="row text-sm"><div class="flex-1"><b>${esc(t.taxKind)}</b> <span class="text-ink-3">${fmtDate(t.date)}${t.taxRef ? ` · ${esc(t.taxRef)}` : ''}</span></div><div class="num">${money(t.amount)}</div></div>`).join('')}</div>` : '<p class="text-sm text-ink-3 mt-3">Log tax payments from Add transaction → Tax, or add property and road tax under Recurring → Taxes.</p>'}
+      ${P.list.length ? `<div class="divider mt-4">${P.list.sort((a, b) => b.date.localeCompare(a.date)).map((t) => `<div class="row text-sm"><div class="flex-1"><b>${esc(t.taxKind)}</b> <span class="text-ink-3">${fmtDate(t.date)}${t.taxRef ? ` · ${esc(t.taxRef)}` : ''}</span></div><div class="num">${money(t.amount)}</div></div>`).join('')}</div>` : '<p class="text-sm text-ink-3 mt-3">Log tax payments from Add transaction → Tax, or add property and road tax under Regular payments → Taxes.</p>'}
       ${P.other ? `<p class="text-xs text-ink-3 mt-2">Other taxes this year (property, professional, road, GST): ${money(Math.round(P.other))}.</p>` : ''}
     </section>`; })()}
     <section class="panel p-5 mt-6">
-      <div class="panel-head"><div><h2 class="panel-title">Deductions (old regime only)</h2><div class="text-xs text-ink-3 mt-0.5">Money into PPF/EPF, NPS and funds named ELSS or tax saver is counted by itself. Add the rest here.</div></div>
+      <div class="panel-head"><div><h2 class="panel-title">Deductions (old tax option only)</h2><div class="text-xs text-ink-3 mt-0.5">Money into PPF/EPF, NPS and funds named ELSS or tax saver is counted by itself. Add the rest here.</div></div>
         <button class="btn btn-sm" data-action="tax-add"><i class="fa-solid fa-plus"></i> Add deduction</button></div>
       <div class="space-y-4">${DEDUCTIONS.map((d) => { const c = D.claimed[d.key]; return `<div>
         <div class="flex justify-between text-sm mb-1 gap-2"><span class="font-medium">${d.label}</span><span class="num text-ink-2">${money(c)}${d.limit ? ` of ${money(d.limit)}` : ''}</span></div>
@@ -5537,7 +5601,7 @@ function koshNotifyEngine(db, at, n) {
       let assets = 0, liab = 0;
       for (const a of acc) { const v = b[a.id] || 0; if (a.type === 'credit_card' || a.type === 'person') { if (v < 0) liab -= v; else assets += v; } else assets += v; }
       for (const e of db.emis || []) liab += emiInfo(e).left;
-      return out(`Net worth: ${fmt(assets - liab)}`, [`You own ${fmt(assets)}, you owe ${fmt(liab)}.`], ['moneybag']);
+      return out(`Total money: ${fmt(assets - liab)}`, [`You own ${fmt(assets)}, you owe ${fmt(liab)}.`], ['moneybag']);
     }
     case 'portfolio': {
       const b = balances(today), inv = acc.filter((a) => a.type === 'investment' && !a.archived);
@@ -5548,7 +5612,7 @@ function koshNotifyEngine(db, at, n) {
         if (f && cost[f.id] !== undefined && t.date >= (f.openingDate || '')) cost[f.id] = Math.max(0, cost[f.id] - num(t.amount)); }
       const value = inv.reduce((s, a) => s + (b[a.id] || 0), 0), put = inv.reduce((s, a) => s + cost[a.id], 0), gain = value - put;
       const best = inv.map((a) => ({ a, g: cost[a.id] ? ((b[a.id] || 0) - cost[a.id]) / cost[a.id] : 0 })).sort((x, y) => y.g - x.g)[0];
-      return out(`Portfolio: ${fmt(value)}`, [`${gain >= 0 ? 'Profit' : 'Loss'} ${fmt(Math.abs(gain))} (${put ? (gain >= 0 ? '+' : '−') + Math.abs(Math.round((gain / put) * 1000) / 10) : 0}%) on ${fmt(put)} invested.`, best && best.g ? `Best: ${best.a.name} ${best.g >= 0 ? '+' : ''}${Math.round(best.g * 1000) / 10}%.` : '', 'Values use the latest prices the app saved.'], ['chart_with_upwards_trend']);
+      return out(`Investments: ${fmt(value)}`, [`${gain >= 0 ? 'Profit' : 'Loss'} ${fmt(Math.abs(gain))} (${put ? (gain >= 0 ? '+' : '−') + Math.abs(Math.round((gain / put) * 1000) / 10) : 0}%) on ${fmt(put)} invested.`, best && best.g ? `Best: ${best.a.name} ${best.g >= 0 ? '+' : ''}${Math.round(best.g * 1000) / 10}%.` : '', 'Values use the latest prices the app saved.'], ['chart_with_upwards_trend']);
     }
     case 'goals': {
       const b = balances(today);
@@ -5574,7 +5638,7 @@ function koshNotifyEngine(db, at, n) {
       const pending = tx.filter((t) => t.type !== 'adjustment' && t.date <= addDays(today, -3) && (t.units === undefined || t.units === null || t.units === '')
         && linked.some((a) => (t.toAccountId === a.id || t.fromAccountId === a.id) && (a.unitsDate ? t.date > a.unitsDate : t.date >= (a.openingDate || ''))));
       if (!pending.length) return null;
-      return out('SIP units to confirm', `${pending.length} purchase${pending.length === 1 ? '' : 's'} still need units. Open the Portfolio page to check them.`, ['clipboard']);
+      return out('SIP units to confirm', `${pending.length} purchase${pending.length === 1 ? '' : 's'} still need units. Open the Investments page to check them.`, ['clipboard']);
     }
     case 'fun_money': {
       const cfg = S.funMoney || {};
@@ -5596,7 +5660,7 @@ function koshNotifyEngine(db, at, n) {
       const need = fixed + variable;
       if (!need) return null;
       const months = liquid / need;
-      return out(`Emergency runway: ${Math.floor(months)} months ${Math.round((months % 1) * 30)} days`, [`${fmt(liquid)} of cash and bank money covers ${fmt(need)} of essential costs a month.`, months < 3 ? 'Below 3 months: building this up is the priority.' : months >= 6 ? 'Six months or more: a strong safety net.' : 'Aim for 6 months.'], ['shield'], months < 3 ? 4 : 3);
+      return out(`Emergency savings: ${Math.floor(months)} months ${Math.round((months % 1) * 30)} days`, [`${fmt(liquid)} of cash and bank money covers ${fmt(need)} of essential costs a month.`, months < 3 ? 'Below 3 months: building this up is the priority.' : months >= 6 ? 'Six months or more: a strong safety net.' : 'Aim for 6 months.'], ['shield'], months < 3 ? 4 : 3);
     }
     case 'credit_use': {
       const b = balances(today), th = num(n.threshold ?? 30);
@@ -5646,13 +5710,13 @@ const NOTIFY_TYPES = {
   month_pace:   { label: 'This month so far', icon: 'fa-gauge-high', desc: 'Spent this month, where it is heading, budgets near their limit.', time: '09:00', repeat: 'weekly', weekday: 1 },
   week:         { label: 'Weekly summary', icon: 'fa-calendar-week', desc: 'Last 7 days vs the week before, and where the money went.', time: '19:00', repeat: 'weekly', weekday: 0 },
   month_report: { label: 'Monthly report', icon: 'fa-chart-column', desc: 'Last month: money in, spent, invested, how much you kept, top categories.', time: '09:00', repeat: 'monthly', monthDay: 1 },
-  net_worth:    { label: 'Net worth', icon: 'fa-scale-balanced', desc: 'What you own, what you owe, and the difference.', time: '09:00', repeat: 'weekly', weekday: 0 },
-  portfolio:    { label: 'Portfolio value', icon: 'fa-chart-line', desc: 'Value, invested and profit, from the latest prices the app saved.', time: '18:00', repeat: 'weekdays' },
+  net_worth:    { label: 'Total money', icon: 'fa-scale-balanced', desc: 'What you own, what you owe, and the difference.', time: '09:00', repeat: 'weekly', weekday: 0 },
+  portfolio:    { label: 'Investments value', icon: 'fa-chart-line', desc: 'Value, invested and profit, from the latest prices the app saved.', time: '18:00', repeat: 'weekdays' },
   goals:        { label: 'Goals progress', icon: 'fa-flag-checkered', desc: 'How far along each goal is and what to save each month.', time: '10:00', repeat: 'weekly', weekday: 0 },
   people:       { label: 'Money with people', icon: 'fa-user-group', desc: 'Who owes you, what you owe, home expenses to take back.', time: '11:00', repeat: 'weekly', weekday: 0 },
   units:        { label: 'SIP units to confirm', icon: 'fa-clipboard-check', desc: 'Purchases whose units still need checking.', time: '19:00', repeat: 'weekly', weekday: 6 },
   fun_money:    { label: 'Fun money left', icon: 'fa-champagne-glasses', desc: 'How much guilt-free money is left this month, per day.', time: '19:00', repeat: 'weekly', weekday: 5 },
-  runway:       { label: 'Emergency runway', icon: 'fa-life-ring', desc: 'How many months your cash and bank money would last on essential costs.', time: '10:00', repeat: 'monthly', monthDay: 1 },
+  runway:       { label: 'Emergency savings', icon: 'fa-life-ring', desc: 'How many months your cash and bank money would last on essential costs.', time: '10:00', repeat: 'monthly', monthDay: 1 },
   credit_use:   { label: 'Card usage alert', icon: 'fa-gauge', desc: 'When card spending passes a share of your limits (30% by default), which can dip your credit score.', time: '19:30', opts: [['threshold', 'number', 'Alert at % of limits', 30]] },
   cooloff:      { label: 'Cool-off ready', icon: 'fa-hourglass-end', desc: 'When a cool-off on something you wanted to buy is over.', time: '12:00' },
   custom:       { label: 'Your own reminder', icon: 'fa-bell', desc: 'Any text, e.g. "Pay the maid" on the 1st of every month.', time: '10:00', opts: [['title', 'text', 'Title', 'Reminder'], ['text', 'text', 'Message', '']] },
@@ -5824,7 +5888,7 @@ function renderNotifications() {
   const upToDate = topic && scheduleUpToDate();
   return `
     <div class="page-top">
-      <p class="page-intro">Choose what your phone tells you and when: balances every morning, yesterday's spending, bills due, budget alerts, weekly and monthly summaries, or your own reminders. Times are India time.</p>
+      <p class="page-intro">Get reminders on your phone at the time you choose: bills due, yesterday's spending, your balance, or your own notes.</p>
       <div class="flex gap-2 flex-wrap">${list.length ? '' : '<button class="btn" data-action="ntf-recommended"><i class="fa-solid fa-wand-magic-sparkles"></i> Add a recommended set</button>'}
         <button class="btn btn-primary" data-action="ntf-add"><i class="fa-solid fa-plus"></i> Add notification</button></div>
     </div>
@@ -6266,12 +6330,12 @@ function openCalendarDay(date) {
 
 /* ===== Money health =====
    Everything here is calculated from your own data, in the app:
-   - Emergency runway: how long liquid money lasts on essential costs
-   - Cash-flow forecast: each bank account's balance until month end
+   - Emergency savings: how long liquid money lasts on essential costs
+   - Month-end balance: each bank account's balance until month end
    - Fun money: a guilt-free monthly allowance that counts down
    - Credit health: card usage (the 30% rule) plus a score you log
-   - Idle cash: money sitting in savings well above what you need
-   - Lifestyle creep: spending growing faster than income
+   - Money sitting idle: money sitting in savings well above what you need
+   - Spending growing faster than income: spending growing faster than income
    - Health score: 0 to 100 from five of the above
    Features marked PRO will be part of Premium in the Play Store app; here
    they are all unlocked so you can test them. */
@@ -6304,7 +6368,7 @@ function monthlyAverages(n = 3) {
   return { months, income: avgOf(S.map((s) => s.income)), spent: avgOf(S.map((s) => s.spent)), invested: avgOf(S.map((s) => s.invested)), cat };
 }
 
-/* ----- Emergency runway ----- */
+/* ----- Emergency savings ----- */
 function runwayData() {
   const avg = monthlyAverages(3);
   const liquidAcc = db.accounts.filter((a) => !a.archived && (a.type === 'cash' || a.type === 'bank'));
@@ -6337,7 +6401,7 @@ function creditHealth() {
   return { cards, limit, used, util: limit ? used / limit : 0, scores, latest: scores[scores.length - 1] || null };
 }
 
-/* ----- Idle cash ----- */
+/* ----- Money sitting idle ----- */
 function idleCash() {
   const avg = monthlyAverages(3);
   const monthlyOut = Math.max(avg.spent + avg.invested, 1);
@@ -6349,7 +6413,7 @@ function idleCash() {
   }).filter((x) => avg.months.length && x.extra > 5000);
 }
 
-/* ----- Lifestyle creep ----- */
+/* ----- Spending growing faster than income ----- */
 function lifestyleCreep() {
   const allMonths = [...new Set(db.transactions.map((t) => t.date?.slice(0, 7)).filter(Boolean))].sort().filter((m) => m < thisMonth());
   if (allMonths.length < 6) return { ready: false, have: allMonths.length };
@@ -6366,7 +6430,7 @@ function lifestyleCreep() {
   return { ready: true, recent, base, incNow, incThen, incGrowth, cats, flagged, yearly: base === yearAgo };
 }
 
-/* ----- Cash-flow forecast: all cash and bank money together, to month end -----
+/* ----- Month-end balance: all cash and bank money together, to month end -----
    Starts from today's total, then day by day: everyday spending paid from
    cash and bank (this month's pace), scheduled salary, bills, EMIs and SIPs,
    and credit card bills on their due dates (they are paid from the bank). */
@@ -6408,9 +6472,9 @@ function healthScore() {
   const avg = monthlyAverages(3), rw = runwayData(), ch = creditHealth();
   const clamp = (v) => Math.max(0, Math.min(20, v));
   const parts = [];
-  parts.push({ key: 'runway', label: 'Emergency runway', v: rw.months === null ? null : clamp((rw.months / 6) * 20), note: rw.months === null ? 'Add expenses to measure' : `${rw.whole} months ${rw.days} days (aim: 6 months)` });
+  parts.push({ key: 'runway', label: 'Emergency savings', v: rw.months === null ? null : clamp((rw.months / 6) * 20), note: rw.months === null ? 'Add expenses to measure' : `${rw.whole} months ${rw.days} days (aim: 6 months)` });
   const kept = avg.income > 0 ? (avg.income - avg.spent) / avg.income : null;
-  parts.push({ key: 'savings', label: 'Savings rate', v: kept === null ? null : clamp((kept / 0.3) * 20), note: kept === null ? 'Log income to measure' : `${Math.round(kept * 100)}% of income not spent, investments included (aim: 30%)` });
+  parts.push({ key: 'savings', label: 'Money saved', v: kept === null ? null : clamp((kept / 0.3) * 20), note: kept === null ? 'Log income to measure' : `${Math.round(kept * 100)}% of income not spent, investments included (aim: 30%)` });
   parts.push({ key: 'credit', label: 'Card usage', v: !ch.limit ? 20 : clamp(ch.util <= 0.1 ? 20 : ch.util <= 0.3 ? 20 - ((ch.util - 0.1) / 0.2) * 8 : 12 - ((ch.util - 0.3) / 0.45) * 12), note: ch.limit ? `${Math.round(ch.util * 100)}% of limits used (aim: under 30%)` : 'No credit cards' });
   const emi = M.emis.filter(({ c }) => c.status === 'active').reduce((s, { c }) => s + c.emi, 0);
   const debt = avg.income > 0 ? emi / avg.income : null;
@@ -6510,7 +6574,7 @@ function renderHealth() {
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
       <section class="panel p-5">
-        <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-life-ring mr-1.5 text-royal"></i>Emergency runway</h2>
+        <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-life-ring mr-1.5 text-royal"></i>Emergency savings</h2>
           <button class="btn btn-sm" data-action="health-settings">Settings</button></div>
         ${rw.months === null ? emptyState('fa-life-ring', 'Log a month of expenses to see how long your money would last.') : `
         <div class="display text-4xl font-semibold num">${rw.whole} <span class="text-xl">month${rw.whole === 1 ? '' : 's'}</span> ${rw.days} <span class="text-xl">day${rw.days === 1 ? '' : 's'}</span></div>
@@ -6534,7 +6598,7 @@ function renderHealth() {
     </div>
 
     <section class="panel p-5 mt-6">
-      <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-chart-line mr-1.5 text-royal"></i>Cash-flow forecast</h2><span class="text-xs text-ink-3">All cash and bank money, to ${fmtDate(cf.horizon)}</span></div>
+      <div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-chart-line mr-1.5 text-royal"></i>Month-end balance</h2><span class="text-xs text-ink-3">All cash and bank money, to ${fmtDate(cf.horizon)}</span></div>
       ${(() => {
         const S = cf.series, W = 640, H = 150, min = Math.min(...S.map((x) => x.bal)), max = Math.max(...S.map((x) => x.bal), 1);
         const lo = min < 0 ? min * 1.1 : min * 0.95, hi = max * 1.02 + 1;
@@ -6571,11 +6635,11 @@ function renderHealth() {
 
       ${(() => {
         const items = [
-          ...idle.map((x) => `<div class="callout mb-3"><b>Idle cash:</b> <b class="num">${money(x.extra)}</b> has stayed in ${esc(x.a.name)} for a month, beyond ${db.settings.idleMonths ?? 3} months of spending (${money(x.keep)}). It could earn more in a goal, an FD or RD, or a liquid fund.</div>`),
-          ...(lc.ready ? lc.flagged.map((x) => `<div class="callout warn mb-3"><b>Lifestyle creep:</b> ${esc(x.c)} grew ${x.growth === null ? 'from nothing' : `${Math.round(x.growth * 100)}%`} (${money(Math.round(x.then))} → ${money(Math.round(x.now))} a month), faster than your income (${lc.incGrowth === null ? 'not logged earlier' : `${lc.incGrowth >= 0 ? '+' : ''}${Math.round(lc.incGrowth * 100)}%`}).</div>`) : []),
+          ...idle.map((x) => `<div class="callout mb-3"><b>Money sitting idle:</b> <b class="num">${money(x.extra)}</b> has stayed in ${esc(x.a.name)} for a month, beyond ${db.settings.idleMonths ?? 3} months of spending (${money(x.keep)}). It could earn more in a goal, an FD or RD, or a liquid fund.</div>`),
+          ...(lc.ready ? lc.flagged.map((x) => `<div class="callout warn mb-3"><b>Spending growing faster than income:</b> ${esc(x.c)} grew ${x.growth === null ? 'from nothing' : `${Math.round(x.growth * 100)}%`} (${money(Math.round(x.then))} → ${money(Math.round(x.now))} a month), faster than your income (${lc.incGrowth === null ? 'not logged earlier' : `${lc.incGrowth >= 0 ? '+' : ''}${Math.round(lc.incGrowth * 100)}%`}).</div>`) : []),
         ];
         return `<section class="panel p-5"><div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-binoculars mr-1.5" style="color:var(--marigold)"></i>Watch-outs</h2></div>
-          ${items.length ? items.join('') : `<p class="text-sm text-gain font-semibold"><i class="fa-solid fa-circle-check mr-1"></i>All clear.</p><p class="text-xs text-ink-3 mt-1">No idle cash in your bank accounts${lc.ready ? ', and your lifestyle spending is growing slower than your income' : `; lifestyle creep checks start after 6 months of data (you have ${lc.have})`}.</p>`}</section>`;
+          ${items.length ? items.join('') : `<p class="text-sm text-gain font-semibold"><i class="fa-solid fa-circle-check mr-1"></i>All clear.</p><p class="text-xs text-ink-3 mt-1">No money sitting idle in your bank accounts${lc.ready ? ', and your lifestyle spending is growing slower than your income' : `; spending growing faster than income checks start after 6 months of data (you have ${lc.have})`}.</p>`}</section>`;
       })()}
     </div>`;
 }
@@ -6608,8 +6672,8 @@ function openHealthSettings() {
   const s = db.settings;
   openModal({
     title: 'Money health settings',
-    body: `${checkbox('runwayIncludeDeposits', !!s.runwayIncludeDeposits, 'Count FDs and liquid funds in the runway', 'They can usually be withdrawn within days.')}
-      ${twoCol(field('Idle cash: keep this many months in the bank', input('idleMonths', s.idleMonths ?? 3, 'type="number" min="1" max="24"')), field('Forecast warning below', moneyInput('cashBuffer', s.cashBuffer ?? 0, 'min="0"'), 'Warn when a balance may fall under this.'))}`,
+    body: `${checkbox('runwayIncludeDeposits', !!s.runwayIncludeDeposits, 'Count FDs and liquid funds in emergency savings', 'They can usually be withdrawn within days.')}
+      ${twoCol(field('Money sitting idle: keep this many months in the bank', input('idleMonths', s.idleMonths ?? 3, 'type="number" min="1" max="24"')), field('Forecast warning below', moneyInput('cashBuffer', s.cashBuffer ?? 0, 'min="0"'), 'Warn when a balance may fall under this.'))}`,
     submitLabel: 'Save',
     onSubmit: (d) => { commit([opSettings({ runwayIncludeDeposits: !!d.runwayIncludeDeposits, idleMonths: int(d.idleMonths) || 3, cashBuffer: round2(num(d.cashBuffer)) })], 'Money health settings'); },
   });
@@ -6626,14 +6690,14 @@ function healthMini() {
   </section>`;
 }
 
-/* ===== Planners =====
+/* ===== Calculators =====
    Calculators that look ahead. They show numbers and the assumptions behind
    them; they never tell you to buy or sell a particular fund or stock.
    Tax figures use the rules for FY 2026-27: equity long-term gains above
    ₹1.25 lakh a year taxed at 12.5%, short-term equity gains at 20%, plus 4% cess.
    Update CG_RULES if a budget changes them. */
 const CG_RULES = { ltcgExempt: 125000, ltcgRate: 0.125, stcgRate: 0.20, cess: 0.04, longAfterDays: 365 };
-const PLANNER_TABS = [['fire', 'Financial freedom', 'fa-mountain-sun'], ['loan', 'Loan prepayment', 'fa-house-circle-check'], ['gains', 'Capital gains', 'fa-scale-unbalanced'],
+const PLANNER_TABS = [['fire', 'Financial freedom', 'fa-mountain-sun'], ['loan', 'Loan prepayment', 'fa-house-circle-check'], ['gains', 'Profit on investments', 'fa-scale-unbalanced'],
   ['direct', 'Regular vs Direct', 'fa-code-compare'], ['tax', 'Tax estimate', 'fa-file-invoice'], ['salary', 'Salary-day plan', 'fa-briefcase'], ['review', 'Year in review', 'fa-star']];
 let plannerTab = 'fire';
 const PLAN_KEY = 'kosh.planners.v1';
@@ -6767,7 +6831,7 @@ function loanResult() {
     <p class="text-xs text-ink-3 mt-2">Check your lender's prepayment rules; home loans on a floating rate usually have no prepayment charge for individuals.</p>`;
 }
 
-/* ----- Capital gains planner ----- */
+/* ----- Profit on investments planner ----- */
 const isEquityHolding = (a) => ['Stocks', 'ETF'].includes(a.subtype) || (a.subtype === 'Mutual fund' && !/debt|liquid|gilt|bond|overnight|money market|credit risk|banking and psu/i.test(`${a.name} ${a.schemeName || ''}`));
 function holdingLots(a) {
   const lots = [];
@@ -6814,7 +6878,7 @@ function gainsTool() {
   const harvest = g.ltGains.reduce((s, r) => s + r.lt, 0);
   const daysToMarch = Math.round((parseDate(`${g.fy.to.slice(0, 4)}-03-28`) - parseDate(todayStr())) / 864e5);
   return `<section class="panel p-5">
-      <div class="panel-head"><h2 class="panel-title">Capital gains this financial year ${PRO}</h2><span class="text-sm text-ink-3">FY ${fyOf(todayStr())}${daysToMarch > 0 ? `, ${daysToMarch} days to the March deadline` : ''}</span></div>
+      <div class="panel-head"><h2 class="panel-title">Profit on investments this financial year ${PRO}</h2><span class="text-sm text-ink-3">FY ${fyOf(todayStr())}${daysToMarch > 0 ? `, ${daysToMarch} days to the March deadline` : ''}</span></div>
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div class="stat-tile"><div class="stat-label">Long-term gains booked</div><div class="stat-value num">${money(g.realizedLT)}</div></div>
         <div class="stat-tile"><div class="stat-label">Short-term gains booked</div><div class="stat-value num">${money(g.realizedST)}</div></div>
@@ -6938,7 +7002,7 @@ function reviewTool() {
   const topMer = Object.entries(mer).sort((a, b) => b[1] - a[1])[0];
   const biggest = spent.slice().sort((a, b) => num(b.amount) - num(a.amount))[0];
   const days = new Set(spent.map((t) => t.date)); const span = Math.max(1, Math.round((parseDate(to) - parseDate(from)) / 864e5) + 1);
-  // Net worth from when tracking began that year (accounts added later aren't counted as a jump)
+  // Total money from when tracking began that year (accounts added later aren't counted as a jump)
   const firstOpen = db.accounts.filter((a) => a.type === 'bank' || a.type === 'cash').map((a) => a.openingDate).filter(Boolean).sort()[0] || from;
   const startDay = firstOpen > from ? firstOpen : addDays(from, -1);
   const nwStart = snapshotAt(startDay).net, nwEnd = snapshotAt(to).net;
@@ -6953,7 +7017,7 @@ function reviewTool() {
       <div class="wrap-grid">
         ${tile('Money in', money(Math.round(income)))}${tile('Spent', money(Math.round(total)))}${tile('Invested', money(Math.round(inv)))}
         ${tile('Kept', kept === null ? '–' : `${kept}%`, 'of what came in')}
-        ${tile('Net worth', `${nwEnd - nwStart >= 0 ? '+' : '−'}${money(Math.abs(Math.round(nwEnd - nwStart)))}`, `${money(Math.round(nwStart))} → ${money(Math.round(nwEnd))}`)}
+        ${tile('Total money', `${nwEnd - nwStart >= 0 ? '+' : '−'}${money(Math.abs(Math.round(nwEnd - nwStart)))}`, `${money(Math.round(nwStart))} → ${money(Math.round(nwEnd))}`)}
         ${tile('No-spend days', `${span - days.size}`, `of ${span}`)}
         ${tile('Top category', topCats[0] ? esc(topCats[0][0]) : '–', topCats.slice(0, 3).map(([c, v]) => `${esc(c)} ${money(Math.round(v))}`).join(' · '))}
         ${tile('Favourite place', topMer ? esc(topMer[0]) : '–', topMer ? `${topMer[1]} visits` : '')}
@@ -6971,7 +7035,7 @@ function shareReview() {
 }
 
 /* ===== Split a bill (Splitwise style) =====
-   One bill, shared between you and people on the People page.
+   One bill, shared between you and people on the Lend & borrow page.
    - You paid: your share is your expense; everyone else's share is money they
      now owe you (a transfer to that person, like home expenses).
    - Someone else paid: your share is an expense paid by them, so you owe them.
@@ -6989,7 +7053,7 @@ function openSplitForm() {
       <div><span class="lbl">Split between</span><div class="filter-picks">
         <label class="check-chip"><input type="checkbox" name="with_me" checked> Me</label>
         ${ppl.map((p) => `<label class="check-chip"><input type="checkbox" name="with_${p.id}"> ${esc(p.name)}</label>`).join('')}</div>
-        ${field('Add someone new (optional)', input('newPeople', '', 'placeholder="Names, separated by commas"'), 'They are added to your People page.')}</div>
+        ${field('Add someone new (optional)', input('newPeople', '', 'placeholder="Names, separated by commas"'), 'They are added to your Lend & borrow page.')}</div>
       <div><span class="lbl">How to split</span><div class="seg">${[['equal', 'Equally'], ['amount', 'By amounts'], ['percent', 'By %']].map(([v, l], i) => `<input type="radio" name="method" id="sm_${v}" value="${v}" ${i === 0 ? 'checked' : ''}><label for="sm_${v}">${l}</label>`).join('')}</div></div>
       <div data-shares class="space-y-2"></div>
       <p class="callout" data-split-summary></p>`,
@@ -7079,6 +7143,7 @@ function renderSplit() {
   const people = db.accounts.filter((a) => a.type === 'person' && !a.archived).map((p) => ({ p, bal: M.balances.get(p.id) || 0 })).filter((x) => Math.abs(x.bal) >= 1);
   const owed = people.filter((x) => x.bal > 0).reduce((s, x) => s + x.bal, 0), owe = people.filter((x) => x.bal < 0).reduce((s, x) => s - x.bal, 0);
   return `
+    ${sharedRequestsCard()}
     <div class="page-top"><p class="page-intro">Share bills with friends, flatmates or family and see who owes whom.</p>
       <button class="btn btn-primary" data-action="split-new"><i class="fa-solid fa-plus"></i> Split a bill</button></div>
     <section class="panel p-5">
@@ -7106,9 +7171,18 @@ function splitRow(g) {
 }
 function deleteSplit(id) {
   const items = db.transactions.filter((t) => t.relatedType === 'split' && t.relatedId === id);
-  if (!items.length || !confirm('Delete this split and all its entries?')) return;
+  if (!items.length) return;
+  if (items[0].sharedFrom) { alert(`${sharedOwnerName(items[0])} added this split, so only they can remove it. If it's wrong, tap No on it or ask them.`); return; }
+  const rec = sharedOn() ? (shared.records || []).find((x) => x.id === id) : null;
+  if (rec && (rec.v2 ? anyAccepted(rec) : true)) {
+    if (!confirm('People in this split already confirmed it, so they will be asked to agree before it is removed. Ask now?')) return;
+    commit(items.map((t) => opUpsert('transactions', { ...t, shareDelete: 'pending' })), 'Ask to remove a split');
+    unshare(id); toast('Asked. It is removed once everyone agrees.', 'success');
+    return;
+  }
+  if (!confirm('Delete this split and all its entries?')) return;
   commit(items.map((t) => opDelete('transactions', t.id)), 'Delete split');
-  if (!items[0].sharedFrom) unshare(id); // your own split: also remove it for the people you shared it with
+  unshare(id); // your own split: also remove it for the people you shared it with
 }
 
 /* ===== Cool-off list ("I want to buy this") =====
@@ -7235,7 +7309,7 @@ function accountIcon(a, cls = '') {
      kosh/users.json                   who uses this FinRi (username, name)
      kosh/shared.json                  shared splits and settle-ups between linked people
      kosh/portfolio/<username>.json    portfolio summary, only if that person chooses to share it
-   Link a person on your People page to their FinRi username. Then:
+   Link a person on your Lend & borrow page to their FinRi username. Then:
    - a bill you split with them appears in their app as what they owe you (or you owe them)
    - money you record giving or getting from them appears on their side too
    - family members can see each other's shared portfolios and a combined total
@@ -7281,6 +7355,7 @@ function queueShared(item) { const q = readLS(SHARED_QUEUE, []); q.push(item); w
 async function flushShared() {
   const q = readLS(SHARED_QUEUE, []);
   if (!q.length) return;
+  const me = myUser();
   await updateJsonFile(LEDGER_FILE, (data) => {
     const list = (data && data.records) || [];
     let changed = false;
@@ -7288,20 +7363,50 @@ async function flushShared() {
       const now = new Date().toISOString();
       if (item.kind === 'post') {
         const old = list.find((x) => x.id === item.rec.id);
-        if (!old) { list.push({ ...item.rec, at: item.rec.at || now }); changed = true; }
-        else if (item.replace && old.by === myUser() && !old.deleted) { Object.assign(old, item.rec, { at: now }); changed = true; } // an edit: the other side updates its copy
+        if (!old) { list.push({ ...item.rec, at: item.rec.at || now }); changed = true; continue; }
+        if (!(item.replace && old.by === me && !old.deleted)) continue;
+        const fields = { amount: item.rec.amount, date: item.rec.date, what: item.rec.what, note: item.rec.note, payer: item.rec.payer, payee: item.rec.payee };
+        if (old.v2 && anyAccepted(old)) { old.proposed = { ...fields, at: now }; old.changeAnswers = {}; } // already confirmed: the other person OKs the change
+        else Object.assign(old, item.rec, { answers: {}, v2: true, at: now }); // not confirmed yet: just send the new version
+        changed = true;
       }
       if (item.kind === 'delete') {
-        // the person who made it, or anyone it involves, can delete it; it then disappears from everyone's app
-        const r = list.find((x) => x.id === item.id && (x.by === myUser() || recordInvolves(x, myUser())));
-        if (r && !r.deleted) { r.deleted = true; r.deletedBy = myUser(); r.at = now; changed = true; }
+        const r = list.find((x) => x.id === item.id && x.by === me);
+        if (!r || r.deleted) continue;
+        if (r.v2 ? anyAccepted(r) : true) { if (!r.deleteRequested) { r.deleteRequested = true; r.delAnswers = {}; r.at = now; changed = true; } } // confirmed: ask first
+        else { r.deleted = true; r.deletedBy = me; r.at = now; changed = true; } // never confirmed: just remove
+      }
+      if (item.kind === 'answer') {
+        const r = list.find((x) => x.id === item.id && x.by !== me && recordOthers(x).includes(me));
+        if (!r || r.deleted) continue;
+        const a = item.action;
+        if (a === 'accept' || a === 'reject') { r.answers = { ...(r.answers || {}), [me]: a === 'accept' ? 'accepted' : 'rejected' }; r.v2 = true; }
+        if (a === 'acceptChange' && r.proposed) { const { at, ...f } = r.proposed; Object.assign(r, f); delete r.proposed; r.at = now; }
+        if (a === 'rejectChange' && r.proposed) { delete r.proposed; r.changeRejected = { by: me, at: now }; }
+        if (a === 'acceptDelete' && r.deleteRequested) {
+          r.delAnswers = { ...(r.delAnswers || {}), [me]: 'ok' };
+          const needed = recordOthers(r).filter((u) => answerOf(r, u) === 'accepted');
+          if (needed.every((u) => r.delAnswers[u] === 'ok')) { r.deleted = true; r.deletedBy = me; r.at = now; }
+        }
+        if (a === 'rejectDelete' && r.deleteRequested) { r.deleteRequested = false; r.delAnswers = {}; r.deleteRejected = { by: me, at: now }; }
+        changed = true;
       }
     }
     return changed ? { records: list } : null;
-  }, `FinRi: shared entries from ${myUser()}`);
+  }, `FinRi: shared entries from ${me}`);
   writeLS(SHARED_QUEUE, []);
 }
 const linkedOf = (personId) => accountById(personId)?.linkedUser || '';
+/* ----- Confirmation: money recorded with someone counts in their app only after they say yes -----
+   r.answers[user] = 'accepted' | 'rejected'. A change or removal of something already confirmed
+   also needs the other person's OK (r.proposed / r.deleteRequested). Older entries (no v2) count as confirmed. */
+const recordOthers = (r) => uniq([r.payer, r.payee, ...(r.shares || []).filter((x) => x.amount > 0).map((x) => x.user)].filter((u) => u && u !== r.by));
+const answerOf = (r, u) => (!r.v2 ? 'accepted' : r.answers?.[u] || 'pending');
+function recordState(r) { // as seen by the person who recorded it
+  const st = recordOthers(r).map((u) => answerOf(r, u));
+  return st.some((x) => x === 'rejected') ? 'rejected' : st.every((x) => x === 'accepted') ? 'accepted' : 'pending';
+}
+const anyAccepted = (r) => recordOthers(r).some((u) => answerOf(r, u) === 'accepted');
 const recordInvolves = (r, u) => r.by === u || r.payer === u || r.payee === u || (r.shares || []).some((x) => x.user === u);
 /** A person's display name: from their profile (looked up by username), or from shared records that mention them. */
 function userName(u) {
@@ -7322,7 +7427,7 @@ function shareSplit({ splitId, payer, shares, d }) {
   const payerUser = userOf(payer);
   const linkedShares = shares.map((x) => ({ user: userOf(x.realId || x.id), amount: x.amount })).filter((x) => x.user);
   if (!payerUser || !linkedShares.some((x) => x.user !== myUser())) return 0;
-  queueShared({ kind: 'post', rec: { id: splitId, type: 'split', by: myUser(), byName: db.settings.ownerName || myUser(), date: d.date, desc: d.description, total: round2(num(d.total)), category: d.category, group: (d.group || '').trim(), payer: payerUser, shares: linkedShares } });
+  queueShared({ kind: 'post', rec: { id: splitId, v2: true, answers: {}, type: 'split', by: myUser(), byName: db.settings.ownerName || myUser(), date: d.date, desc: d.description, total: round2(num(d.total)), category: d.category, group: (d.group || '').trim(), payer: payerUser, shares: linkedShares } });
   return linkedShares.filter((x) => x.user !== myUser()).length;
 }
 /** Called after money is recorded with a linked person, and for home expenses they'll pay back. */
@@ -7330,14 +7435,14 @@ function shareSettle(rec, personId, dir, what = '', replace = false) {
   const other = linkedOf(personId);
   if (!sharedOn() || !other) return false;
   const kind = what || ({ Lent: 'lent', Repaid: 'repaid', Borrowed: 'borrowed', 'Got back': 'gotback' })[rec.category] || (dir === 'out' ? 'lent' : 'borrowed');
-  queueShared({ kind: 'post', replace, rec: { id: rec.id, type: 'settle', what: kind, by: myUser(), byName: db.settings.ownerName || myUser(), date: rec.date, amount: rec.amount, note: rec.description,
+  queueShared({ kind: 'post', replace, rec: { id: rec.id, v2: true, answers: {}, type: 'settle', what: kind, by: myUser(), byName: db.settings.ownerName || myUser(), date: rec.date, amount: rec.amount, note: rec.description,
     payer: dir === 'out' ? myUser() : other, payee: dir === 'out' ? other : myUser(), at: new Date().toISOString() } });
   return true;
 }
 function shareHomeClaim(rec) {
   const other = linkedOf(rec.toAccountId);
   if (!sharedOn() || !other) return false;
-  queueShared({ kind: 'post', rec: { id: rec.id, type: 'split', by: myUser(), byName: db.settings.ownerName || myUser(), date: rec.date, desc: `For home: ${rec.description || rec.category}`, total: rec.amount, category: rec.category, group: 'Home', payer: myUser(), shares: [{ user: other, amount: rec.amount }] } });
+  queueShared({ kind: 'post', rec: { id: rec.id, v2: true, answers: {}, type: 'split', by: myUser(), byName: db.settings.ownerName || myUser(), date: rec.date, desc: `For home: ${rec.description || rec.category}`, total: rec.amount, category: rec.category, group: 'Home', payer: myUser(), shares: [{ user: other, amount: rec.amount }] } });
   return true;
 }
 function unshare(id) { if (sharedOn()) queueShared({ kind: 'delete', id }); }
@@ -7346,7 +7451,7 @@ function unshare(id) { if (sharedOn()) queueShared({ kind: 'delete', id }); }
 function personFor(user, ops, made) {
   const found = db.accounts.find((a) => a.type === 'person' && a.linkedUser === user) || made[user];
   if (found) return found.id;
-  // Someone with the same name already on your People page: link them instead of adding a second one.
+  // Someone with the same name already on your Lend & borrow page: link them instead of adding a second one.
   const same = db.accounts.find((a) => a.type === 'person' && !a.linkedUser && !a.archived && a.name.trim().toLowerCase() === String(userName(user)).trim().toLowerCase());
   if (same) { const linked = { ...same, linkedUser: user }; ops.push(opUpsert('accounts', linked)); made[user] = linked; return same.id; }
   const p = { ...newPersonRecord(userName(user)), linkedUser: user };
@@ -7355,18 +7460,20 @@ function personFor(user, ops, made) {
 }
 function applyShared() {
   const meU = myUser(), applied = new Set(db.settings.sharedApplied || []), versions = { ...(db.settings.sharedVersions || {}) };
-  const ops = [], made = {};
+  const ops = [], made = {}, requests = [];
   const acc = db.settings.defaultAccountId && accountById(db.settings.defaultAccountId) ? db.settings.defaultAccountId : firstAccountOf(['bank']) || firstAccountOf(['cash']);
   let added = 0, removed = 0, updated = 0, waiting = 0;
   const dropMirrors = (id) => { for (const t of db.transactions.filter((x) => x.sharedFrom === id || (x.relatedId === id && x.relatedType !== 'person'))) { ops.push(opDelete('transactions', t.id)); removed++; } };
+  const ownTxns = (r) => db.transactions.filter((x) => (x.id === r.id && !x.sharedFrom) || (r.type === 'split' && x.relatedType === 'split' && x.relatedId === r.id && !x.sharedFrom));
   // Shared splits/settle-ups from others, plus every shared-flat entry (including your own, so your
   // ledger gets them the same way as your flatmates').
   for (const r of [...shared.records, ...(typeof flatRecords === 'function' ? flatRecords() : [])]) {
     if (r.by === meU && !r.mirrorSelf) {
-      // something you shared was deleted by the other person: remove it from your app too
-      if (r.deleted && r.deletedBy && r.deletedBy !== meU) {
-        for (const t of db.transactions.filter((x) => x.id === r.id || (x.relatedType === 'split' && x.relatedId === r.id))) { ops.push(opDelete('transactions', t.id)); removed++; }
-      }
+      // something you recorded: removed (after the others agreed, or never confirmed) → remove it here too;
+      // otherwise keep its status on your entries (waiting / confirmed / said no / change or removal waiting)
+      if (r.deleted) { for (const t of ownTxns(r)) { ops.push(opDelete('transactions', t.id)); removed++; } continue; }
+      const st = { shareState: recordState(r), shareChange: r.proposed ? 'pending' : r.changeRejected ? 'rejected' : '', shareDelete: r.deleteRequested ? 'pending' : r.deleteRejected ? 'rejected' : '', shareWith: recordOthers(r).map((u) => userName(u)).join(', ') };
+      for (const t of ownTxns(r)) if (Object.keys(st).some((k) => (t[k] || '') !== st[k])) ops.push(opUpsert('transactions', { ...t, ...st }));
       continue;
     }
     const mine = r.type === 'split' ? r.shares.some((x) => x.user === meU) || r.payer === meU : r.payer === meU || r.payee === meU;
@@ -7375,9 +7482,16 @@ function applyShared() {
       if (applied.has(r.id)) { dropMirrors(r.id); applied.delete(r.id); delete versions[r.id]; }
       continue;
     }
-    // an entry the other person edited: replace your copy
+    if (!r.flat) {
+      const myAnswer = answerOf(r, meU);
+      if (myAnswer === 'pending') { requests.push({ r, kind: 'new' }); continue; } // waits for your yes
+      if (myAnswer === 'rejected') continue;
+      if (applied.has(r.id) && r.proposed && !r.changeAnswers?.[meU]) requests.push({ r, kind: 'change' });
+      if (applied.has(r.id) && r.deleteRequested && !r.delAnswers?.[meU]) requests.push({ r, kind: 'delete' });
+    }
+    // an entry that changed (after you agreed): replace your copy
     if (applied.has(r.id)) {
-      if (r.type === 'settle' && r.at && versions[r.id] && versions[r.id] !== r.at) { dropMirrors(r.id); applied.delete(r.id); updated++; }
+      if (r.type === 'settle' && r.at && versions[r.id] && versions[r.id] !== r.at && !r.proposed) { dropMirrors(r.id); applied.delete(r.id); updated++; }
       else continue;
     }
     if (!acc) { waiting++; continue; } // you need a bank or cash account to record it against
@@ -7401,11 +7515,14 @@ function applyShared() {
     applied.add(r.id); versions[r.id] = r.at || ''; added++;
   }
   shared.waiting = waiting;
+  const before = (shared.requests || []).map((x) => x.r.id + x.kind).join();
+  shared.requests = requests;
+  if (before !== requests.map((x) => x.r.id + x.kind).join() && ['', '#dashboard', '#people', '#split'].includes(location.hash)) setTimeout(render, 0);
   if (!ops.length && !removed) return;
   const keep = [...applied].slice(-3000);
   ops.push(opSettings({ sharedApplied: keep, sharedVersions: Object.fromEntries(Object.entries(versions).filter(([k]) => keep.includes(k))) }));
-  commit(ops, `Shared entries from others (${added} new${updated ? `, ${updated} changed` : ''}${removed ? `, ${removed} removed` : ''})`);
-  if (added || removed) toast(added && !updated ? `${added} shared entr${added === 1 ? 'y' : 'ies'} from people you're linked with ${added === 1 ? 'was' : 'were'} added.` : 'Shared entries were updated by the people you share them with.', 'success');
+  commit(ops, `Shared entries (${added} new${updated ? `, ${updated} changed` : ''}${removed ? `, ${removed} removed` : ''})`);
+  if (added || removed || updated) toast(added && !updated && !removed ? `${added} entr${added === 1 ? 'y' : 'ies'} you confirmed ${added === 1 ? 'was' : 'were'} added.` : 'Shared entries were updated.', 'success');
 }
 
 /* ----- Profiles, family portfolio, and the sync loop ----- */
@@ -7446,7 +7563,7 @@ async function syncShared(force = false) {
   finally { shared.busy = false; }
 }
 
-/* ----- Family portfolio (on the Portfolio page) ----- */
+/* ----- Family portfolio (on the Investments page) ----- */
 function familySection() {
   if (!sharedOn()) return `<section class="panel p-5 mt-6"><div class="panel-head"><h2 class="panel-title"><i class="fa-solid fa-people-roof mr-1.5 text-royal"></i>Family portfolio</h2></div>
     <p class="text-sm text-ink-2">See your family's investments together, like a family account. Set your FinRi username in Settings (GitHub storage) to start.</p></section>`;
@@ -7472,7 +7589,7 @@ function familySection() {
     </div>
     ${Object.keys(groups).length ? `<div class="nw-track fam-track mb-4">${Object.entries(groups).sort((a, b) => b[1] - a[1]).map(([g, v]) => `<span style="width:${(v / Math.max(1, tot.value)) * 100}%;background:${GROUP_COLORS[g] || colorFor(g)}" title="${esc(g)} ${money(v)}"></span>`).join('')}</div>` : ''}
     <div class="divider">${[...all, ...members.filter((m) => !m.p).map((m) => ({ ...m, missing: true }))].map((m) => m.missing
-      ? `<div class="row">${avatar(userName(m.u))}<div class="flex-1 min-w-0"><div class="font-medium">${esc(userName(m.u))}</div><div class="text-xs text-ink-3">Not sharing yet. Ask them to tap "Share mine" in their Portfolio.</div></div><button class="icon-btn sm" data-action="family-remove" data-u="${esc(m.u)}" title="Remove" aria-label="Remove"><i class="fa-solid fa-xmark"></i></button></div>`
+      ? `<div class="row">${avatar(userName(m.u))}<div class="flex-1 min-w-0"><div class="font-medium">${esc(userName(m.u))}</div><div class="text-xs text-ink-3">Not sharing yet. Ask them to tap "Share mine" in their Investments.</div></div><button class="icon-btn sm" data-action="family-remove" data-u="${esc(m.u)}" title="Remove" aria-label="Remove"><i class="fa-solid fa-xmark"></i></button></div>`
       : `<details class="fam-row"><summary class="row">${avatar(m.p.name || m.u)}<div class="flex-1 min-w-0"><div class="font-medium">${esc(m.p.name || m.u)}${m.me ? ' <span class="pill">You</span>' : ''}</div><div class="text-xs text-ink-3">${m.p.holdings.length} holding${m.p.holdings.length === 1 ? '' : 's'}${m.me ? '' : ` · updated ${fmtDate(m.p.updatedAt.slice(0, 10))}`}</div></div>
           <div class="text-right"><div class="num font-semibold">${money(m.p.totals.value)}</div><div class="text-xs num ${m.p.totals.value - m.p.totals.invested >= 0 ? 'text-gain' : 'text-loss'}">${m.p.totals.value - m.p.totals.invested >= 0 ? '+' : '−'}${money(Math.abs(m.p.totals.value - m.p.totals.invested))}</div></div>
           ${m.me ? '' : `<button class="icon-btn sm" data-action="family-remove" data-u="${esc(m.u)}" title="Remove" aria-label="Remove"><i class="fa-solid fa-xmark"></i></button>`}</summary>
@@ -7560,12 +7677,32 @@ function openFamilyAnswer(id) {
   if (!iv) return;
   openModal({
     title: `Family invitation from ${userName(iv.from)}`,
-    body: `<p class="text-sm">${esc(userName(iv.from))} (@${esc(iv.from)}) wants to add you as family. You'll each see the other's portfolio in Portfolio → Family portfolio, for whoever chooses to share it.</p>
-      ${checkbox('share', db.settings.sharePortfolio !== false, 'Share my portfolio with my family', 'Holdings and their values; never your transactions or bank balances.')}`,
+    body: `<p class="text-sm">${esc(userName(iv.from))} (@${esc(iv.from)}) wants to add you as family. You'll each see the other's portfolio in Investments → Family portfolio, for whoever chooses to share it.</p>
+      ${checkbox('share', db.settings.sharePortfolio !== false, 'Share my portfolio with my family', 'Your investments and their values; never your transactions or bank balances.')}`,
     submitLabel: 'Accept', cancelLabel: 'Not now',
     onSubmit: async (d) => { await answerFamilyInvite(id, true, !!d.share); },
   });
 }
+/** Entries others recorded with you, waiting for your yes or no (new, changed, or to be removed). */
+function sharedRequestsCard() {
+  const list = shared.requests || [];
+  if (!sharedOn() || !list.length) return '';
+  const me = myUser();
+  const line = ({ r, kind }) => {
+    const who = esc(r.byName || userName(r.by)), amt = (v) => `<b class="num">${money(v)}</b>`;
+    let what;
+    if (r.type === 'split') { const mineS = r.shares.find((x) => x.user === me)?.amount || 0; what = `${who} added a split: <b>${esc(r.desc)}</b> (${money(r.total)}). Your share: ${amt(mineS)}${r.payer === me ? ', and you paid' : `, paid by ${esc(userName(r.payer))}`}.`; }
+    else what = `${who} says ${{ lent: `they lent you ${amt(r.amount)}`, repaid: `they paid you back ${amt(r.amount)}`, borrowed: `they borrowed ${amt(r.amount)} from you`, gotback: `you paid them back ${amt(r.amount)}` }[r.what] || `${amt(r.amount)} moved between you`} on ${fmtDate(r.date)}${r.note && !/^(Lent|Repaid|Borrowed|Got back)\b/.test(r.note) ? ` (${esc(r.note)})` : ''}.`;
+    if (kind === 'change') what = `${who} wants to change an entry: ${money(r.amount)} on ${fmtDate(r.date)} → <b class="num">${money(r.proposed.amount)}</b> on ${fmtDate(r.proposed.date)}.`;
+    if (kind === 'delete') what = `${who} wants to remove: ${r.type === 'split' ? esc(r.desc) : `${money(r.amount)} on ${fmtDate(r.date)}`}.`;
+    const [yes, no] = kind === 'new' ? ['accept', 'reject'] : kind === 'change' ? ['acceptChange', 'rejectChange'] : ['acceptDelete', 'rejectDelete'];
+    return `<div class="req-row"><div class="text-sm flex-1">${what}${kind === 'new' ? ' <span class="text-ink-3">Is this right?</span>' : ''}</div>
+      <div class="flex gap-2"><button class="btn btn-sm btn-primary" data-action="share-answer" data-id="${esc(r.id)}" data-act="${yes}">${kind === 'new' ? 'Yes' : 'OK'}</button><button class="btn btn-sm" data-action="share-answer" data-id="${esc(r.id)}" data-act="${no}">${kind === 'new' ? 'No, not right' : 'No'}</button></div></div>`;
+  };
+  return `<section class="panel p-5 mb-6 invite-card"><h2 class="panel-title mb-1"><i class="fa-solid fa-circle-check mr-1.5 text-royal"></i>Waiting for your OK</h2>
+    <p class="text-xs text-ink-3 mb-3">Entries people recorded with you. They count in your app only after you say yes.</p><div class="space-y-3">${list.map(line).join('')}</div></section>`;
+}
+
 /** Dashboard card with every invitation waiting for your answer. */
 function invitesCard() {
   if (!sharedOn()) return '';
@@ -7728,7 +7865,7 @@ function signOut() {
 function signInCard() {
   if (isConfigured()) return '';
   return `<section class="panel p-5 mb-6 signin-card"><div class="flex flex-col sm:flex-row sm:items-end gap-4">
-    <div class="flex-1"><h2 class="panel-title">Sign in to your FinRi</h2><p class="text-sm text-ink-2 mt-1">Use the username and password you were given. Your data stays in your own private repository.</p></div>
+    <div class="flex-1"><h2 class="panel-title">Sign in to your FinRi</h2><p class="text-sm text-ink-2 mt-1">Use the username and password you were given. Your money data stays private to you.</p></div>
     <form id="signinForm" class="flex flex-col sm:flex-row gap-2 sm:items-end" autocomplete="on">
       <input class="inp" name="user" placeholder="Username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
       <input class="inp" name="password" type="password" placeholder="Password" autocomplete="current-password" required>
@@ -7870,7 +8007,7 @@ async function refreshGold({ auto = false, onlyId = null } = {}) {
   if (!items.length) return 0;
   if (auto && !onlyId && (Date.now() - readLS(GOLD_RUN, 0)) / 3600e3 < 12) return 0; // saves the free monthly quota
   const spot = await goldSpot(todayStr());
-  if (!spot) { if (!auto) toast("Couldn't get today's gold rate. Add a free GoldAPI key in Portfolio → Gold → Rates, or set your city's rate.", 'error'); return 0; }
+  if (!spot) { if (!auto) toast("Couldn't get today's gold rate. Add a free GoldAPI key in Investments → Gold → Rates, or set your city's rate.", 'error'); return 0; }
   const ops = [];
   for (const a of items) {
     const rate = goldRateFor(spot, a.goldPurity, a.city);
@@ -7984,7 +8121,7 @@ function openGoldRates() {
   });
 }
 
-/* ----- Portfolio group toggles (Mutual funds / Stocks / Gold / ... or all) ----- */
+/* ----- Investments group toggles (Mutual funds / Stocks / Gold / ... or all) ----- */
 const PF_SEL = 'kosh.pfGroups.v1';
 const pfSelected = () => readLS(PF_SEL, []);
 function pfFiltered() {
@@ -8129,7 +8266,7 @@ function renderFlat() {
   if (sharedOn() && !shared.busy && Date.now() - shared.last > 60000) setTimeout(() => syncShared(true), 0);
   if (!sharedOn()) return `<section class="panel">${emptyState('fa-house-user', 'Shared flat needs your FinRi username and the shared repository (Settings → GitHub storage). Everyone in the flat needs FinRi too.')}</section>`;
   const home = flats.homes[flats.current];
-  const top = `${(flats.invites || []).length ? invitesCard() : ''}<div class="page-top"><p class="page-intro">Split rent, bills and groceries with flatmates. Everyone sees the same list, and their shares go into their own transactions.</p>
+  const top = `${(flats.invites || []).length ? invitesCard() : ''}<div class="page-top"><p class="page-intro">Share rent, bills and groceries with flatmates. Everyone sees the same list and who owes whom.</p>
     <button class="btn btn-primary" data-action="flat-new"><i class="fa-solid fa-plus"></i> New home</button></div>
     ${flats.list.length > 1 ? `<div class="chip-row mb-4">${flats.list.map((h) => `<button class="chip ${h.id === flats.current ? 'on' : ''}" data-action="flat-switch" data-id="${h.id}"><i class="fa-solid fa-house-user mr-1"></i>${esc(h.name)}</button>`).join('')}</div>` : ''}`;
   if (!home) return top + `<section class="panel">${emptyState('fa-house-user', shared.busy ? 'Loading your homes…' : 'No shared home yet. Create one, add your flatmates by their FinRi username, and add the rent.', '<button class="btn btn-primary" data-action="flat-new">Create a home</button>')}</section>`;
@@ -8439,7 +8576,7 @@ function renderInsurance() {
   if (!S.live.some((p) => p.type === 'health')) tips.push('No health insurance yet. A hospital stay can cost lakhs; even a basic family floater helps.');
   if (S.income > 0 && S.life < S.income * 10) tips.push(`Life cover is ${money(S.life)}. A common rule of thumb is 10 to 15 times yearly income (about ${money(Math.round(S.income * 10))}+), if others depend on you.`);
   return `
-    <div class="page-top"><p class="page-intro">All your policies, renewals and claims in one place. Premiums you pay are added to your spending and to the tax estimate.</p>
+    <div class="page-top"><p class="page-intro">All your insurance in one place, with reminders before renewal.</p>
       <button class="btn btn-primary" data-action="ins-add"><i class="fa-solid fa-plus"></i> Add policy</button></div>
     <section class="hero p-5 sm:p-7">
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-5">
@@ -8946,7 +9083,7 @@ function downloadStatementCsv(list, acc, name) {
   const head = ['Date', 'Description', 'Category', 'Type', 'Amount', 'Money in', 'Money out', 'Account', 'Details', 'Notes', ...(acc ? ['Balance'] : [])];
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [head.map(q).join(',')];
-  if (acc) lines.push([q(''), q('Opening balance'), q(''), q(''), q(''), q(''), q(''), q(acc.name), q(''), q(''), q(opening)].join(','));
+  if (acc) lines.push([q(''), q('Starting balance'), q(''), q(''), q(''), q(''), q(''), q(acc.name), q(''), q(''), q(opening)].join(','));
   for (const r of rows) lines.push([r.t.date, r.t.description || '', r.t.category || '', r.type, r.s || r.t.amount, r.s > 0 ? r.s : '', r.s < 0 ? -r.s : '', r.flow, r.extra, r.t.notes || '', ...(acc ? [r.bal] : [])].map(q).join(','));
   download(`${name.replace(/[^a-z0-9_-]+/gi, '-')}.csv`, '\uFEFF' + lines.join('\n'), 'text/csv'); // BOM so Excel reads ₹ and names correctly
   toast('Statement downloaded.', 'success');
@@ -8966,7 +9103,7 @@ td.n,th.n{text-align:right;white-space:nowrap}.in{color:#0E8F47}.out{color:#C218
 .m-only{display:none}</style></head><body>
 <div class="bar"><button onclick="window.print()" style="padding:8px 14px;font-size:14px">Print / Save as PDF</button></div>
 <h1>${e(title)}</h1><div class="sub">${e(period)}${acc ? ` · ${e(acc.name)}${acc.last4 ? ` (…${e(acc.last4)})` : ''}` : ''} · ${e(desc)} · generated ${e(fmtDate(todayStr()))}</div>
-<div class="sum">${acc ? `<div><span>Opening balance</span><b>${m(opening)}</b></div>` : ''}<div><span>Money in</span><b class="in">${m(inn)}</b></div><div><span>Money out</span><b class="out">${m(out)}</b></div>${acc ? `<div><span>Closing balance</span><b>${m(closing)}</b></div>` : `<div><span>Net</span><b>${m(inn - out)}</b></div>`}<div><span>Transactions</span><b>${rows.length}</b></div></div>
+<div class="sum">${acc ? `<div><span>Starting balance</span><b>${m(opening)}</b></div>` : ''}<div><span>Money in</span><b class="in">${m(inn)}</b></div><div><span>Money out</span><b class="out">${m(out)}</b></div>${acc ? `<div><span>Closing balance</span><b>${m(closing)}</b></div>` : `<div><span>Net</span><b>${m(inn - out)}</b></div>`}<div><span>Transactions</span><b>${rows.length}</b></div></div>
 <table><thead><tr><th>Date</th><th>Description</th><th class="c-cat">Category</th><th class="c-acc">Account</th><th class="n">In</th><th class="n">Out</th>${acc ? '<th class="n">Balance</th>' : ''}</tr></thead><tbody>
 ${rows.map((r) => `<tr><td>${e(fmtDate(r.t.date))}</td><td>${e(r.t.description || r.t.category || '')}${r.extra ? `<div class="small">${e(r.extra)}</div>` : ''}<div class="small m-only">${e(r.t.category || '')} · ${e(r.flow)}</div></td><td class="c-cat">${e(r.t.category || '')}<div class="small">${e(r.type)}</div></td><td class="c-acc">${e(r.flow)}</td><td class="n in">${r.s > 0 ? m(r.s) : ''}</td><td class="n out">${r.s < 0 ? m(-r.s) : r.s === 0 ? `<span class="small">${m(r.t.amount)} moved</span>` : ''}</td>${acc ? `<td class="n">${m(r.bal)}</td>` : ''}</tr>`).join('')}
 </tbody></table></body></html>`;
@@ -8990,29 +9127,29 @@ ${rows.map((r) => `<tr><td>${e(fmtDate(r.t.date))}</td><td>${e(r.t.description |
 const HELP_TOPICS = [
   { id: 'start', page: 'dashboard', group: 'Getting started', icon: 'fa-rocket', title: 'Getting started',
     where: 'Open the app link in Safari (iPhone) or Chrome (Android)',
-    summary: 'FinRi tracks your money: spending, income, accounts, investments, EMIs, insurance, goals and more. Your data is saved in your own private GitHub repository, so it is backed up and shared across your devices.',
+    summary: 'FinRi tracks your money: spending, income, accounts, investments, EMIs, insurance, goals and more. Your data is private to you, backed up, and the same on every phone you sign in on.',
     steps: ['If you were given a username and password, type them in the Sign in card on the dashboard and tap Sign in.', 'Install the app: iPhone Safari → Share → Add to Home Screen; Android Chrome → menu (⋮) → Install app. On iPhone, sign in once more inside the installed app.', 'Add your accounts first (menu → Accounts): cash, bank accounts, credit cards and investments with today\'s balances.', 'Log expenses and income with the big + button at the bottom. Balances update by themselves.', 'Set your name and preferences in Settings (gear icon, top right).'],
     tips: ['The cloud icon at the top right shows sync status; tap it to sync now.', 'Use the bottom bar: Home, Activity (transactions), + (add), Calendar and More (every other page).', 'Tap ? at the top of any page for help with that page.'] },
-  { id: 'dashboard', page: 'dashboard', group: 'Everyday', icon: 'fa-house', title: 'Dashboard',
+  { id: 'dashboard', page: 'dashboard', group: 'Everyday', icon: 'fa-house', title: 'Home',
     where: 'Bottom bar → Home',
-    summary: 'Your money at a glance: net worth, a suggestion for you, quick actions, this month\'s money in and out, budgets, insights, what is due soon and recent transactions.',
-    steps: ['Net worth adds cash, bank, investments and money people owe you, minus card dues, loans and money you owe.', 'Card dues means the bill outstanding on your cards today. Card EMIs still to pay are not deducted; each instalment counts once it is billed to the card (see them on the EMIs page).', 'Switch off Investments or Card dues on the net worth card to see the figure without them.', 'Tap "What makes it up" to see the breakdown.', 'Quick actions: Add expense, Split a bill, I want to buy this, Money health.', 'Customize dashboard (bottom of the page) turns sections on or off: Money health, Portfolio, Subscriptions and Goals cards, and spending charts.'],
+    summary: 'Your money at a glance: total money, a suggestion for you, quick actions, this month\'s money in and out, budgets, insights, what is due soon and recent transactions.',
+    steps: ['Total money adds cash, bank, investments and money people owe you, minus card dues, loans and money you owe.', 'Card dues means the bill outstanding on your cards today. Card EMIs still to pay are not deducted; each instalment counts once it is billed to the card (see them on the EMIs page).', 'Switch off Investments or Card dues on the total money card to see the figure without them.', 'Tap "What makes it up" to see the breakdown.', 'Quick actions: Add expense, Split a bill, I want to buy this, Money health.', 'Customize dashboard (bottom of the page) turns sections on or off: Money health, Investments, Subscriptions and Goals cards, and spending charts.'],
     tips: ['Invitations from family or flatmates appear at the top of the dashboard.', 'Due soon lists the next payments; tap the button next to one to record it.'] },
-  { id: 'add', page: 'transactions', group: 'Everyday', icon: 'fa-plus', title: 'Adding a transaction',
+  { id: 'add', page: 'transactions', group: 'Everyday', icon: 'fa-plus', title: 'Adding an expense or income',
     where: 'The big + in the bottom bar (or Add transaction at the top on a computer)',
     summary: 'Record an expense, income, a transfer between your accounts, or a tax payment.',
     steps: ['Choose Expense, Income, Transfer or Tax at the top.', 'Type the amount, pick the date (Today and Yesterday buttons help), and choose a category; your most-used categories appear as buttons.', 'Choose the account the money came from (or went into).', 'Type a description; descriptions you used before are suggested and fill in their usual category.', 'Tap Add transaction.'],
-    tips: ['Fuel and vehicle costs: pick the vehicle and type the odometer reading (and litres) to track mileage.', 'Tax: choose the tax type (advance tax, TDS, property tax…) and the financial year; it is matched against your tax estimate.', 'Paid for home: tick "I\'ll take it back" for household spending someone will repay; it shows on the People page.', 'To change or delete an entry, tap it in Activity.'] },
+    tips: ['Fuel and vehicle costs: pick the vehicle and type the odometer reading (and litres) to track mileage.', 'Tax: choose the tax type (advance tax, TDS, property tax…) and the financial year; it is matched against your tax estimate.', 'Paid for home: tick "I\'ll take it back" for household spending someone will repay; it shows on the Lend & borrow page.', 'To change or delete an entry, tap it in Activity.'] },
   { id: 'voice', page: 'dashboard', group: 'Everyday', icon: 'fa-microphone', title: 'Speak and log',
     where: 'Dashboard → Speak to add; press and hold the + button; or Speak instead in the add form',
     summary: 'Say a transaction in your own words and FinRi fills in the form for you: amount, category, account, date, note, and for fuel the vehicle, odometer and litres. Nothing is saved until you check it.',
     steps: ['Tap Speak to add on the dashboard (or press and hold the + button). The mic turns pink while it listens.', 'Speak naturally, in any order, for example "Spent 250 on lunch at Vaishali from cash yesterday". The words appear as you speak.', 'Check the card under What I understood. Parts marked guessed or not said were filled in for you; tap Did you mean to switch to another account.', 'Tap Add now to save it, or Review & add to open the usual form with everything filled in and change anything first.', 'Say several at once with "and": "200 on lunch and 50 on tea from cash". Tap Add all to save them together.', 'If a word was misheard, correct it in the What I heard box and tap Understand.'],
     tips: ['Understood: amounts in words (two fifty, 1.5 lakh, 10k), today, yesterday, on 6th, last Friday, 2 days ago, kal, aaj, card ending 9950, income ("received salary in SBI"), transfers ("moved 10k from HDFC to SBI", "paid card bill"), lending ("gave 500 to Dad"), taxes ("paid advance tax"), and corrections ("50, no, 60").', 'If you call an account something FinRi does not know ("my red card"), pick the right one in Review once and it is remembered.', 'iPhone: allow the microphone for Safari, and turn on Dictation (Settings → General → Keyboard). Android: allow the microphone for Chrome.', 'Turn it off, or change the language, in Settings → Preferences → Speak and log.'] },
-  { id: 'transactions', page: 'transactions', group: 'Everyday', icon: 'fa-list', title: 'Transactions (Activity)',
+  { id: 'transactions', page: 'transactions', group: 'Everyday', icon: 'fa-list', title: 'Activity (all your entries)',
     where: 'Bottom bar → Activity',
     summary: 'Every transaction, grouped by day with each day\'s total, with search and filters.',
     steps: ['Search by description, category, account or amount.', 'Filter by month, type (expenses, income, investments, transfers…), account and category.', 'Tap a transaction to edit or delete it.', 'Download gives a statement of what is filtered: a printable statement (save as PDF) or an Excel/CSV file. Pick dates to choose any range.', 'Import statement brings in transactions from a bank, card or PhonePe statement.'],
-    tips: ['With one account selected, the downloaded statement shows opening balance, running balance and closing balance, like a bank statement.', 'SIPs and investments show as money going out (amber).'] },
+    tips: ['With one account selected, the downloaded statement shows starting balance, running balance and closing balance, like a bank statement.', 'SIPs and investments show as money going out (amber).'] },
   { id: 'import', page: 'import', group: 'Everyday', icon: 'fa-file-import', title: 'Import a statement',
     where: 'Activity → Import statement (or More → Import statement)',
     summary: 'Read transactions from a PhonePe statement (PDF) or a bank or card statement (CSV, Excel or PDF), check them, and add them in one go.',
@@ -9023,28 +9160,28 @@ const HELP_TOPICS = [
     summary: 'A month view: money spent (red), income (green) and invested (amber) on each day, darker on heavier days, plus what is scheduled ahead.',
     steps: ['Swipe left or right (or use the arrows) to change month.', 'Tap a day to see its transactions and add an expense or income on that date.', 'Switch between Both, Spent and Income at the top.', 'Days ahead show bills, salary, SIPs, EMIs, card due dates and insurance premiums.'],
     tips: ['The top shows total spent, income, average spend per day and no-spend days; for a future month, what is scheduled to go out.'] },
-  { id: 'insights', page: 'insights', group: 'Understand', icon: 'fa-lightbulb', title: 'Insights',
-    where: 'More → Insights',
+  { id: 'insights', page: 'insights', group: 'Understand', icon: 'fa-lightbulb', title: 'Monthly report',
+    where: 'More → Monthly report',
     summary: 'A report on your month compared with your own usual (the average of the 3 months before).',
     steps: ['Pick the month at the top.', 'Read the cards: how much you kept, spending pace, budgets, biggest places, new places, no-spend days, fixed costs, investing and more.', 'The category table shows where spending went up or down.'],
     tips: ['The two most useful insights also appear on the dashboard.'] },
   { id: 'health', page: 'health', group: 'Understand', icon: 'fa-heart-pulse', title: 'Money health',
     where: 'More → Money health (or the Money health quick action)',
-    summary: 'A score out of 100 from five things: emergency runway, savings rate, card usage, EMIs compared with income, and investing. Plus fun money, a cash-flow forecast, credit health and watch-outs.',
-    steps: ['Improve the shortest bar first; each bar explains its aim.', 'Emergency runway: how long your cash and bank money would cover essential costs if income stopped. Settings lets you count FDs and liquid funds.', 'Fun money: tap Set up, choose a monthly amount and the categories it covers. It counts down as you spend and refills on the 1st.', 'Cash-flow forecast: where your cash and bank money is heading until month end, with scheduled bills, salary, EMIs, SIPs and card bills.', 'Credit health: card usage against the 30% line; tap Log my score to record your credit score each month.'],
-    tips: ['Suggestions at the top connect features, for example lowering fun money if your runway is short. The × hides one for a week.', 'Watch-outs flag idle cash in your bank and lifestyle creep (spending growing faster than income).'] },
+    summary: 'A score out of 100 from five things: emergency savings, how much you save, card usage, EMIs compared with income, and investing. Plus fun money, a cash-flow forecast, credit health and watch-outs.',
+    steps: ['Improve the shortest bar first; each bar explains its aim.', 'Emergency savings: how long your cash and bank money would cover essential costs if income stopped. Settings lets you count FDs and liquid funds.', 'Fun money: tap Set up, choose a monthly amount and the categories it covers. It counts down as you spend and refills on the 1st.', 'Month-end balance: where your cash and bank money is heading until month end, with scheduled bills, salary, EMIs, SIPs and card bills.', 'Credit health: card usage against the 30% line; tap Log my score to record your credit score each month.'],
+    tips: ['Suggestions at the top connect features, for example lowering fun money if your emergency savings are low. The × hides one for a week.', 'Watch-outs flag money sitting idle in your bank and spending growing faster than income (spending growing faster than income).'] },
   { id: 'accounts', page: 'accounts', group: 'Money', icon: 'fa-building-columns', title: 'Accounts',
     where: 'More → Accounts',
     summary: 'Your cash, bank accounts, credit cards and investments, each with its balance. Banks show in their colours with a short name.',
     steps: ['Add cash or wallet, Add bank account, Add credit card or Add investment.', 'Give the balance as of today; transactions update it from then on.', 'Update balance (scales icon) corrects a balance that has drifted.', 'For cards, add the limit, statement day and due day to see outstanding, available limit and due dates.'],
     tips: ['Add the last 4 digits of each account and card for statement import.', 'Pay bill on a card records the payment from your bank.'] },
-  { id: 'portfolio', page: 'portfolio', group: 'Grow', icon: 'fa-chart-line', title: 'Portfolio and SIPs',
-    where: 'More → Portfolio',
+  { id: 'portfolio', page: 'portfolio', group: 'Grow', icon: 'fa-chart-line', title: 'Investments and SIPs',
+    where: 'More → Investments',
     summary: 'Your mutual funds, stocks, deposits and gold at today\'s prices, with profit, SIPs and each fund\'s instalments.',
     steps: ['Add holding: search your mutual fund or stock and enter units and average cost once; prices update by themselves.', 'Add SIP: the fund, amount, date and the account it is paid from; instalments are recorded on the date and units are worked out from the NAV.', 'Chips at the top (All, Mutual funds, Stocks & ETFs, Gold…) choose what the totals include; pick several to combine.', 'Instalments (list icon on a fund) show each instalment like Coin: date, days held, amount, NAV, units and profit, plus XIRR. Edit sets the exact allotment date.', 'Refresh prices updates everything now.'],
     tips: ['The expense ratio is already inside the NAV; only 0.005% stamp duty is deducted at purchase.', 'Family portfolio (bottom of the page) shows family members\' shared portfolios and a combined total.'] },
   { id: 'gold', page: 'portfolio', group: 'Grow', icon: 'fa-ring', title: 'Gold ornaments',
-    where: 'Portfolio → Add gold',
+    where: 'Investments → Add gold',
     summary: 'Track gold jewellery and coins: weight, purity, what you paid and what it is worth today.',
     steps: ['Tap Add gold and enter the ornament, purity (24K, 22K, 18K, 14K), weight in grams and the date bought.', 'Optionally add the city, the rate you paid, making charges, the total bill and whether GST was included. Without a rate, the rate on that date is looked up.', 'The Gold section shows total weight, pure-gold weight, invested, value today and profit.', 'Gold → Rates: enter today\'s rate from a jeweller in your city for city-accurate values.'],
     tips: ['Value is the gold itself; making charges and GST are not recovered when selling.', 'Prices update once a day.'] },
@@ -9053,36 +9190,36 @@ const HELP_TOPICS = [
     summary: 'Save towards goals, pause impulse buys, and keep a wishlist.',
     steps: ['New goal: name, target amount and date. The app says how much to save each month and warns if you fall behind.', 'Add money or Take out to record savings for a goal.', 'I want to buy this: log something tempting instead of buying it. After the cool-off (48 hours by default) decide: skip it (a saving win) or keep it on the wishlist.', 'Wishlist: things you plan to buy; start saving for one or mark it bought.'],
     tips: ['Saving wins add up on this page and in Year in review.'] },
-  { id: 'planner', page: 'planner', group: 'Grow', icon: 'fa-compass', title: 'Planners',
-    where: 'More → Planners',
+  { id: 'planner', page: 'planner', group: 'Grow', icon: 'fa-compass', title: 'Calculators',
+    where: 'More → Calculators',
     summary: 'Calculators for big decisions. Change any number and the result updates. They are estimates, not financial or tax advice.',
-    steps: ['Financial freedom: the age you could stop needing a salary, from your spending, investments and assumptions you control.', 'Loan prepayment: interest saved and months cut by paying extra; also which debt to pay first.', 'Capital gains: gains booked this year, the ₹1.25 lakh tax-free limit left, gains you could book tax-free and losses that could offset gains.', 'Regular vs Direct: the yearly cost of Regular mutual fund plans and the cost of switching.', 'Tax estimate: tax under both regimes from the income you logged, deductions, and taxes already paid.', 'Salary-day plan: decide where salary goes; apply it in one tap on salary day.', 'Year in review: your year in money, ready to share.'],
+    steps: ['Financial freedom: the age you could stop needing a salary, from your spending, investments and assumptions you control.', 'Loan prepayment: interest saved and months cut by paying extra; also which debt to pay first.', 'Profit on investments: gains booked this year, the ₹1.25 lakh tax-free limit left, gains you could book tax-free and losses that could offset gains.', 'Regular vs Direct: the yearly cost of Regular mutual fund plans and the cost of switching.', 'Tax estimate: tax under both tax options from the income you logged, deductions, and taxes already paid.', 'Salary-day plan: decide where salary goes; apply it in one tap on salary day.', 'Year in review: your year in money, ready to share.'],
     tips: ['Add your year of birth in Settings so planners know your age.'] },
   { id: 'split', page: 'split', group: 'Shared', icon: 'fa-people-arrows', title: 'Split bills',
     where: 'More → Split bills (or the Split a bill quick action)',
     summary: 'Share a bill with friends or family and see who owes whom.',
     steps: ['Tap Split a bill: what it was, the total, the date, who paid, and who shared it (add new people right there).', 'Split equally, by amounts or by percentages, and add a group like "Goa trip" if you like.', 'The page shows friends who owe you and whom you owe; Settle up records a payment with the amount filled in.'],
-    tips: ['Link a person to their FinRi username (People page) and the split appears in their app too.'] },
-  { id: 'flat', page: 'flat', group: 'Shared', icon: 'fa-house-user', title: 'Shared flat',
-    where: 'More → Shared flat',
+    tips: ['Link a person to their FinRi username (Lend & borrow page) and the split appears in their app too.'] },
+  { id: 'flat', page: 'flat', group: 'Shared', icon: 'fa-house-user', title: 'Flatmates',
+    where: 'More → Flatmates',
     summary: 'For flatmates who each use FinRi: rent, bills and groceries split fairly, with one shared list.',
     steps: ['New home: name it, add each flatmate by typing their FinRi username (Check shows found or not found), and set room shares if rooms differ. Each flatmate gets an invitation and taps Join.', 'Add recurring for rent, Wi-Fi, maid or cook: amount, day of the month, who pays it and how it is split. It is added for everyone on that day each month.', 'Add expense for one-off costs: who paid, who shares it, and how.', 'Balances shows who gets back and who owes, with the fewest payments to settle up; tap Record after paying.', 'Activity lists the month\'s entries; Export downloads them.', 'Delete a home: Home settings → Delete (the person who created it; or anyone still living there if they moved out). Monthly costs stop for everyone; past expenses stay in each person\'s transactions.'],
     tips: ['Type usernames with or without @; the app checks them as you type.', 'Invite flatmates before adding rent; costs are split with them from the day they join.', 'Your share of each cost also appears in your own transactions.'] },
-  { id: 'people', page: 'people', group: 'Shared', icon: 'fa-user-group', title: 'People',
-    where: 'More → People',
+  { id: 'people', page: 'people', group: 'Shared', icon: 'fa-user-group', title: 'Lend & borrow',
+    where: 'More → Lend & borrow',
     summary: 'Money you lend or borrow, and household spending someone will pay back.',
     steps: ['Add person, then use I gave or I got to record money handed over.', 'Home expenses to take back lists expenses marked "Paid for home"; tick the ones repaid and tap Mark ticked as taken back.', 'Edit a person and type their FinRi username (Check confirms it) to link them, so splits and payments with them show in their app too.'],
-    tips: ['Balances with people count in your net worth.'] },
-  { id: 'recurring', page: 'subscriptions', group: 'Money', icon: 'fa-rotate', title: 'Recurring: subscriptions, bills, taxes and income',
-    where: 'More → Recurring',
+    tips: ['Entries with a linked person need their OK: they see "Waiting for your OK" and tap Yes or No. Until then it shows as Waiting on your side. Changing or removing a confirmed entry also needs their OK.', 'Balances with people count in your total money.'] },
+  { id: 'recurring', page: 'subscriptions', group: 'Money', icon: 'fa-rotate', title: 'Regular payments: subscriptions, bills, taxes and income',
+    where: 'More → Regular payments',
     summary: 'Everything that repeats: subscriptions, bills such as rent, taxes, and income such as salary.',
     steps: ['Add under the right group: name, amount, how often, next date, category and the account.', 'Tick "Record it automatically" to have it logged on its date; otherwise tap the tick when you pay.', 'Pause stops it for a while; edit to change the amount or date.', 'Taxes: add advance tax (15 Jun, 15 Sep, 15 Dec, 15 Mar), property tax or road tax.'],
     tips: ['Upcoming items show in Due soon and on the calendar.'] },
-  { id: 'emis', page: 'emis', group: 'Money', icon: 'fa-calendar-check', title: 'EMIs and loans',
-    where: 'More → EMIs & loans',
+  { id: 'emis', page: 'emis', group: 'Money', icon: 'fa-calendar-check', title: 'Loans & EMIs',
+    where: 'More → Loans & EMIs',
     summary: 'Loans and credit card EMIs: what is paid, what is left, interest and the schedule.',
     steps: ['Add EMI or loan: principal, interest rate, months, start date, and the account or card.', 'Record payment marks an instalment paid; Schedule shows every instalment.'],
-    tips: ['Card EMIs block part of the card limit until paid, and count as money owed on the card.', 'Planners → Loan prepayment shows the effect of paying extra.'] },
+    tips: ['Card EMIs block part of the card limit until paid, and count as money owed on the card.', 'Calculators → Loan prepayment shows the effect of paying extra.'] },
   { id: 'budgets', page: 'budgets', group: 'Money', icon: 'fa-bullseye', title: 'Budgets',
     where: 'More → Budgets',
     summary: 'Monthly limits per category, with progress bars.',
@@ -9100,16 +9237,16 @@ const HELP_TOPICS = [
     tips: ['Full-tank fill-ups give the most accurate mileage.', 'You can add a vehicle straight from the transaction form with "+ Add a new vehicle…".'] },
   { id: 'charts', page: 'charts', group: 'Understand', icon: 'fa-chart-simple', title: 'Charts',
     where: 'More → Charts',
-    summary: 'Make your own charts: bar, line, pie and more, from spending, income, investments, net worth and other measures.',
+    summary: 'Make your own charts: bar, line, pie and more, from spending, income, investments, total money and other measures.',
     steps: ['New chart: choose the type, what to show, the period and options.', 'Pin a chart to show it on the dashboard; use the arrows to reorder.'],
     tips: ['Each chart can have its own filters, such as period or account.'] },
-  { id: 'notifications', page: 'notifications', group: 'Tools', icon: 'fa-bell', title: 'Phone notifications',
-    where: 'More → Notifications',
-    summary: 'Messages on your phone at times you choose: balances, yesterday\'s spending, bills due, budget alerts, fun money, runway, card usage, summaries or your own reminders.',
+  { id: 'notifications', page: 'notifications', group: 'Tools', icon: 'fa-bell', title: 'Reminders on your phone',
+    where: 'More → Reminders',
+    summary: 'Messages on your phone at times you choose: balances, yesterday\'s spending, bills due, budget alerts, fun money, emergency savings, card usage, summaries or your own reminders.',
     steps: ['Install the free ntfy app and allow notifications.', 'Copy your private topic from this page and subscribe to it in ntfy.', 'Tap Send schedule to GitHub (once). After that, changes update by themselves.', 'Add notification: choose what, the time (India time), how often, and options; see a preview.', 'Send now (paper plane) tests one immediately.'],
     tips: ['On iPhone, keep Background App Refresh on for ntfy.', 'Tick Hide amounts to keep numbers off the lock screen.'] },
   { id: 'data', page: 'data', group: 'Tools', icon: 'fa-file-export', title: 'Export and backup',
-    where: 'More → Export & backup',
+    where: 'More → Backup & export',
     summary: 'Download all your data, restore a backup, and use your data in Excel or Power BI.',
     steps: ['Download all (ZIP) gives one CSV file per table plus the full JSON.', 'Download JSON is a complete backup; Restore from a backup loads one.', 'Single tables (transactions, accounts…) download separately.'],
     tips: ['Keep a backup off your phone now and then.'] },
@@ -9119,14 +9256,14 @@ const HELP_TOPICS = [
     steps: ['GitHub storage: your repository, token, FinRi username, file path and shared repository. Most people simply sign in instead.', 'Preferences: your name, categories, whether SIPs count as spending, sharing your portfolio with family, year of birth.', 'Sign out removes your token and data from this device; your data stays safe in your repository.', 'Create a login for someone: only on the owner\'s device; people who sign in with a member login do not see it.', 'Create my own login (owner): makes a login for you, marked as the owner\'s. Upload it to the logins folder; then signing in with your username and password on any device, including the phone app, makes it an owner\'s device.'],
     tips: ['If sync shows an error, check the token has not expired.'] },
   { id: 'family', page: 'portfolio', group: 'Shared', icon: 'fa-people-roof', title: 'Family and invitations',
-    where: 'Portfolio → Family portfolio; Dashboard → Invitations',
+    where: 'Investments → Family portfolio; Dashboard → Invitations',
     summary: 'See your family\'s investments together, and answer invitations from family and flatmates.',
     steps: ['Share mine (in Family portfolio) lets family see your holdings\' values; never your transactions or bank balances.', 'Add member: type their FinRi username and tap Check; Send invitation. Nothing is shared until they tap Accept.', 'Invitations you receive appear on the dashboard: Accept or Decline.', 'Remove a member with ×; the link ends for both of you.'],
     tips: ['Values update whenever each person opens the app.', 'Nobody can see a list of who uses FinRi; you need someone\'s username to add them, and your username is shown in Settings.'] },
   { id: 'faq', page: 'dashboard', group: 'Help', icon: 'fa-circle-question', title: 'Common questions',
     where: 'Anywhere',
     summary: 'Quick answers when something looks wrong.',
-    steps: ['A balance looks wrong: open the account and use Update balance, or check for a transaction in the wrong account.', 'Net worth looks low: check the Investments and Card dues switches on the net worth card.', 'Prices did not update: tap Refresh prices on Portfolio; prices for gold and stocks update once a day.', 'Nothing syncs: tap the cloud icon; if it shows an error, the token may have expired (ask the owner for a new login).', 'A notification came late: open the app once so the notification job is updated; on iPhone allow notifications for ntfy.', 'I deleted something by mistake: every change is kept in your GitHub repository history; the owner can restore it.'],
+    steps: ['A balance looks wrong: open the account and use Update balance, or check for a transaction in the wrong account.', 'Total money looks low: check the Investments and Card dues switches on the total money card.', 'Prices did not update: tap Refresh prices on Investments; prices for gold and stocks update once a day.', 'Nothing syncs: tap the cloud icon; if it shows an error, the token may have expired (ask the owner for a new login).', 'A notification came late: open the app once so the notification job is updated; on iPhone allow notifications for ntfy.', 'I deleted something by mistake: every change is kept in your GitHub repository history; the owner can restore it.'],
     tips: ['Tap ? on any page for help with that page.'] },
 ];
 const HELP_FOR_PAGE = { dashboard: 'dashboard', transactions: 'transactions', import: 'import', calendar: 'calendar', insights: 'insights', health: 'health', accounts: 'accounts', portfolio: 'portfolio', goals: 'goals', planner: 'planner', split: 'split', flat: 'flat', people: 'people', subscriptions: 'recurring', emis: 'emis', budgets: 'budgets', insurance: 'insurance', charts: 'charts', notifications: 'notifications', data: 'data', tax: 'planner', help: 'start' };
@@ -9137,7 +9274,8 @@ function renderHelp() {
   const match = (t) => !q || [t.title, t.where, t.summary, ...t.steps, ...t.tips].join(' ').toLowerCase().includes(q);
   const list = HELP_TOPICS.filter(match);
   const groups = [...new Set(list.map((t) => t.group))];
-  return `<div class="page-top"><p class="page-intro">Everything FinRi can do, where to find it and how to use it. Tap ? at the top of any page for help with that page.</p></div>
+  return `<div class="page-top"><p class="page-intro">Short guides for everything in FinRi. Tap "Show me how" for a quick walkthrough.</p></div>
+    <button type="button" class="tour-banner" data-action="tour" data-id="welcome"><span class="tour-banner-ico"><i class="fa-solid fa-route"></i></span><span><b>Take the welcome tour</b><span>A 1-minute walk through the app</span></span><i class="fa-solid fa-chevron-right"></i></button>
     <input class="inp mb-4" type="search" data-help-search value="${esc(helpState.q)}" placeholder="Search help, e.g. fuel, SIP, statement, split" aria-label="Search help">
     ${list.length ? groups.map((g) => `<h2 class="section-title mt-5 mb-2">${esc(g)}</h2><div class="space-y-2">${list.filter((t) => t.group === g).map((t) => `
       <details class="help-topic panel" id="help-${t.id}" ${helpState.open === t.id || (q && list.length <= 4) ? 'open' : ''}>
@@ -9146,6 +9284,7 @@ function renderHelp() {
           <p>${esc(t.summary)}</p>
           <ol>${t.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
           ${t.tips.length ? `<div class="help-tips"><b>Tips</b><ul>${t.tips.map((s) => `<li>${esc(s)}</li>`).join('')}</ul></div>` : ''}
+          ${TOUR_FOR_HELP[t.id] ? `<button type="button" class="btn btn-sm btn-primary mt-3 mr-2" data-action="tour" data-id="${TOUR_FOR_HELP[t.id]}"><i class="fa-solid fa-hand-pointer"></i> Show me how</button>` : ''}
           ${t.page && t.page !== 'help' ? `<a class="btn btn-sm mt-3" href="#${t.page}"><i class="fa-solid fa-arrow-right"></i> Open ${esc(PAGES[t.page]?.title || t.title)}</a>` : ''}
         </div></details>`).join('')}</div>`).join('') : emptyState('fa-magnifying-glass', 'No help topic matches that. Try another word.')}`;
 }
@@ -10158,11 +10297,11 @@ function openTxnForm(existing, preset = {}) {
       field('What was it?', select('lendWhat', LEND_KINDS, t.lendWhat || 'lent')))
       + `<div data-newlend ${people.length && t.personId !== '__new' ? 'hidden' : ''}>${field('Their name', input('newLendName', '', 'maxlength="60" placeholder="e.g. Rahul, Dad"'))}</div>`
       + field('From / into my', accountSelect('lendAcc', t.lendAcc || firstAccountOf(['bank', 'cash']), { types: ['cash', 'bank', 'credit_card'] }))
-      + (existing?.sharedFrom ? `<p class="hint">${esc(accountName(t.personId))} recorded this; your changes stay in your app. Deleting it removes it for both of you.</p>`
-        : '<p class="hint">It shows on the People page. If the person is linked to their FinRi username, it appears in their app too.</p>'))}
+      + (existing?.sharedFrom ? `<p class="callout text-sm"><i class="fa-solid fa-lock mr-1"></i>${esc(accountName(t.personId))} recorded this, so only they can change the amount, date or what it was, or delete it. You can choose which of your accounts it's in and add a note.</p>`
+        : '<p class="hint">It shows on the Lend & borrow page. If the person is linked to their FinRi username, it appears in their app too.</p>'))}
     ${showFor('tax', twoCol(field('Tax', select('taxKind', TAX_KINDS, t.taxKind || 'Advance tax')), field('Paid from', accountSelect('fromAccountId', t.fromAccountId || firstAccountOf(['bank']), { types: MONEY_TYPES })))
       + twoCol(field('For financial year', select('taxFy', [fyOf(addMonths(todayStr(), -12)), fyOf(todayStr()), fyOf(addMonths(todayStr(), 12))].filter((v, i, a) => a.indexOf(v) === i).map((f) => [f, `FY ${f}`]), t.taxFy || fyOf(t.date || todayStr()))), field('Challan / reference (optional)', input('taxRef', t.taxRef || '', 'maxlength="40" placeholder="e.g. BSR code and challan no."')))
-      + '<p class="hint">Income tax payments (advance, self-assessment, TDS) are matched against your estimated tax in Planners → Tax estimate.</p>')}
+      + '<p class="hint">Income tax payments (advance, self-assessment, TDS) are matched against your estimated tax in Calculators → Tax estimate.</p>')}
     ${field('Description', input('description', t.description, 'placeholder="What was it for?" maxlength="140"'))}
     ${field('Notes (optional)', textarea('notes', t.notes, 'rows="2"'))}
     ${existing?.relatedType === 'emi' ? '<p class="callout">This payment belongs to an EMI. Deleting it does not change the EMI\'s paid count; edit the EMI for that.</p>' : ''}`;
@@ -10201,6 +10340,7 @@ function openTxnForm(existing, preset = {}) {
         if (e.target.name === 'claimPersonId') newP.hidden = e.target.value !== '__new';
       }, sig);
       if (form.elements.claimPersonId && form.elements.claimPersonId.value === '__new') newP.hidden = false;
+      if (existing?.sharedFrom) lockSharedFields(form, existing);
       const newLend = $('[data-newlend]', form);
       form.addEventListener('change', (e) => { if (e.target.name === 'personId') newLend.hidden = e.target.value !== '__new'; }, sig);
     },
@@ -10221,10 +10361,11 @@ function openTxnForm(existing, preset = {}) {
           claimTo = p.id;
         }
       }
+      if (existing?.sharedFrom) { d.date = existing.date; d.type = existing.type === 'transfer' ? 'transfer' : d.type; }
       const rec = {
         ...(existing || {}),
         id: existing?.id || uid('txn'),
-        date: d.date, type: d.type, amount,
+        date: d.date, type: d.type, amount: existing?.sharedFrom ? num(existing.amount) : amount,
         category: d.type === 'transfer' ? (existing?.relatedType === 'sip' && d.toAccountId === existing.toAccountId ? existing.category : transferCategory(d.fromAccountId, d.toAccountId)) : d.category,
         description: d.description || '',
         fromAccountId: d.type === 'income' ? '' : d.fromAccountId,
@@ -10264,20 +10405,42 @@ function openTxnForm(existing, preset = {}) {
       commit([...extraOps, opUpsert('transactions', rec)], `${isNew ? 'Add' : 'Edit'} ${rec.forHome ? 'home expense' : rec.type} ${money(amount)}${rec.description ? ` (${rec.description})` : ''}`);
       toast(isNew ? (rec.forHome ? `Home expense added. ${accountName(claimTo)} owes you ${money(amount)} more.` : `${cap(rec.type)} added`) : 'Transaction saved', 'success');
     },
-    onDelete: existing && !isNew ? () => deleteTxn(existing.id) : null, // a prefilled new entry (voice, import) has nothing to delete yet
+    onDelete: existing && !isNew && !existing.sharedFrom ? () => deleteTxn(existing.id) : null, // a prefilled new entry has nothing to delete; someone else's entry isn't yours to delete
   });
 }
 
+/** An entry someone else recorded (a loan they gave you, a split, a flat cost) belongs to them. */
+function sharedOwnerName(t) {
+  if (!t?.sharedFrom) return '';
+  const r = (shared.records || []).find((x) => x.id === t.sharedFrom);
+  return t.relatedType === 'flat' ? 'your shared flat' : r?.byName || userName(r?.by) || accountName(t.relatedType === 'person' ? t.relatedId : t.fromAccountId) || 'the other person';
+}
 function deleteTxn(id, opts = {}) {
   const t = db.transactions.find((x) => x.id === id);
   if (!t) return;
-  // a lend/borrow entry shared with a linked person (yours or theirs) is removed for both of you
-  const sharedId = t.relatedType === 'person' && sharedOn() ? (t.sharedFrom || (t.sharedOut ? t.id : '')) : '';
+  if (t.sharedFrom) {
+    const who = sharedOwnerName(t);
+    alert(t.relatedType === 'flat'
+      ? 'This comes from your shared flat. Remove it on the Shared flat page (the person who added or paid it can remove it).'
+      : `${who} recorded this, so only ${who} can change or delete it. If it's wrong, ask ${who} to fix it.`);
+    return false;
+  }
+  // a lend/borrow entry you shared with a linked person is removed from their app too
+  const sharedId = t.relatedType === 'person' && sharedOn() && t.sharedOut ? t.id : '';
   const who = sharedId ? accountName(t.relatedId) : '';
-  if (!opts.quiet && !confirm(`Delete this ${t.type === 'transfer' && t.relatedType === 'person' ? t.category.toLowerCase() || 'entry' : t.type} of ${money(t.amount)}${t.description ? ` (${t.description})` : ''}?${sharedId ? `\n\nIt will also be removed from ${who}'s FinRi.` : ''} Balances will be recalculated.`)) return false;
+  const rec = sharedId ? (shared.records || []).find((x) => x.id === sharedId) : null;
+  if (rec && (rec.v2 ? anyAccepted(rec) : true)) { // they already said yes: removing it needs their OK too
+    if (t.shareDelete === 'pending') { toast(`Already waiting for ${who} to agree.`); return false; }
+    if (!opts.quiet && !confirm(`${who} confirmed this entry, so ${who} will be asked to agree before it's removed from both apps. Ask now?`)) return false;
+    commit([opUpsert('transactions', { ...t, shareDelete: 'pending' })], 'Ask to remove a shared entry');
+    queueShared({ kind: 'delete', id: sharedId });
+    toast(`Asked ${who}. It's removed once they agree.`, 'success');
+    return;
+  }
+  if (!opts.quiet && !confirm(`Delete this ${t.type === 'transfer' && t.relatedType === 'person' ? t.category.toLowerCase() || 'entry' : t.type} of ${money(t.amount)}${t.description ? ` (${t.description})` : ''}?${sharedId ? `\n\nIt will also be removed from ${who}'s FinRi.` : ''}`)) return false;
   commit([...learnFromEntries([t]), opDelete('transactions', id)], `Delete ${t.type} ${money(t.amount)}`); // its category stays remembered
   if (sharedId) queueShared({ kind: 'delete', id: sharedId });
-  if (!opts.quiet) toast(sharedId ? `Deleted, here and in ${who}'s app.` : 'Transaction deleted');
+  if (!opts.quiet) toast(sharedId ? `Deleted, here and in ${who}'s app.` : 'Deleted');
 }
 
 function openAdjustmentEdit(t) {
@@ -10336,7 +10499,7 @@ function openAccountForm(existing, presetType = 'bank') {
       `<div data-sub="Mutual Stocks ETF Gold Crypto">${twoCol(
         field('Units you hold', input('units', a.units ?? '', 'type="number" step="any" min="0" placeholder="e.g. 152.347"'), existing && num(a.units) ? `As on ${fmtDate(a.unitsDate || a.openingDate)}. Units from later SIPs you review are added on top.` : 'From your statement or the Groww / Zerodha / fund app.'),
         field('Average cost per unit', moneyInput('avgCost', existing && num(a.units) > 0 ? round2(num(a.investedAmount ?? a.openingBalance) / num(a.units)) : '', 'min="0" placeholder="e.g. 64.20"'), 'Shown as "avg. NAV" or "avg. price" in most apps.'))}</div>` +
-      `<div data-sub="Mutual">${field('Expense ratio % (optional)', input('expenseRatio', a.expenseRatio ?? '', 'type="number" step="0.01" min="0" max="5" placeholder="e.g. 0.63"'), 'From the fund\'s factsheet (TER). It is already taken out of the NAV, so the app shows it as a yearly cost and does not subtract it again.')}</div>` +
+      `<div data-sub="Mutual">${field('Fund fee (expense ratio) % (optional)', input('expenseRatio', a.expenseRatio ?? '', 'type="number" step="0.01" min="0" max="5" placeholder="e.g. 0.63"'), 'From the fund\'s factsheet (TER). It is already taken out of the NAV, so the app shows it as a yearly cost and does not subtract it again.')}</div>` +
       `<div data-sub="Fixed Recurring PPF Bonds NPS Gold Other" class="space-y-4">${twoCol(field('Interest rate % (optional)', input('interestRate', a.interestRate, 'type="number" step="0.01" min="0"'), 'For FDs, RDs, PPF and bonds.'),
         field('Maturity date (optional)', input('maturityDate', a.maturityDate, 'type="date"')))}</div>` +
       `<div data-sub="Fixed">${field('FD start date (optional)', input('depositDate', a.depositDate, 'type="date"'), 'The day the deposit was made. Used with the rate and maturity date to estimate its value.')}</div>`)}
@@ -10345,7 +10508,7 @@ function openAccountForm(existing, presetType = 'bank') {
       field('Current value', moneyInput('openingBalance', a.type === 'investment' && existing ? a.openingBalance : '', 'placeholder="0"'), 'Fills in from units x the latest NAV or price once linked. Type it for FDs, PPF and the like.')))}
     ${field('Balance as on', input('openingDate', a.openingDate || todayStr(), 'type="date" required'), 'Transactions dated before this day do not change the balance, because it already includes them.')}
     ${field('Notes (optional)', textarea('notes', a.notes, 'rows="2"'))}
-    ${isNew ? '' : checkbox('archived', a.archived, 'Archive this account', 'Hides it from pickers. Its balance still counts in net worth.')}`;
+    ${isNew ? '' : checkbox('archived', a.archived, 'Archive this account', 'Hides it from pickers. Its balance still counts in total money.')}`;
 
   openModal({
     title: isNew ? 'Add account' : `Edit ${a.name}`,
@@ -10498,7 +10661,7 @@ function openEmiForm(existing) {
     if (!box) return;
     if (!c.n || !num(d.principal)) { box.textContent = 'Enter the amount and tenure to see the EMI.'; return; }
     box.innerHTML = `Monthly EMI <b class="num">${money(c.emi)}</b> for ${c.n} months, total interest <b class="num">${money(c.totalInterest)}</b>${c.endDate ? `, last EMI on ${fmtDate(c.endDate)}` : ''}.`
-      + (d.kind === 'credit_card' ? ` <b class="num">${money(c.remaining)}</b> of the card's limit is blocked right now.` : ` Principal left: <b class="num">${money(c.remaining)}</b>.`);
+      + (d.kind === 'credit_card' ? ` <b class="num">${money(c.remaining)}</b> of the card's limit is blocked right now.` : ` Loan left: <b class="num">${money(c.remaining)}</b>.`);
   };
 
   openModal({
@@ -10564,7 +10727,7 @@ function showSchedule(id) {
     title: `${e.name}: repayment schedule`,
     wide: true,
     body: `<div class="overflow-x-auto max-h-[60vh]"><table class="sched">
-      <thead><tr><th>#</th><th>Due date</th><th>EMI</th><th>Principal</th><th>Interest</th><th>Balance after</th></tr></thead>
+      <thead><tr><th>#</th><th>Due date</th><th>EMI</th><th>Loan part</th><th>Interest</th><th>Balance after</th></tr></thead>
       <tbody>${rows.map((r) => `<tr class="${r.paid ? 'done' : ''}"><td>${r.installment}${r.paid ? ' <i class="fa-solid fa-check text-gain"></i>' : ''}</td><td>${fmtDate(r.dueDate)}</td>
         <td>${money(r.emi)}</td><td>${money(r.principal)}</td><td>${money(r.interest)}</td><td>${money(r.balance)}</td></tr>`).join('')}</tbody>
     </table></div><p class="hint">Calculated on a reducing balance. Your lender's figures may differ by a few rupees due to rounding.</p>`,
@@ -10729,7 +10892,7 @@ function exportTables() {
   const ledger = [];
   for (const a of db.accounts) {
     ledger.push({ entry_id: `open_${a.id}`, date: a.openingDate || '', account_id: a.id, account_name: a.name, account_type: a.type,
-      transaction_id: '', type: 'opening_balance', category: '', description: 'Opening balance', amount: num(a.openingBalance), affects_balance: true });
+      transaction_id: '', type: 'opening_balance', category: '', description: 'Starting balance', amount: num(a.openingBalance), affects_balance: true });
   }
   for (const t of txns) {
     for (const [side, accId, sign] of [['out', t.fromAccountId, -1], ['in', t.toAccountId, 1]]) {
@@ -10968,8 +11131,8 @@ function openSettings() {
       ${checkbox('sharePortfolio', !!s.sharePortfolio, 'Share my portfolio with family on this FinRi', 'Others using this repository can add you to their family portfolio and see your holdings\' values.')}
       ${checkbox('voiceOn', s.voiceOn !== false, 'Speak and log', 'Say a transaction ("spent 250 on lunch from cash") and FinRi fills in the form. Shows Speak to add on the dashboard; press and hold + to speak.')}
       ${field('Speaking language', select('voiceLang', [['en-IN', 'English (India)'], ['en-GB', 'English (UK)'], ['en-US', 'English (US)']], s.voiceLang || 'en-IN'), 'Hindi words like kal, aaj, rupaye and se are understood in all of these.')}
-      ${checkbox('showNwToggles', s.showNwToggles !== false, 'Show the net worth switches on the dashboard', 'Small switches on the net worth card to leave out investments or credit card dues.')}
-      ${checkbox('sipAsSpending', s.sipAsSpending, 'Count SIPs as money going out', 'Shows SIPs and other money you invest in the spending chart and monthly totals. Net worth is not affected, because the money is still yours in the fund.')}
+      ${checkbox('showNwToggles', s.showNwToggles !== false, 'Show the total money switches on the dashboard', 'Small switches on the total money card to leave out investments or credit card dues.')}
+      ${checkbox('sipAsSpending', s.sipAsSpending, 'Count SIPs as money going out', 'Shows SIPs and other money you invest in the spending chart and monthly totals. Total money is not affected, because the money is still yours in the fund.')}
       ${field('Expense categories', textarea('expenseCategories', s.expenseCategories.join('\n'), 'rows="6"'), 'One per line. Renaming a category here does not change past transactions.')}
       ${field('Income sources', textarea('incomeCategories', s.incomeCategories.join('\n'), 'rows="4"'), 'One per line.')}
     </section>
@@ -11157,6 +11320,12 @@ const ACTIONS = {
   'make-login': () => (isOwner() ? openMakeLogin() : toast('Only the owner can create logins.', 'error')),
   'make-own-login': () => openMakeOwnLogin(),
   'gold-add': () => openGoldForm(null),
+  tour: (d) => startTour(d.id),
+  'share-answer': (d) => {
+    queueShared({ kind: 'answer', id: d.id, action: d.act });
+    shared.requests = (shared.requests || []).filter((x) => x.r.id !== d.id); render();
+    toast({ accept: 'Added. Thanks for confirming.', reject: 'Sent back as not right.', acceptChange: 'Change accepted.', rejectChange: 'Change declined.', acceptDelete: 'Removed from both apps.', rejectDelete: 'Kept. Removal declined.' }[d.act] || 'Done', 'success');
+  },
   'voice-open': () => openVoice(),
   help: () => openHelpFor((location.hash || '#dashboard').slice(1) || 'dashboard'),
   'veh-add': () => openVehicleForm(null),
@@ -11274,7 +11443,7 @@ function init() {
     ACTIONS[el.dataset.action](el.dataset, el);
   });
 
-  // Planners: recalculate as you type or slide
+  // Calculators: recalculate as you type or slide
   const plannerListen = (e) => {
     if (location.hash !== '#planner' || !e.target.dataset?.p) return;
     if (e.target.dataset.rerender !== undefined) { readPlanInputs(e.target.dataset.p.split('.')[0]); render(); return; }
@@ -11332,11 +11501,11 @@ function init() {
   // Filters shown on a chart (top right)
   document.addEventListener('change', (e) => { if (e.target.dataset?.chartFilter) onChartFilter(e.target); });
 
-  // Net worth switches on the dashboard (saved with your settings, so every device matches).
+  // Total money switches on the dashboard (saved with your settings, so every device matches).
   document.addEventListener('change', (e) => {
     const k = e.target.dataset?.nw;
     if (!k) return;
-    commit([opSettings({ [k]: e.target.checked })], `Net worth ${e.target.checked ? 'includes' : 'leaves out'} ${k === 'nwInvestments' ? 'investments' : 'card dues'}`);
+    commit([opSettings({ [k]: e.target.checked })], `Total money ${e.target.checked ? 'includes' : 'leaves out'} ${k === 'nwInvestments' ? 'investments' : 'card dues'}`);
   });
 
   // Filters (month pickers, transaction filters).
@@ -11389,6 +11558,234 @@ function init() {
   };
   if (isConfigured()) runSync().then(afterStart);
   else { setSyncStatus('local'); afterStart(); }
+  hideSplash(); // the launch animation ends as soon as the app is ready
+}
+
+/* ===== Walkthroughs (coach marks) =====
+   Short, step-by-step tours: the app dims, one thing is highlighted, and a card explains it
+   in plain words, with Back, Next and Skip. The welcome tour runs once on first launch; every
+   other tour can be started any time from Help ("Show me how") or the ? button. Steps whose
+   element isn't on screen are skipped, so a tour never gets stuck. */
+const TOUR_KEY = 'finri.tours.v1';
+const toursDone = () => readLS(TOUR_KEY, {});
+const markTour = (id) => writeLS(TOUR_KEY, { ...toursDone(), [id]: true });
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const isPhone = () => window.innerWidth < 640;
+/** First visible element matching a selector, optionally containing some text. */
+function findVisible(sel, text) {
+  for (const el of document.querySelectorAll(sel)) {
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height || getComputedStyle(el).visibility === 'hidden') continue;
+    if (text && !el.textContent.toLowerCase().includes(text.toLowerCase())) continue;
+    return el;
+  }
+  return null;
+}
+const openForm = (fn) => async () => { closeModal(); fn(); await wait(250); };
+
+const TOURS = {
+  welcome: { title: 'Welcome tour', steps: [
+    { title: 'Welcome to FinRi 👋', text: 'Let\'s take a quick 1-minute tour of the app. You can skip it any time.', page: 'dashboard' },
+    { target: '.signin-card', when: () => !isConfigured(), title: 'Sign in first', text: 'If someone gave you a username and password, type them here. Your money data stays private to you.' },
+    { target: '.hero', title: 'Your total money', text: 'All your money in one number: bank, cash and investments, minus what you owe on cards and loans. Tap "What makes it up" to see the details.' },
+    { target: '.quick-actions', title: 'Shortcuts', text: 'One tap to speak an expense, record money you lent, split a bill, or check your money health.' },
+    { target: () => (isPhone() ? '.tab-add' : 'header [data-action="add-txn"]'), shape: 'circle', title: 'Add money in or out', text: 'Tap + to add an expense, income or money you lent someone. Tip: press and hold + to just say it, like "Spent 250 on lunch".' },
+    { target: '#tabbar a[href="#transactions"]', when: isPhone, title: 'Your activity', text: 'Every rupee you added, day by day. Search, filter and download a statement here.' },
+    { target: '#tabbar [data-action="nav-more"]', when: isPhone, title: 'Everything else', text: 'Accounts, lend & borrow, investments, bills, insurance and more live here.' },
+    { target: 'header [data-action="help"]', shape: 'circle', title: 'Stuck? Tap ?', text: 'On any page, ? explains that page. You can also replay any of these tours from there.' },
+    { title: 'You\'re all set 🎉', text: 'Start by adding today\'s spends with the + button. Help → "Show me how" has a short tour for every feature.' },
+  ] },
+  add: { title: 'Add an expense', steps: [
+    { before: openForm(() => openTxnForm(null)), target: '#modalForm .seg[aria-label="Transaction type"]', title: 'What kind of entry?', text: 'Expense for money you spent, Income for money you got, Transfer to move money between your own accounts, Lend for money given to or taken from someone, Tax for tax you paid.' },
+    { target: '#modalForm [name="amount"]', title: 'How much', text: 'Type the amount in rupees.' },
+    { target: '#modalForm .date-chips', title: 'When', text: 'Today is already picked. Tap Yesterday, or the date box for any other day.' },
+    { target: '#modalForm select[name="category"]:not([disabled])', title: 'What it was for', text: 'Pick a category. Your most-used ones appear as quick buttons below it. Choose Other to name a new one.' },
+    { target: '#modalForm select[name="fromAccountId"]:not([disabled])', title: 'Paid from', text: 'Cash, a bank account or a card. Your balance updates by itself.' },
+    { target: '#modalForm [name="description"]', title: 'A short note', text: 'Like "Lunch with team". Next time, FinRi suggests the same note and category for you.' },
+    { target: '#modalFooter button[type="submit"]', title: 'Save', text: 'Tap here and you\'re done. To change or delete it later, tap it in Activity.' },
+  ], after: () => closeModal() },
+  speak: { title: 'Speak to add', steps: [
+    { before: openForm(() => openVoice({ autostart: false })), target: '[data-voice-mic]', shape: 'circle', title: 'Tap and speak', text: 'Say it like you would to a friend: "Spent 250 on lunch from cash yesterday" or "Gave 500 to Dad".' },
+    { target: '[name="voiceText"]', title: 'What FinRi heard', text: 'Your words appear here. If a word is wrong, fix it and tap Understand.' },
+    { target: '.voice-tips', title: 'Ideas to try', text: 'Tap an example to see how it works. You can say several things at once with "and".' },
+    { title: 'Check, then save', text: 'FinRi fills in the amount, category, account and date. Anything it guessed is marked, so you can check it before saving.' },
+  ], after: () => closeModal() },
+  activity: { title: 'Your activity', steps: [
+    { page: 'transactions', target: '#view input[placeholder^="Search"]', title: 'Find anything', text: 'Search by what it was, the amount or the account.' },
+    { target: '#view select', title: 'Filter', text: 'See one month, only expenses, one account or one category.' },
+    { target: '#view .row[data-action="edit-txn"], #view [data-action="edit-txn"]', title: 'Change or delete', text: 'Tap any entry to change it or delete it.' },
+    { target: '[data-action="stmt-download"]', title: 'Download a statement', text: 'Get what you filtered as a PDF or Excel file to keep or share.' },
+  ] },
+  lend: { title: 'Lend & borrow', steps: [
+    { page: 'people', target: '[data-action="person-add"]', title: 'Add a person', text: 'Add someone you lend money to or borrow from, like Dad or a friend.' },
+    { target: '[data-action="person-money"][data-dir="out"]', title: 'I gave', text: 'Gave them money? Tap here. "I got" is for money they gave you or paid back.' },
+    { target: '[data-action="person-history"]', title: 'History', text: 'Every entry with this person, and where their total comes from.' },
+    { title: 'Linked with their FinRi?', text: 'If they use FinRi too, add their username to the person. Each entry you record asks them "Is this right?" and counts in their app after they say yes. Changing or removing a confirmed entry also needs their OK.' },
+  ] },
+  split: { title: 'Split a bill', steps: [
+    { page: 'split', target: '[data-action="split-new"]', title: 'Split a bill', text: 'Paid for dinner or a trip with friends? Add it here and choose who shares it: equally, by amounts or by percentage.' },
+    { target: '[data-action="split-settle"]', title: 'Settle up', text: 'When someone pays you back, tap Settle up. The amount is filled in for you.' },
+  ] },
+  accounts: { title: 'Accounts', steps: [
+    { page: 'accounts', target: '[data-action="add-account"][data-type="bank"]', title: 'Add your bank accounts', text: 'Add each bank account with today\'s balance. After that, FinRi keeps it up to date from what you add.' },
+    { target: '[data-action="add-account"][data-type="credit_card"]', title: 'Credit cards', text: 'Add your cards with their limit and due date, so you get a reminder before the bill is due.' },
+    { target: '[data-action="adjust-balance"]', title: 'Balance not matching?', text: 'Tap here and type the real balance from your bank app. FinRi fixes the difference.' },
+  ] },
+  calendar: { title: 'Calendar', steps: [
+    { page: 'calendar', target: '.cal-grid', title: 'Your month at a glance', text: 'Red days are spending, green is money in. Darker means more. Icons show bills and EMIs coming up.' },
+    { target: '[data-action="cal-day"]', title: 'Tap a day', text: 'See everything on that day, or add an expense to it.' },
+    { target: '[data-action="cal-go"]', title: 'Other months', text: 'Use the arrows or swipe left and right.' },
+  ] },
+  health: { title: 'Money health', steps: [
+    { page: 'health', target: '#view .hero', title: 'Your score out of 100', text: 'Five simple checks: emergency savings, how much you save, card use, EMIs and investing. Improve the shortest bar first.' },
+    { target: '#view .panel-title', match: 'Emergency', title: 'If your income stopped', text: 'How many months your cash and bank money would cover your basic costs. Aim for 6 months.' },
+    { title: 'Tips for you', text: 'Suggestions at the top of this page tell you one clear next step, like moving idle money into a goal.' },
+  ] },
+  investments: { title: 'Investments', steps: [
+    { page: 'portfolio', target: '#view [data-action="add-account"][data-type="investment"], #view [data-action="holding-add"]', title: 'Add an investment', text: 'Add mutual funds, shares, FDs or gold. Prices update by themselves.' },
+    { target: '#view [data-action="add-sip"], #view [data-action="sip-add"]', title: 'Your SIPs', text: 'Add a SIP once and every monthly payment is recorded for you.' },
+    { target: '#view .hero', title: 'Total value and profit', text: 'What your investments are worth today and how much you\'ve gained.' },
+  ] },
+  budgets: { title: 'Budgets', steps: [
+    { page: 'budgets', target: '[data-action="add-budget"], [data-action="budget-add"]', title: 'Set a monthly limit', text: 'Choose a category, like Food, and how much you want to spend on it each month.' },
+    { title: 'Stay on track', text: 'The bar fills up as you spend and turns red if you go over. FinRi warns you before that happens.' },
+  ] },
+  goals: { title: 'Goals', steps: [
+    { page: 'goals', target: '[data-action="goal-new"]', title: 'Save for something', text: 'A trip, a phone, an emergency fund: set the amount and date, and FinRi tells you how much to save each month.' },
+    { target: '[data-action="cool-new"]', title: 'Want to buy something?', text: 'Add it here first. After 2 days, decide if you still want it. Skipping counts as a saving win!' },
+  ] },
+  flat: { title: 'Flatmates', steps: [
+    { page: 'flat', target: '[data-action="flat-new"], #view .callout, #view .empty, #view .panel', title: 'Your shared flat', text: 'Create your home and add flatmates by their FinRi username. They get an invitation to join.' },
+    { title: 'Rent and bills, split fairly', text: 'Add rent once and it\'s split every month. Add any shared cost and see who owes whom, with the fewest payments to settle.' },
+  ] },
+  bills: { title: 'Regular payments', steps: [
+    { page: 'subscriptions', target: '#view [data-action="add-sub"]', title: 'Add a regular payment', text: 'Rent, Netflix, electricity, salary or tax: anything that repeats. FinRi reminds you before it\'s due.' },
+    { title: 'Record it automatically', text: 'Tick "Record it automatically" and FinRi adds it on its date, so you don\'t have to.' },
+  ] },
+};
+// Help topics → tour ("Show me how")
+const TOUR_FOR_HELP = { start: 'welcome', dashboard: 'welcome', add: 'add', voice: 'speak', transactions: 'activity', people: 'lend', split: 'split', accounts: 'accounts', calendar: 'calendar', health: 'health', portfolio: 'investments', budgets: 'budgets', goals: 'goals', flat: 'flat', recurring: 'bills' };
+const TOUR_FOR_PAGE = { dashboard: 'welcome', transactions: 'activity', people: 'lend', split: 'split', accounts: 'accounts', calendar: 'calendar', health: 'health', portfolio: 'investments', budgets: 'budgets', goals: 'goals', flat: 'flat', subscriptions: 'bills' };
+
+let coach = null;
+async function startTour(id) {
+  const tour = TOURS[id];
+  if (!tour) return;
+  endTour(true, false);
+  closeModal(); toggleNav(false);
+  const steps = tour.steps.filter((s) => !s.when || s.when());
+  coach = { id, i: -1, steps, dir: 1, busy: false };
+  const el = document.createElement('div');
+  el.id = 'coach'; el.className = reducedMotion() ? 'no-motion' : '';
+  el.innerHTML = `<div class="coach-dim"></div><div class="coach-hole" aria-hidden="true"></div>
+    <div class="coach-tip" role="dialog" aria-modal="true" aria-labelledby="coachTitle" aria-describedby="coachText">
+      <div class="coach-top"><span class="coach-count"></span><button type="button" class="coach-skip">Skip</button></div>
+      <h3 class="coach-title" id="coachTitle"></h3><p class="coach-text" id="coachText"></p>
+      <div class="coach-dots" aria-hidden="true"></div>
+      <div class="coach-btns"><button type="button" class="coach-back">Back</button><button type="button" class="coach-next">Next</button></div>
+    </div>`;
+  document.body.appendChild(el);
+  el.querySelector('.coach-skip').onclick = () => endTour(true);
+  el.querySelector('.coach-back').onclick = () => goStep(-1);
+  el.querySelector('.coach-next').onclick = () => goStep(1);
+  el.addEventListener('click', (e) => e.stopPropagation());
+  coach.onKey = (e) => { if (!coach) return; if (e.key === 'Escape') endTour(true); if (e.key === 'ArrowRight' || e.key === 'Enter') goStep(1); if (e.key === 'ArrowLeft') goStep(-1); };
+  coach.onMove = () => placeCoach();
+  document.addEventListener('keydown', coach.onKey, true);
+  window.addEventListener('resize', coach.onMove); window.addEventListener('scroll', coach.onMove, true);
+  await goStep(1);
+}
+async function goStep(delta) {
+  if (!coach || coach.busy) return;
+  coach.busy = true; coach.dir = delta;
+  let i = coach.i + delta;
+  try {
+    while (i >= 0 && i < coach.steps.length) {
+      const s = coach.steps[i];
+      if (s.page && (location.hash || '#dashboard') !== `#${s.page}`) { closeModal(); location.hash = `#${s.page}`; await wait(380); }
+      if (s.before && (delta > 0 || !findStepTarget(s))) await s.before();
+      const target = s.target ? await waitForStepTarget(s, 1600) : null;
+      if (s.target && !target) { i += delta < 0 ? -1 : 1; continue; } // not on screen here: skip this step
+      coach.i = i; coach.target = target;
+      if (target) { target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' }); await wait(reducedMotion() ? 30 : 320); }
+      fillCoach(s); placeCoach();
+      return;
+    }
+    if (i >= coach.steps.length) endTour(false);
+    else if (i < 0 && coach) { coach.busy = false; }
+  } finally { if (coach) coach.busy = false; }
+}
+function findStepTarget(s) {
+  const sel = typeof s.target === 'function' ? s.target() : s.target;
+  return sel ? findVisible(sel, s.match) : null;
+}
+async function waitForStepTarget(s, ms) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { const el = findStepTarget(s); if (el) return el; await wait(80); }
+  return null;
+}
+function fillCoach(s) {
+  const el = $('#coach'); if (!el || !coach) return;
+  const n = coach.steps.length, i = coach.i;
+  el.querySelector('.coach-count').textContent = `Step ${i + 1} of ${n}`;
+  el.querySelector('.coach-title').textContent = s.title || '';
+  el.querySelector('.coach-text').textContent = s.text || '';
+  el.querySelector('.coach-dots').innerHTML = coach.steps.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('');
+  const back = el.querySelector('.coach-back'); back.disabled = i === 0; back.style.visibility = i === 0 ? 'hidden' : '';
+  el.querySelector('.coach-next').textContent = i === n - 1 ? 'Done' : 'Next';
+  el.querySelector('.coach-skip').style.visibility = i === n - 1 ? 'hidden' : '';
+  el.classList.toggle('centered', !coach.target);
+  const tip = el.querySelector('.coach-tip'); tip.classList.remove('pop'); void tip.offsetWidth; tip.classList.add('pop');
+  setTimeout(() => el.querySelector('.coach-next')?.focus({ preventScroll: true }), 30);
+}
+function placeCoach() {
+  const el = $('#coach'); if (!el || !coach) return;
+  const hole = el.querySelector('.coach-hole'), tip = el.querySelector('.coach-tip'), s = coach.steps[coach.i] || {};
+  const vw = window.innerWidth, vh = window.innerHeight, m = 12;
+  if (!coach.target || !document.body.contains(coach.target)) {
+    hole.style.opacity = '0'; el.querySelector('.coach-dim').style.opacity = '1';
+    tip.style.left = `${Math.max(m, (vw - tip.offsetWidth) / 2)}px`; tip.style.top = `${Math.max(m, (vh - tip.offsetHeight) / 2)}px`; tip.dataset.side = 'none';
+    return;
+  }
+  el.querySelector('.coach-dim').style.opacity = '0';
+  const r = coach.target.getBoundingClientRect(), pad = s.pad ?? 8;
+  let x = r.left - pad, y = r.top - pad, w = r.width + pad * 2, h = r.height + pad * 2;
+  if (s.shape === 'circle') { const d = Math.max(w, h); x = r.left + r.width / 2 - d / 2; y = r.top + r.height / 2 - d / 2; w = h = d; }
+  Object.assign(hole.style, { opacity: '1', left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px`, borderRadius: s.shape === 'circle' ? '999px' : '16px' });
+  const tw = Math.min(360, vw - m * 2); tip.style.width = `${tw}px`;
+  const th = tip.offsetHeight, below = vh - (y + h), above = y;
+  const side = below >= th + 24 || below >= above ? 'below' : 'above';
+  let top = side === 'below' ? y + h + 14 : y - th - 14;
+  top = Math.min(Math.max(m, top), vh - th - m);
+  let left = r.left + r.width / 2 - tw / 2; left = Math.min(Math.max(m, left), vw - tw - m);
+  tip.style.left = `${left}px`; tip.style.top = `${top}px`; tip.dataset.side = side;
+  tip.style.setProperty('--ax', `${Math.min(Math.max(20, r.left + r.width / 2 - left), tw - 20)}px`);
+}
+function endTour(skipped, mark = true) {
+  if (!coach) return;
+  const id = coach.id;
+  document.removeEventListener('keydown', coach.onKey, true);
+  window.removeEventListener('resize', coach.onMove); window.removeEventListener('scroll', coach.onMove, true);
+  $('#coach')?.remove();
+  coach = null;
+  try { TOURS[id]?.after?.(); } catch { /* nothing to undo */ }
+  if (mark) markTour(id);
+  if (mark && !skipped && id === 'welcome') toast('You can replay any tour from Help → Show me how.', 'success');
+}
+/** First launch: the welcome tour, once, after the launch animation. */
+function maybeWelcomeTour() {
+  if (toursDone().welcome || coach) return;
+  if (!['', '#dashboard'].includes(location.hash)) return;
+  setTimeout(() => { if (!toursDone().welcome && $('#modal').classList.contains('hidden')) startTour('welcome'); }, 700);
+}
+
+/* ----- Launch animation ----- */
+function hideSplash() {
+  const el = document.getElementById('splash');
+  if (!el || el.dataset.out) return;
+  const since = performance.now(), min = reducedMotion() ? 200 : 1500; // let the logo animation finish
+  setTimeout(() => { el.dataset.out = '1'; el.classList.add('out'); setTimeout(() => { el.remove(); maybeWelcomeTour(); }, 450); }, Math.max(0, min - since));
 }
 
 document.addEventListener('DOMContentLoaded', init);
