@@ -1324,7 +1324,7 @@ function renderDashboard() {
   const T = M.T;
   const s = monthSummary(dashMonth);
   const upcoming = upcomingItems(30);
-  const recent = sortTxns(db.transactions.filter((t) => t.relatedType !== 'market')).slice(0, 5);
+  const recent = sortTxns(db.transactions.filter((t) => !isInvestmentValueChange(t))).slice(0, 5);
   const payable = upcoming.filter((i) => !['fd', 'review', 'income', 'goal', 'wish'].includes(i.kind));
   const side = [dashOn('health') ? healthMini() : '', dashOn('portfolio') ? portfolioMini() : '', dashOn('subscriptions') ? subscriptionPanel() : '', dashOn('goals') ? goalsMini() : ''].filter(Boolean);
   const monthPanel = `<section class="panel p-5 ${dashOn('budgets') ? 'lg:col-span-2' : 'lg:col-span-3'}">
@@ -1526,10 +1526,27 @@ function upcomingRow(it) {
   </div>`;
 }
 
+/* ----- Budgets: one category, or an overall budget across several categories -----
+   An overall budget stores the chosen categories in `categories` and its own `name`; `category`
+   holds the name too, so an older copy of the app still shows something sensible. */
+const isGroupBudget = (b) => Array.isArray(b?.categories) && b.categories.length > 0;
+const budgetCats = (b) => (isGroupBudget(b) ? b.categories : [b.category]).filter(Boolean);
+const budgetName = (b) => (isGroupBudget(b) ? b.name || b.category || 'Overall budget' : b.category);
+/** Spent against a budget, from a Map or plain object of category → amount. */
+function budgetSpent(b, spend) {
+  const get = (c) => num(spend instanceof Map ? spend.get(c) : spend?.[c]);
+  return round2(budgetCats(b).reduce((t, c) => t + get(c), 0));
+}
+/** "Food, Groceries and 3 more" for an overall budget's categories. */
+function budgetCatsText(b, max = 3) {
+  const c = budgetCats(b);
+  if (c.length === db.settings.expenseCategories.length && db.settings.expenseCategories.every((x) => c.includes(x))) return 'All spending categories';
+  return c.length <= max ? c.join(', ') : `${c.slice(0, max).join(', ')} and ${c.length - max} more`;
+}
 function budgetMini() {
   if (!db.budgets.length) return emptyState('fa-bullseye', 'Set monthly limits for categories to see progress here.', '<a class="btn btn-sm" href="#budgets">Create a budget</a>');
   const spend = new Map(spendByCategory(dashMonth).map((x) => [x.category, x.amount]));
-  const list = db.budgets.map((b) => ({ b, spent: spend.get(b.category) || 0 }))
+  const list = db.budgets.map((b) => ({ b, spent: budgetSpent(b, spend) }))
     .sort((x, y) => y.spent / (num(y.b.monthlyLimit) || 1) - x.spent / (num(x.b.monthlyLimit) || 1)).slice(0, 5);
   return `<div class="space-y-4">${list.map(({ b, spent }) => budgetBar(b, spent)).join('')}</div>`;
 }
@@ -1538,9 +1555,10 @@ function budgetBar(b, spent) {
   const pct = limit > 0 ? spent / limit : 0;
   const color = pct > 1 ? 'var(--loss)' : pct > 0.8 ? 'var(--marigold)' : 'var(--gain)';
   return `<div>
-    <div class="flex justify-between text-sm mb-1.5 gap-2"><span class="font-medium truncate">${esc(b.category)}</span>
+    <div class="flex justify-between text-sm mb-1.5 gap-2"><span class="font-medium truncate">${isGroupBudget(b) ? '<i class="fa-solid fa-layer-group text-ink-3 mr-1" aria-hidden="true"></i>' : ''}${esc(budgetName(b))}</span>
       <span class="num text-ink-2 whitespace-nowrap">${money(spent)} of ${money(limit)}</span></div>
     <div class="bar"><span style="width:${Math.min(100, pct * 100)}%;background:${color}"></span></div>
+    ${isGroupBudget(b) ? `<div class="text-xs text-ink-3 mt-1 truncate">${esc(budgetCatsText(b))}</div>` : ''}
   </div>`;
 }
 
@@ -1624,9 +1642,21 @@ function renderAccounts() {
       ${body}
     </section>`;
   });
-  return sections.join('');
+  const spendAccs = db.accounts.filter((a) => SPEND_TYPES.includes(a.type) && !a.archived);
+  const prim = accountById(primaryAccountId());
+  const primaryNote = spendAccs.length > 1 ? `<div class="primary-note mb-5"><i class="fa-solid fa-star"></i><div>${prim
+    ? `<b>${esc(prim.name)}</b> is your primary spending account. It is picked first when you add an expense. Tap the star on another account to change it.`
+    : 'Tap the <i class="fa-regular fa-star"></i> on the account you spend from most. It will be picked first every time you add an expense.'}</div></div>` : '';
+  return primaryNote + sections.join('');
 }
 
+/** Star button: make this the primary spending account (or stop it being one). */
+function primaryButton(a) {
+  if (!SPEND_TYPES.includes(a.type) || a.archived) return '';
+  const on = isPrimaryAccount(a);
+  const label = on ? 'Primary spending account (tap to remove)' : 'Make primary spending account';
+  return `<button class="icon-btn sm primary-star ${on ? 'on' : ''}" data-action="primary-account" data-id="${a.id}" aria-pressed="${on}" aria-label="${label}"><i class="fa-${on ? 'solid' : 'regular'} fa-star"></i></button>`;
+}
 function accountSubtitle(a) {
   return [a.institution, a.subtype, a.last4 ? `ending ${a.last4}` : ''].filter(Boolean).map(esc).join(', ');
 }
@@ -1645,12 +1675,13 @@ function accountRow(a) {
   return `<div class="row ${a.archived ? 'opacity-60' : ''}">
     ${accountIcon(a)}
     <div class="min-w-0 flex-1">
-      <div class="font-medium truncate">${esc(a.name)} ${a.archived ? '<span class="pill">Archived</span>' : ''}</div>
+      <div class="font-medium truncate">${esc(a.name)} ${a.archived ? '<span class="pill">Archived</span>' : ''}${isPrimaryAccount(a) ? ' <span class="pill primary-pill"><i class="fa-solid fa-star"></i> Primary</span>' : ''}</div>
       <div class="text-xs text-ink-3 truncate mt-0.5">${accountSubtitle(a) || ACCOUNT_TYPES[a.type].single}</div>
       ${extra}
     </div>
     <div class="text-right num font-semibold whitespace-nowrap ${bal < 0 ? 'text-loss' : ''}">${money(bal)}</div>
     <div class="row-actions">
+      ${primaryButton(a)}
       <button class="icon-btn sm" data-action="adjust-balance" data-id="${a.id}" aria-label="${a.type === 'investment' ? 'Update value' : 'Update balance'}" title="${a.type === 'investment' ? 'Update value' : 'Update balance'}"><i class="fa-solid fa-scale-balanced"></i></button>
       <button class="icon-btn sm" data-action="edit-account" data-id="${a.id}" aria-label="Edit account" title="Edit"><i class="fa-regular fa-pen-to-square"></i></button>
     </div>
@@ -1665,10 +1696,11 @@ function cardTile(a) {
   return `<article class="panel p-5 ${a.archived ? 'opacity-60' : ''}">
     <div class="flex items-start justify-between gap-3">
       <div class="min-w-0 flex items-center gap-3">${accountIcon(a)}<div class="min-w-0">
-        <h3 class="font-semibold truncate">${esc(a.name)} ${a.archived ? '<span class="pill">Archived</span>' : ''}</h3>
+        <h3 class="font-semibold truncate">${esc(a.name)} ${a.archived ? '<span class="pill">Archived</span>' : ''}${isPrimaryAccount(a) ? ' <span class="pill primary-pill"><i class="fa-solid fa-star"></i> Primary</span>' : ''}</h3>
         <div class="text-xs text-ink-3 truncate">${accountSubtitle(a) || 'Credit card'}</div>
       </div></div>
       <div class="flex gap-0.5">
+        ${primaryButton(a)}
         <button class="icon-btn sm" data-action="adjust-balance" data-id="${a.id}" title="Correct outstanding" aria-label="Correct outstanding"><i class="fa-solid fa-scale-balanced"></i></button>
         <button class="icon-btn sm" data-action="edit-account" data-id="${a.id}" title="Edit" aria-label="Edit card"><i class="fa-regular fa-pen-to-square"></i></button>
       </div>
@@ -1698,9 +1730,16 @@ function cardTile(a) {
 /* ===== Transactions ===== */
 const txFilter = { month: thisMonth(), type: '', account: '', category: '', q: '', limit: 100 };
 
-function filteredTxns() {
+/* Investment gains and losses (price refreshes and "Update value" on a holding) are not money you
+   spent or received, so Activity hides them unless the switch at the top is on. They still show
+   when you filter by an investment account or by "Balance updates". Remembered on this device. */
+const ACT_GAINS_KEY = 'finri.activity.showGains';
+const isInvestmentValueChange = (t) => t.type === 'adjustment' && (t.relatedType === 'market' || accountById(t.toAccountId || t.fromAccountId)?.type === 'investment');
+const showGainsInActivity = () => localStorage.getItem(ACT_GAINS_KEY) === '1'
+  || txFilter.type === 'adjustment' || accountById(txFilter.account)?.type === 'investment';
+function filteredTxns({ withGains = showGainsInActivity() } = {}) {
   const q = txFilter.q.toLowerCase();
-  return sortTxns(db.transactions).filter((t) =>
+  return sortTxns(db.transactions).filter((t) => (withGains || !isInvestmentValueChange(t)) &&
     (!txFilter.month || (t.date || '').startsWith(txFilter.month)) &&
     (!txFilter.type || (txFilter.type === 'invest' ? isInvestmentOutflow(t) : t.type === txFilter.type)) &&
     (!txFilter.account || t.fromAccountId === txFilter.account || t.toAccountId === txFilter.account) &&
@@ -1735,6 +1774,8 @@ function renderTransactions() {
         ${filterSel('account', [['', 'All accounts'], ...db.accounts.map((a) => [a.id, a.name])], txFilter.account, 'Account')}
         ${filterSel('category', [['', 'All categories'], ...allCategories().map((c) => [c, c])], txFilter.category, 'Category')}
       </div>
+      <div class="act-toggle"><span><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Show investment gains & losses</span>
+        <label class="switch" title="Price changes of your funds and stocks"><input type="checkbox" data-act-gains ${localStorage.getItem(ACT_GAINS_KEY) === '1' ? 'checked' : ''} aria-label="Show investment gains and losses"><span></span></label></div>
       <div id="txnResults">${txnResults()}</div>
     </section>`;
 }
@@ -1754,6 +1795,7 @@ function groupedByDay(list) {
 }
 function txnResults() {
   const list = filteredTxns();
+  const hiddenGains = showGainsInActivity() ? 0 : filteredTxns({ withGains: true }).length - list.length;
   const inc = list.filter((t) => t.type === 'income').reduce((s, t) => s + num(t.amount), 0);
   const exp = list.filter((t) => t.type === 'expense').reduce((s, t) => s + num(t.amount), 0);
   const inv = list.filter(isInvestmentOutflow).reduce((s, t) => s + num(t.amount), 0);
@@ -1764,6 +1806,7 @@ function txnResults() {
       <span>In <b class="num text-gain">${money(inc)}</b></span>
       <span>Out <b class="num text-loss">${money(exp + inv)}</b>${inv ? ` <span class="text-ink-3">(spent ${money(exp)} + invested <b class="inv-amt num">${money(inv)}</b>)</span>` : ''}</span>
       <span>Net <b class="num">${money(inc - exp - inv)}</b></span>
+      ${hiddenGains ? `<span class="text-ink-3">${hiddenGains} investment value change${hiddenGains === 1 ? '' : 's'} hidden</span>` : ''}
     </div>
     ${shown.length ? groupedByDay(shown)
       : emptyState('fa-magnifying-glass', db.transactions.length ? 'No transactions match these filters.' : 'No transactions yet. Add an expense or income to get started.')}
@@ -1890,27 +1933,35 @@ let budgetMonth = thisMonth();
 function renderBudgets() {
   const spend = spendByCategory(budgetMonth);
   const spendMap = new Map(spend.map((x) => [x.category, x.amount]));
-  const budgeted = new Set(db.budgets.map((b) => b.category));
-  const totalLimit = db.budgets.reduce((s, b) => s + num(b.monthlyLimit), 0);
-  const totalSpent = db.budgets.reduce((s, b) => s + (spendMap.get(b.category) || 0), 0);
+  const groups = db.budgets.filter(isGroupBudget).sort((a, b) => budgetName(a).localeCompare(budgetName(b)));
+  const singles = db.budgets.filter((b) => !isGroupBudget(b)).sort((a, b) => a.category.localeCompare(b.category));
+  const budgeted = new Set(db.budgets.flatMap(budgetCats)); // a category inside an overall budget counts as budgeted
+  const totalLimit = singles.reduce((s, b) => s + num(b.monthlyLimit), 0);
+  const totalSpent = singles.reduce((s, b) => s + budgetSpent(b, spendMap), 0);
   const unbudgeted = spend.filter((x) => !budgeted.has(x.category));
-  const list = db.budgets.slice().sort((a, b) => a.category.localeCompare(b.category));
+  const row = (b) => `<div class="flex items-center gap-3"><div class="flex-1 min-w-0">${budgetBar(b, budgetSpent(b, spendMap))}</div>
+    <button class="icon-btn sm" data-action="edit-budget" data-id="${b.id}" aria-label="Edit ${esc(budgetName(b))} budget"><i class="fa-regular fa-pen-to-square"></i></button></div>`;
   return `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
       ${monthSelect('budgetMonth', budgetMonth)}
-      <button class="btn btn-primary" data-action="add-budget"><i class="fa-solid fa-plus"></i> Add budget</button>
+      <div class="flex flex-wrap gap-2">
+        <button class="btn" data-action="add-budget" data-kind="group"><i class="fa-solid fa-layer-group"></i> Overall budget</button>
+        <button class="btn btn-primary" data-action="add-budget"><i class="fa-solid fa-plus"></i> Add budget</button>
+      </div>
     </div>
-    ${list.length ? `
+    ${groups.length ? `<section class="panel p-5 mb-6">
+      <div class="panel-head"><h2 class="panel-title">Overall budgets</h2></div>
+      <p class="text-sm text-ink-3 -mt-2 mb-4">One limit shared by several categories.</p>
+      <div class="space-y-5">${groups.map(row).join('')}</div>
+    </section>` : ''}
+    ${singles.length ? `
     <section class="panel p-5 mb-6">
-      <div class="flex flex-wrap justify-between gap-2 mb-2"><span class="font-medium">All budgets</span>
+      <div class="flex flex-wrap justify-between gap-2 mb-2"><span class="font-medium">${groups.length ? 'All category budgets' : 'All budgets'}</span>
         <span class="num">${money(totalSpent)} of ${money(totalLimit)}, <span class="${totalLimit - totalSpent < 0 ? 'text-loss' : 'text-gain'}">${money(totalLimit - totalSpent)} left</span></span></div>
       <div class="bar"><span style="width:${totalLimit ? Math.min(100, (totalSpent / totalLimit) * 100) : 0}%;background:var(--royal)"></span></div>
     </section>
-    <section class="panel p-5"><div class="space-y-5">
-      ${list.map((b) => `<div class="flex items-center gap-3"><div class="flex-1 min-w-0">${budgetBar(b, spendMap.get(b.category) || 0)}</div>
-        <button class="icon-btn sm" data-action="edit-budget" data-id="${b.id}" aria-label="Edit budget"><i class="fa-regular fa-pen-to-square"></i></button></div>`).join('')}
-    </div></section>`
-    : `<section class="panel">${emptyState('fa-bullseye', 'No budgets yet. Set a monthly limit for categories like food or shopping.', '<button class="btn btn-primary" data-action="add-budget"><i class="fa-solid fa-plus"></i> Add budget</button>')}</section>`}
+    <section class="panel p-5"><div class="space-y-5">${singles.map(row).join('')}</div></section>`
+    : groups.length ? '' : `<section class="panel">${emptyState('fa-bullseye', 'No budgets yet. Set a monthly limit for one category like food, or an overall budget for several categories together.', '<button class="btn btn-primary" data-action="add-budget"><i class="fa-solid fa-plus"></i> Add budget</button> <button class="btn" data-action="add-budget" data-kind="group"><i class="fa-solid fa-layer-group"></i> Overall budget</button>')}</section>`}
     ${unbudgeted.length ? `<section class="panel p-5 mt-6">
       <h2 class="panel-title mb-3">Spending without a budget</h2>
       <div class="divider">${unbudgeted.map((x) => `<div class="row"><span class="flex-1">${esc(x.category)}</span><span class="num font-medium">${money(x.amount)}</span>
@@ -3213,13 +3264,13 @@ const CHART_VALUES = {
     build: (c, r, f) => {
       const spent = sumBy(r, spendKey, f);
       const months = r.months.length || 1;
-      const rows = db.budgets.map((b) => [b.category, num(b.monthlyLimit) * months, spent.get(b.category) || 0]);
+      const rows = db.budgets.map((b) => [budgetName(b), num(b.monthlyLimit) * months, budgetSpent(b, spent)]);
       return { labels: rows.map((x) => x[0]), series: [{ name: 'Budget', data: rows.map((x) => round2(x[1])) }, { name: 'Spent', data: rows.map((x) => round2(x[2])) }] };
     } },
   budget_used: { group: 'Budgets, bills and loans', label: 'Budget used (%) by category', shape: 'cat', period: true, unit: 'pct', ordered: true,
     build: (c, r) => {
       const spent = sumBy(r, spendKey), months = r.months.length || 1;
-      return toCat(new Map(db.budgets.filter((b) => num(b.monthlyLimit) > 0).map((b) => [b.category, ((spent.get(b.category) || 0) / (num(b.monthlyLimit) * months)) * 100])), 'Used');
+      return toCat(new Map(db.budgets.filter((b) => num(b.monthlyLimit) > 0).map((b) => [budgetName(b), (budgetSpent(b, spent) / (num(b.monthlyLimit) * months)) * 100])), 'Used');
     } },
   card_dues: { group: 'Budgets, bills and loans', label: 'Credit card dues by card', shape: 'cat',
     build: () => toCat(new Map(db.accounts.filter((a) => a.type === 'credit_card' && !a.archived).map((a) => [a.name, Math.max(0, cardMetrics(a).outstanding)])), 'Due') },
@@ -4396,7 +4447,8 @@ function computeInsights(mk) {
     if (amts.every((a) => Math.abs(a - mid) <= mid * 0.15) && list.length <= 4) recurring.push({ name: merchantOf(list[0]), amount: mid, category: list[0].category });
   }
 
-  const budgets = db.budgets.map((b) => ({ c: b.category, limit: num(b.monthlyLimit), spent: spendByCategory(mk).find((x) => x.category === b.category)?.amount || 0 }))
+  const mkSpend = new Map(spendByCategory(mk).map((x) => [x.category, x.amount]));
+  const budgets = db.budgets.map((b) => ({ c: budgetName(b), limit: num(b.monthlyLimit), spent: budgetSpent(b, mkSpend) }))
     .map((b) => ({ ...b, pct: b.limit ? b.spent / b.limit : 0 })).sort((a, b) => b.pct - a.pct);
   const goalsAdded = db.goals.reduce((s, g) => s + (g.contributions || []).filter((c) => c.date?.startsWith(mk)).reduce((x, c) => x + num(c.amount), 0), 0);
   return { mk, isCurrent, dim, elapsed, base, S, B, cats, projection, places, newPlaces, unusual, biggest, weekend, weekday, wkndDays, wkDays,
@@ -5517,6 +5569,10 @@ function koshNotifyEngine(db, at, n) {
   const when = (d) => (d === today ? 'today' : d === addDays(today, 1) ? 'tomorrow' : nice(d));
   const out = (title, lines, tags, priority = 3) => ({ title, message: (Array.isArray(lines) ? lines.filter(Boolean).join('\n') : lines) || title, tags, priority });
   const monthStart = `${today.slice(0, 8)}01`;
+  // budgets: one category, or an overall budget over several (same rules as the app)
+  const bCats = (b) => (Array.isArray(b.categories) && b.categories.length ? b.categories : [b.category]);
+  const bName = (b) => (Array.isArray(b.categories) && b.categories.length ? b.name || b.category : b.category);
+  const bSpent = (b, cats) => bCats(b).reduce((t, c) => t + (cats[c] || 0), 0);
   const daysIn = new Date(Date.UTC(+today.slice(0, 4), +today.slice(5, 7), 0)).getUTCDate();
   const elapsed = +today.slice(8, 10);
 
@@ -5550,7 +5606,7 @@ function koshNotifyEngine(db, at, n) {
     case 'month_pace': {
       const s = spend(monthStart, today), proj = elapsed ? (s.total / elapsed) * daysIn : 0;
       const inc = income(monthStart, today);
-      const bl = (db.budgets || []).map((b) => ({ c: b.category, used: pct(s.cats[b.category] || 0, num(b.monthlyLimit)) })).filter((x) => x.used >= 80);
+      const bl = (db.budgets || []).map((b) => ({ c: bName(b), used: pct(bSpent(b, s.cats), num(b.monthlyLimit)) })).filter((x) => x.used >= 80);
       return out(`This month so far: ${fmt(s.total)} spent`, [`Day ${elapsed} of ${daysIn}. At this pace about ${fmt(proj)} by month end.`, inc ? `Income ${fmt(inc)}, so ${pct(inc - s.total, inc)}% kept so far.` : '', bl.length ? `Budgets: ${bl.map((x) => `${x.c} ${x.used}%`).join(', ')}.` : '', top(s.cats)], ['hourglass']);
     }
     case 'week': {
@@ -5587,7 +5643,7 @@ function koshNotifyEngine(db, at, n) {
     }
     case 'budgets': {
       const s = spend(monthStart, today), th = num(n.threshold ?? 80);
-      const hit = (db.budgets || []).map((b) => ({ c: b.category, spent: s.cats[b.category] || 0, lim: num(b.monthlyLimit) })).filter((x) => x.lim && pct(x.spent, x.lim) >= th).sort((a, b) => b.spent / b.lim - a.spent / a.lim);
+      const hit = (db.budgets || []).map((b) => ({ c: bName(b), spent: bSpent(b, s.cats), lim: num(b.monthlyLimit) })).filter((x) => x.lim && pct(x.spent, x.lim) >= th).sort((a, b) => b.spent / b.lim - a.spent / a.lim);
       if (!hit.length) return null;
       return out(hit.some((x) => x.spent > x.lim) ? 'Over budget' : 'Budget alert', hit.map((x) => `${x.c}: ${fmt(x.spent)} of ${fmt(x.lim)} (${pct(x.spent, x.lim)}%)`), ['dart'], hit.some((x) => x.spent > x.lim) ? 4 : 3);
     }
@@ -5778,7 +5834,7 @@ function notifySchedule() {
   }
   return map;
 }
-const scheduleSignature = () => JSON.stringify({ v: 3, map: notifySchedule(), topic: db.settings.ntfyTopic, path: config.path, url: APP_URL() });
+const scheduleSignature = () => JSON.stringify({ v: 4, map: notifySchedule(), topic: db.settings.ntfyTopic, path: config.path, url: APP_URL() });
 function notifyWorkflow() {
   const map = notifySchedule();
   const crons = Object.keys(map);
@@ -9155,7 +9211,7 @@ const HELP_TOPICS = [
   { id: 'transactions', page: 'transactions', group: 'Everyday', icon: 'fa-list', title: 'Activity (all your entries)',
     where: 'Bottom bar → Activity',
     summary: 'Every transaction, grouped by day with each day\'s total, with search and filters.',
-    steps: ['Search by description, category, account or amount.', 'Filter by month, type (expenses, income, investments, transfers…), account and category.', 'Tap a transaction to edit or delete it.', 'Download gives a statement of what is filtered: a printable statement (save as PDF) or an Excel/CSV file. Pick dates to choose any range.', 'Import statement brings in transactions from a bank, card or PhonePe statement.'],
+    steps: ['Search by description, category, account or amount.', 'Filter by month, type (expenses, income, investments, transfers…), account and category.', 'Tap a transaction to edit or delete it.', 'Download gives a statement of what is filtered: a printable statement (save as PDF) or an Excel/CSV file. Pick dates to choose any range.', 'Import statement brings in transactions from a bank, card or PhonePe statement.', 'Investment gains and losses (price changes of your funds and stocks) are hidden here. Turn on "Show investment gains & losses" at the top to see them.'],
     tips: ['With one account selected, the downloaded statement shows starting balance, running balance and closing balance, like a bank statement.', 'SIPs and investments show as money going out (amber).'] },
   { id: 'import', page: 'import', group: 'Everyday', icon: 'fa-file-import', title: 'Import a statement',
     where: 'Activity → Import statement (or More → Import statement)',
@@ -9180,7 +9236,7 @@ const HELP_TOPICS = [
   { id: 'accounts', page: 'accounts', group: 'Money', icon: 'fa-building-columns', title: 'Accounts',
     where: 'More → Accounts',
     summary: 'Your cash, bank accounts, credit cards and investments, each with its balance. Banks show in their colours with a short name.',
-    steps: ['Add cash or wallet, Add bank account, Add credit card or Add investment.', 'Give the balance as of today; transactions update it from then on.', 'Update balance (scales icon) corrects a balance that has drifted.', 'For cards, add the limit, statement day and due day to see outstanding, available limit and due dates.'],
+    steps: ['Add cash or wallet, Add bank account, Add credit card or Add investment. For the bank, type its name or initials (SBI, BoB, HDFC) and pick it from the list, or type any bank not listed.', 'Tap the star on the account you spend from most to make it your primary spending account: it is picked first whenever you add an expense.', 'Give the balance as of today; transactions update it from then on.', 'Update balance (scales icon) corrects a balance that has drifted.', 'For cards, add the limit, statement day and due day to see outstanding, available limit and due dates.'],
     tips: ['Add the last 4 digits of each account and card for statement import.', 'Pay bill on a card records the payment from your bank.'] },
   { id: 'portfolio', page: 'portfolio', group: 'Grow', icon: 'fa-chart-line', title: 'Investments and SIPs',
     where: 'More → Investments',
@@ -9229,8 +9285,8 @@ const HELP_TOPICS = [
     tips: ['Card EMIs block part of the card limit until paid, and count as money owed on the card.', 'Calculators → Loan prepayment shows the effect of paying extra.'] },
   { id: 'budgets', page: 'budgets', group: 'Money', icon: 'fa-bullseye', title: 'Budgets',
     where: 'More → Budgets',
-    summary: 'Monthly limits per category, with progress bars.',
-    steps: ['Add budget: pick a category and the monthly limit.', 'Spending without a budget lists categories you could set a budget for.'],
+    summary: 'Monthly limits for one category, or one overall limit shared by several categories, with progress bars.',
+    steps: ['Add budget: pick a category and the monthly limit.', 'Overall budget: give it a name, tick the categories it covers (or All), and set one monthly limit. Spending in any ticked category counts towards it.', 'Spending without a budget lists categories you could set a budget for.'],
     tips: ['Insights warn when you are over budget.'] },
   { id: 'insurance', page: 'insurance', group: 'Money', icon: 'fa-shield-halved', title: 'Insurance',
     where: 'More → Insurance',
@@ -9886,7 +9942,7 @@ function voiceContext() {
     people: db.accounts.filter((a) => a.type === 'person' && !a.archived).map((a) => ({ id: a.id, name: a.name })),
     vehicles: (db.vehicles || []).filter((v) => !v.archived).map((v) => ({ id: v.id, name: v.name, regNo: v.regNo || '' })),
     expenseCategories: db.settings.expenseCategories, incomeCategories: db.settings.incomeCategories,
-    descIndex, recentAccountIds: recent, lastAccountId: localStorage.getItem(LAST_ACCOUNT_KEY) || '', lastCardId: lastCard || '',
+    descIndex, recentAccountIds: recent, lastAccountId: primaryAccountId() || localStorage.getItem(LAST_ACCOUNT_KEY) || '', lastCardId: lastCard || '',
     aliases: db.settings.voiceAliases || {},
   };
 }
@@ -9962,7 +10018,7 @@ function voiceFinish(form, said, alts = [], finals = '') {
     let best = said, bestScore = -1;
     for (const c of candidates) { const sc = draftScore(VoiceParser.parse(c, ctx).drafts); if (sc > bestScore) { best = c; bestScore = sc; } }
     box.value = best; understand(form, best);
-  } else if (status && !/blocked|internet|turned off|microphone was|not available/.test(status.textContent)) status.textContent = 'Tap the mic to try again, or type below.';
+  } else if (status && !/blocked|internet|turned off|microphone was|not available|catch that|busy/.test(status.textContent)) status.textContent = 'Tap the mic to try again, or type below.';
 }
 function startListening(form) {
   if (typeof isNative === 'function' && isNative()) return startNativeListening(form); // the phone's own speech recognition
@@ -10157,45 +10213,87 @@ async function nativeSaveAndShare(filename, content, mime = 'text/plain') {
   }
 }
 
-/* ----- speech ----- */
+/* ----- speech -----
+   The phone's speech plugin is treated with care: some phones answer a check with nothing at all,
+   so an empty answer never stops listening, and every problem ends in a plain message (never a
+   raw error). If speech can't start, the text box is ready for typing or the keyboard's mic. */
 const nativeVoice = { listeners: [], timer: 0, hard: 0, matches: [], gotAny: false };
+const VOICE_MSG = {
+  unavailable: 'Speech recognition isn\'t available on this phone right now. Type below, or tap the mic on your keyboard.',
+  blocked: () => (nativePlatform() === 'ios'
+    ? 'Microphone or speech recognition is blocked. iPhone: Settings → FinRi → turn on Microphone and Speech Recognition.'
+    : 'Microphone is blocked. Android: Settings → Apps → FinRi → Permissions → Microphone → Allow.'),
+  internet: 'Speech needs an internet connection on this phone. Connect and tap the mic again, or type below.',
+  nothing: 'Didn\'t catch that. Tap the mic and speak again, or type below.',
+  busy: 'The microphone is busy with another app. Close it and tap the mic again, or type below.',
+  other: 'Couldn\'t start listening. Tap the mic to try again, or type below.',
+};
+/** A plain-English message for anything the speech plugin reports. */
+function voiceProblem(err) {
+  const s = String(err?.code ?? '') + ' ' + String(err?.message ?? err ?? '');
+  if (/permission|denied|not allowed|not granted|missing/i.test(s)) return VOICE_MSG.blocked();
+  if (/network|internet|offline|server/i.test(s)) return VOICE_MSG.internet;
+  if (/no.?match|no speech|speech.?timeout|didn.t understand/i.test(s)) return VOICE_MSG.nothing;
+  if (/busy|audio/i.test(s)) return VOICE_MSG.busy;
+  if (/not available|unavailable|not implemented|no recogni|service/i.test(s)) return VOICE_MSG.unavailable;
+  return VOICE_MSG.other;
+}
+/** Calls a plugin method; any failure or empty answer comes back as null instead of an error. */
+async function voiceAsk(SR, method, arg) {
+  try { const r = await SR?.[method]?.(arg); return r && typeof r === 'object' ? r : null; }
+  catch (e) { console.warn(`Speech ${method}:`, e); return null; }
+}
 async function startNativeListening(form) {
   const SR = nativePlugin('SpeechRecognition');
   const box = form.elements.voiceText, status = $('[data-voice-status]', form), mic = $('[data-voice-mic]', form);
-  const fail = (msg) => { voice.listening = false; mic.classList.remove('on'); box.disabled = false; status.textContent = msg; };
+  const fail = (msg) => {
+    voice.listening = false; mic.classList.remove('on'); box.disabled = false; status.textContent = msg;
+    setTimeout(() => box.focus(), 50); // ready for typing or the keyboard's mic
+  };
+  if (!SR) return fail(VOICE_MSG.unavailable);
   try {
-    if (!(await SR.available()).available) return fail('Speech recognition is not available on this phone. Type below, or use the mic on your keyboard.');
-    let perm = await SR.checkPermissions();
-    if (perm.speechRecognition !== 'granted') perm = await SR.requestPermissions();
-    if (perm.speechRecognition !== 'granted') return fail(nativePlatform() === 'ios'
-      ? 'Microphone or speech recognition is blocked. iPhone: Settings → FinRi → turn on Microphone and Speech Recognition.'
-      : 'Microphone is blocked. Android: Settings → Apps → FinRi → Permissions → Microphone → Allow.');
+    mic.classList.add('on'); status.textContent = 'Getting the microphone ready…';
+    // Is speech on this phone? Only a clear "no" stops here; no answer means: just try.
+    const avail = await voiceAsk(SR, 'available');
+    if (avail && avail.available === false) return fail(VOICE_MSG.unavailable);
+    let perm = await voiceAsk(SR, 'checkPermissions');
+    if (perm?.speechRecognition !== 'granted') perm = (await voiceAsk(SR, 'requestPermissions')) || perm;
+    if (perm?.speechRecognition === 'denied') return fail(VOICE_MSG.blocked());
     await stopNativeListening(true);
     nativeVoice.matches = []; nativeVoice.gotAny = false;
+    let problem = '';
     const finish = () => {
       clearTimeout(nativeVoice.timer); clearTimeout(nativeVoice.hard);
       if (!voice.listening) return;
-      SR.stop().catch(() => {});
+      SR.stop?.().catch?.(() => {});
       const said = (nativeVoice.matches[0] || box.value || '').trim();
-      voiceFinish(form, said, nativeVoice.matches.slice(1));
       removeNativeVoiceListeners();
+      if (!said && problem) { fail(problem); return; }
+      voiceFinish(form, said, nativeVoice.matches.slice(1));
     };
-    nativeVoice.listeners.push(await SR.addListener('partialResults', (data) => {
+    const listen = async (name, fn) => { try { const h = await SR.addListener?.(name, fn); if (h) nativeVoice.listeners.push(h); } catch { /* older plugin: event not offered */ } };
+    await listen('partialResults', (data) => {
       const m = (data?.matches || []).filter(Boolean);
       if (!m.length) return;
       nativeVoice.matches = m; nativeVoice.gotAny = true; box.value = m[0];
       // iPhone keeps listening until told to stop: stop after a short pause in speech
       clearTimeout(nativeVoice.timer); nativeVoice.timer = setTimeout(finish, 1700);
-    }));
-    nativeVoice.listeners.push(await SR.addListener('listeningState', (data) => { if (data?.status === 'stopped') finish(); }));
-    voice.listening = true; mic.classList.add('on'); status.textContent = 'Listening… say the amount and what it was for.';
+    });
+    await listen('listeningState', (data) => { if (data?.status === 'stopped' || data?.state === 'stopped') finish(); });
+    await listen('error', (data) => { problem = voiceProblem(data); if (!nativeVoice.gotAny) finish(); });
+    voice.listening = true; status.textContent = 'Listening… say the amount and what it was for.';
     navigator.vibrate?.(12);
     nativeVoice.hard = setTimeout(finish, 15000); // never listen for more than 15 seconds
-    nativeVoice.timer = setTimeout(() => { if (!nativeVoice.gotAny) finish(); }, 7000); // nothing said
-    await SR.start({ language: db.settings.voiceLang || 'en-IN', maxResults: 3, partialResults: true, popup: false });
+    nativeVoice.timer = setTimeout(() => { if (!nativeVoice.gotAny) { problem = problem || VOICE_MSG.nothing; finish(); } }, 7000); // nothing said
+    const res = await SR.start({ language: db.settings.voiceLang || 'en-IN', maxResults: 3, partialResults: true, popup: false });
+    // Some phones return the words here instead of (or as well as) the live updates.
+    const got = (res && Array.isArray(res.matches) ? res.matches : []).filter(Boolean);
+    if (got.length && voice.listening) { nativeVoice.matches = got; nativeVoice.gotAny = true; box.value = got[0]; finish(); }
   } catch (e) {
+    console.warn('Speech start:', e);
+    clearTimeout(nativeVoice.timer); clearTimeout(nativeVoice.hard);
     removeNativeVoiceListeners();
-    fail(`Couldn't start listening: ${e?.message || e}. Tap the mic to try again, or type below.`);
+    fail(voiceProblem(e));
   }
 }
 async function stopNativeListening(abort = false) {
@@ -10234,6 +10332,20 @@ const LAST_ACCOUNT_KEY = 'kosh.lastAccount.v1';
 const uniq = (arr) => [...new Set(arr.filter(Boolean))];
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const firstAccountOf = (types) => db.accounts.find((a) => types.includes(a.type) && !a.archived)?.id || '';
+/* Primary spending account: picked first for expenses (Add, Speak, Lend). Saved with your settings,
+   so every device matches. Cash, bank account or credit card; an archived or deleted one is ignored. */
+const SPEND_TYPES = ['cash', 'bank', 'credit_card'];
+function primaryAccountId() {
+  const a = accountById(db.settings.primaryAccountId);
+  return a && !a.archived && SPEND_TYPES.includes(a.type) ? a.id : '';
+}
+const isPrimaryAccount = (a) => !!a && a.id === primaryAccountId();
+function setPrimaryAccount(id) {
+  const a = accountById(id);
+  if (id && (!a || !SPEND_TYPES.includes(a.type))) return;
+  commit([opSettings({ primaryAccountId: id || '' })], id ? `Primary spending account: ${a.name}` : 'No primary spending account');
+  toast(id ? `${a.name} is now picked first for expenses.` : 'No primary account. The last account you used is picked first.', 'success');
+}
 
 function transferCategory(fromId, toId) {
   const f = accountById(fromId)?.type, t = accountById(toId)?.type;
@@ -10268,7 +10380,7 @@ function openTxnForm(existing, preset = {}) {
   };
   const expCats = uniq([...db.settings.expenseCategories, t.type === 'expense' ? t.category : '']);
   const incCats = uniq([...db.settings.incomeCategories, t.type === 'income' ? t.category : '']);
-  const defFrom = t.fromAccountId || (t.type === 'transfer' ? firstAccountOf(['bank']) : lastOk) || firstAccountOf(['cash', 'bank', 'credit_card']);
+  const defFrom = t.fromAccountId || (t.type === 'transfer' ? firstAccountOf(['bank']) : primaryAccountId() || lastOk) || firstAccountOf(['cash', 'bank', 'credit_card']);
   const defTo = t.toAccountId || firstAccountOf(['bank', 'cash']);
   const types = [['expense', 'Expense'], ['income', 'Income'], ['transfer', 'Transfer'], ['person', 'Lend'], ['tax', 'Tax']];
   if (t.taxKind || (preset.type === 'tax' && !existing)) t.type = 'tax';
@@ -10311,7 +10423,7 @@ function openTxnForm(existing, preset = {}) {
       field('Person', select('personId', [...people.map((a) => [a.id, a.linkedUser ? `${a.name} (@${a.linkedUser})` : a.name]), ['__new', '+ New person']], t.personId || people[0]?.id || '__new')),
       field('What was it?', select('lendWhat', LEND_KINDS, t.lendWhat || 'lent')))
       + `<div data-newlend ${people.length && t.personId !== '__new' ? 'hidden' : ''}>${field('Their name', input('newLendName', '', 'maxlength="60" placeholder="e.g. Rahul, Dad"'))}</div>`
-      + field('From / into my', accountSelect('lendAcc', t.lendAcc || firstAccountOf(['bank', 'cash']), { types: ['cash', 'bank', 'credit_card'] }))
+      + field('From / into my', accountSelect('lendAcc', t.lendAcc || primaryAccountId() || firstAccountOf(['bank', 'cash']), { types: ['cash', 'bank', 'credit_card'] }))
       + (existing?.sharedFrom ? `<p class="callout text-sm"><i class="fa-solid fa-lock mr-1"></i>${esc(accountName(t.personId))} recorded this, so only they can change the amount, date or what it was, or delete it. You can choose which of your accounts it's in and add a note.</p>`
         : '<p class="hint">It shows on the Lend & borrow page. If the person is linked to their FinRi username, it appears in their app too.</p>'))}
     ${showFor('tax', twoCol(field('Tax', select('taxKind', TAX_KINDS, t.taxKind || 'Advance tax')), field('Paid from', accountSelect('fromAccountId', t.fromAccountId || firstAccountOf(['bank']), { types: MONEY_TYPES })))
@@ -10502,9 +10614,9 @@ function openAccountForm(existing, presetType = 'bank') {
       : `<input type="hidden" name="type" value="${a.type}"><p class="text-sm text-ink-3">${ACCOUNT_TYPES[a.type].single}</p>`}
     ${field('Name', input('name', a.name, 'required maxlength="60" placeholder="e.g. HDFC Savings, Axis Ace card, Wallet cash"'))}
     ${showFor('cash', field('Kind', select('subtype', CASH_KINDS, a.subtype)))}
-    ${showFor('bank', twoCol(field('Bank', input('institution', a.institution, 'placeholder="e.g. HDFC Bank"')), field('Account kind', select('subtype', BANK_KINDS, a.subtype))) +
+    ${showFor('bank', twoCol(field('Bank', input('institution', a.institution, 'placeholder="Type a name or initials, e.g. SBI" data-bank-pick')), field('Account kind', select('subtype', BANK_KINDS, a.subtype))) +
       field('Last 4 digits (optional)', input('last4', a.last4, 'maxlength="4" inputmode="numeric" pattern="[0-9]{0,4}"')))}
-    ${showFor('credit_card', twoCol(field('Issuer', input('institution', a.institution, 'placeholder="e.g. SBI Card"')), field('Last 4 digits (optional)', input('last4', a.last4, 'maxlength="4" inputmode="numeric" pattern="[0-9]{0,4}"'))) +
+    ${showFor('credit_card', twoCol(field('Issuer', input('institution', a.institution, 'placeholder="Type a name or initials, e.g. HDFC" data-bank-pick')), field('Last 4 digits (optional)', input('last4', a.last4, 'maxlength="4" inputmode="numeric" pattern="[0-9]{0,4}"'))) +
       twoCol(field('Current outstanding', moneyInput('cardOutstanding', a.type === 'credit_card' && existing ? -num(a.openingBalance) : '', 'placeholder="0"'), 'Everything you owe on the card today, billed and unbilled.'),
         field('Credit limit', moneyInput('creditLimit', a.creditLimit, 'min="0" placeholder="e.g. 200000"'))) +
       twoCol(field('Statement date (day of month)', input('statementDay', a.statementDay, 'type="number" min="1" max="31" placeholder="e.g. 15"')),
@@ -10523,6 +10635,8 @@ function openAccountForm(existing, presetType = 'bank') {
       field('Current value', moneyInput('openingBalance', a.type === 'investment' && existing ? a.openingBalance : '', 'placeholder="0"'), 'Fills in from units x the latest NAV or price once linked. Type it for FDs, PPF and the like.')))}
     ${field('Balance as on', input('openingDate', a.openingDate || todayStr(), 'type="date" required'), 'Transactions dated before this day do not change the balance, because it already includes them.')}
     ${field('Notes (optional)', textarea('notes', a.notes, 'rows="2"'))}
+    ${showFor('cash bank credit_card', checkbox('primary', existing ? isPrimaryAccount(existing) : !primaryAccountId() && !db.accounts.some((x) => SPEND_TYPES.includes(x.type) && x.type !== 'cash' && !x.archived) && presetType !== 'cash',
+      'Primary spending account', 'Picked first when you add an expense. You can change it any time with the star on the Accounts page.'))}
     ${isNew ? '' : checkbox('archived', a.archived, 'Archive this account', 'Hides it from pickers. Its balance still counts in total money.')}`;
 
   openModal({
@@ -10542,6 +10656,7 @@ function openAccountForm(existing, presetType = 'bank') {
       };
       form.addEventListener('input', (e) => { if (['units', 'avgCost', 'investedAmount'].includes(e.target.name)) sync(e.target.name); }, { signal: modalSignal() });
       bindInstrumentPicker(form, { onPick: () => sync('pick') });
+      bindBankPicker(form); // search-as-you-type list of banks
     },
     onSubmit: (d) => {
       const type = d.type;
@@ -10573,12 +10688,122 @@ function openAccountForm(existing, presetType = 'bank') {
         notes: d.notes || '',
         archived: !!d.archived,
       };
-      commit([opUpsert('accounts', rec)], `${isNew ? 'Add' : 'Edit'} account ${rec.name}`);
+      const wasPrimary = db.settings.primaryAccountId === rec.id;
+      const wantPrimary = SPEND_TYPES.includes(type) && !!d.primary && !rec.archived;
+      const primaryOps = wantPrimary && !wasPrimary ? [opSettings({ primaryAccountId: rec.id })]
+        : !wantPrimary && wasPrimary ? [opSettings({ primaryAccountId: '' })] : [];
+      commit([opUpsert('accounts', rec), ...primaryOps], `${isNew ? 'Add' : 'Edit'} account ${rec.name}`);
       toast(isNew ? 'Account added' : 'Account saved', 'success');
       if (type === 'investment' && hasLivePrice(rec) && navigator.onLine) setTimeout(() => refreshPrices({ onlyId: rec.id }), 60);
     },
     onDelete: existing ? () => deleteAccount(existing) : null,
   });
+}
+
+/* ===== Bank picker (Add account → Bank, and card Issuer) =====
+   About 650 banks: every Indian bank (public, private, small finance, payments, all 28 regional
+   rural banks, main co-operative banks and foreign banks in India) and the main banks of 60+
+   countries. Type a name or its initials ("sbi", "bob", "hdfc", "pnb") and the best matches come
+   first: exact short name, then initials, then names starting with what you typed, then any word.
+   Anything not in the list can simply be typed in. */
+const BANK_DATA = "#IN India\nState Bank of India|SBI\nHDFC Bank|HDFC\nICICI Bank|ICICI\nAxis Bank|Axis\nKotak Mahindra Bank|Kotak,KMB\nBank of Baroda|BoB,Baroda\nPunjab National Bank|PNB\nCanara Bank|Canara\nUnion Bank of India|UBI,Union Bank\nBank of India|BOI\nIndian Bank|Indian Bank\nCentral Bank of India|CBI,Central Bank\nIndian Overseas Bank|IOB\nUCO Bank|UCO\nBank of Maharashtra|BoM,Mahabank\nPunjab & Sind Bank|PSB\nIndusInd Bank|IndusInd\nYES Bank|YES\nIDFC FIRST Bank|IDFC\nIDBI Bank|IDBI\nFederal Bank|Federal\nRBL Bank|RBL,Ratnakar Bank\nBandhan Bank|Bandhan\nSouth Indian Bank|SIB\nKarur Vysya Bank|KVB\nCity Union Bank|CUB\nKarnataka Bank|KBL\nTamilnad Mercantile Bank|TMB\nDCB Bank|DCB,Development Credit Bank\nCSB Bank|CSB,Catholic Syrian Bank\nDhanlaxmi Bank|Dhanlaxmi\nJammu & Kashmir Bank|J&K Bank,JK Bank\nNainital Bank|Nainital\nAU Small Finance Bank|AU,AU SFB\nEquitas Small Finance Bank|Equitas\nUjjivan Small Finance Bank|Ujjivan\nJana Small Finance Bank|Jana\nUtkarsh Small Finance Bank|Utkarsh\nSuryoday Small Finance Bank|Suryoday\nESAF Small Finance Bank|ESAF\nCapital Small Finance Bank|Capital SFB\nShivalik Small Finance Bank|Shivalik\nUnity Small Finance Bank|Unity\nslice Small Finance Bank|slice,North East Small Finance Bank,NESFB\nIndia Post Payments Bank|IPPB,Post Office,India Post\nAirtel Payments Bank|Airtel\nFino Payments Bank|Fino\nJio Payments Bank|Jio\nNSDL Payments Bank|NSDL\nPaytm Payments Bank|Paytm\nAndhra Pradesh Grameena Bank|APGB\nArunachal Pradesh Rural Bank|APRB\nAssam Gramin Bank|AGB\nBihar Gramin Bank|BGB\nChhattisgarh Gramin Bank|CGB\nGujarat Gramin Bank|GGB\nHaryana Gramin Bank|HGB\nHimachal Pradesh Gramin Bank|HPGB\nJammu and Kashmir Grameen Bank|JKGB\nJharkhand Gramin Bank|JGB\nKarnataka Grameena Bank|KaGB\nKerala Grameena Bank|KGB\nMadhya Pradesh Gramin Bank|MPGB\nMaharashtra Gramin Bank|MGB,Mahagramin\nManipur Rural Bank|MRB\nMeghalaya Rural Bank|\nMizoram Rural Bank|\nNagaland Rural Bank|NRB\nOdisha Grameen Bank|OGB\nPuducherry Grama Bank|PGB\nPunjab Gramin Bank|\nRajasthan Gramin Bank|RGB\nTamil Nadu Grama Bank|TNGB\nTelangana Grameena Bank|TGB\nTripura Gramin Bank|\nUttar Pradesh Gramin Bank|UPGB\nUttarakhand Gramin Bank|UKGB\nWest Bengal Gramin Bank|WBGB\nSaraswat Co-operative Bank|Saraswat\nCosmos Co-operative Bank|Cosmos\nSVC Co-operative Bank|SVC,Shamrao Vithal\nTJSB Sahakari Bank|TJSB,Thane Janata\nJanata Sahakari Bank, Pune|Janata Sahakari\nAbhyudaya Co-operative Bank|Abhyudaya\nBharat Co-operative Bank (Mumbai)|Bharat Bank\nNKGSB Co-operative Bank|NKGSB\nKalupur Commercial Co-operative Bank|Kalupur\nApna Sahakari Bank|Apna\nThe Thane Bharat Sahakari Bank|Thane Bharat\nDombivli Nagari Sahakari Bank|DNS Bank\nKalyan Janata Sahakari Bank|Kalyan Janata\nBassein Catholic Co-operative Bank|Bassein\nZoroastrian Co-operative Bank|Zoroastrian\nCitizen Credit Co-operative Bank|Citizen Credit\nModel Co-operative Bank|Model Bank\nVasai Vikas Sahakari Bank|Vasai Vikas\nGP Parsik Sahakari Bank|Parsik\nVishweshwar Sahakari Bank|Vishweshwar\nPune People's Co-operative Bank|Pune People's\nJalgaon Janata Sahakari Bank|Jalgaon Janata\nAkola Janata Commercial Co-operative Bank|Akola Janata\nNagpur Nagarik Sahakari Bank|Nagpur Nagarik\nRajkot Nagarik Sahakari Bank|RNSB\nMehsana Urban Co-operative Bank|Mehsana Urban\nAhmedabad Mercantile Co-operative Bank|Amco\nNutan Nagarik Sahakari Bank|Nutan\nKarad Urban Co-operative Bank|Karad Urban\nPune District Central Co-operative Bank|PDCC\nMumbai District Central Co-operative Bank|Mumbai Bank\nMaharashtra State Co-operative Bank|MSC Bank\nGujarat State Co-operative Bank|GSC Bank\nKerala Bank|Kerala State Co-operative Bank\nKarnataka State Co-operative Apex Bank|KSCAB\nTamil Nadu State Apex Co-operative Bank|TNSC Bank\nDelhi State Co-operative Bank|\nTelangana State Co-operative Apex Bank|TSCAB\nAndhra Pradesh State Co-operative Bank|APCOB\nWest Bengal State Co-operative Bank|WBSCB\nPunjab State Co-operative Bank|\nRajasthan State Co-operative Bank|Apex Bank\nCitibank India|Citi\nAmerican Express India|Amex\nSBI Card|SBI Cards\nHSBC India|HSBC\nStandard Chartered India|StanChart,SCB\nDeutsche Bank India|DB\nDBS Bank India|DBS,digibank,Lakshmi Vilas Bank\nSBM Bank India|SBM\nBarclays Bank India|Barclays\nBank of America India|BofA\nJ.P. Morgan India|JPMorgan,Chase\nBNP Paribas India|BNP\nCr\u00e9dit Agricole India|\nSoci\u00e9t\u00e9 G\u00e9n\u00e9rale India|SocGen\nMUFG Bank India|MUFG\nMizuho Bank India|Mizuho\nSumitomo Mitsui Banking Corporation India|SMBC\nEmirates NBD India|ENBD\nFirst Abu Dhabi Bank India|FAB\nMashreq Bank India|Mashreq\nDoha Bank India|\nQatar National Bank India|QNB\nAbu Dhabi Commercial Bank India|ADCB\nBank of Bahrain and Kuwait India|BBK\nWoori Bank India|Woori\nShinhan Bank India|Shinhan\nKEB Hana Bank India|Hana\nIndustrial Bank of Korea India|IBK\nKookmin Bank India|KB\nCTBC Bank India|CTBC\nBank of Ceylon India|\nSonali Bank India|\nIndustrial and Commercial Bank of China India|ICBC\nBank of China India|\nRabobank India|Rabobank\nNatWest Markets India|NatWest\nUBS India|UBS\nBank of Nova Scotia India|Scotiabank\nAustralia and New Zealand Banking Group India|ANZ\n#US United States\nJPMorgan Chase Bank|Chase,JPMorgan\nBank of America|BofA,BoA\nWells Fargo|WF\nCitibank|Citi\nU.S. Bank|US Bank\nPNC Bank|PNC\nTruist Bank|Truist\nCapital One|\nTD Bank|TD\nGoldman Sachs Bank (Marcus)|Marcus,Goldman\nMorgan Stanley Private Bank|Morgan Stanley\nCharles Schwab Bank|Schwab\nAlly Bank|Ally\nAmerican Express National Bank|Amex\nDiscover Bank|Discover\nCitizens Bank|\nFifth Third Bank|53\nKeyBank|Key\nHuntington National Bank|Huntington\nM&T Bank|M&T\nRegions Bank|Regions\nFirst Citizens Bank|\nBMO Bank (US)|BMO Harris\nSantander Bank (US)|\nHSBC Bank USA|HSBC\nNavy Federal Credit Union|NFCU,Navy Federal\nUSAA Federal Savings Bank|USAA\nSoFi Bank|SoFi\nSynchrony Bank|Synchrony\nComerica Bank|Comerica\nZions Bank|Zions\nFrost Bank|Frost\nFirst Horizon Bank|\nWebster Bank|\nWestern Alliance Bank|\nEast West Bank|\nPopular Bank|Banco Popular\nPentagon Federal Credit Union|PenFed\nState Employees' Credit Union|SECU\n#CA Canada\nRoyal Bank of Canada|RBC\nTD Canada Trust|TD\nScotiabank|BNS,Bank of Nova Scotia\nBank of Montreal|BMO\nCIBC|Canadian Imperial Bank of Commerce\nNational Bank of Canada|NBC\nDesjardins|\nTangerine|\nSimplii Financial|Simplii\nEQ Bank|EQ\nLaurentian Bank|\nATB Financial|ATB\n#GB United Kingdom\nBarclays|\nHSBC UK|HSBC\nLloyds Bank|Lloyds\nNatWest|\nSantander UK|Santander\nHalifax|\nNationwide Building Society|Nationwide\nTSB Bank|TSB\nMetro Bank|\nRoyal Bank of Scotland|RBS\nBank of Scotland|BoS\nVirgin Money|\nThe Co-operative Bank|Co-op Bank\nMonzo|\nStarling Bank|Starling\nRevolut|\nChase UK|Chase\nFirst Direct|\nCoutts|\nUlster Bank|\nClydesdale Bank|\nYorkshire Building Society|YBS\nCoventry Building Society|\nKroo|\n#IE Ireland\nAIB|Allied Irish Banks\nBank of Ireland|BOI\nPTSB|Permanent TSB\n#DE Germany\nDeutsche Bank|DB\nCommerzbank|\nDZ Bank|\nSparkasse|\nVolksbank Raiffeisenbank|Volksbank,Raiffeisenbank\nPostbank|\nING Deutschland|ING\nN26|\nHypoVereinsbank|HVB,UniCredit\nDKB|Deutsche Kreditbank\ncomdirect|\nConsorsbank|\nTargobank|\n#FR France\nBNP Paribas|BNP\nSoci\u00e9t\u00e9 G\u00e9n\u00e9rale|SocGen,SG\nCr\u00e9dit Agricole|CA\nCr\u00e9dit Mutuel|\nCIC|\nLCL|Le Cr\u00e9dit Lyonnais\nBanque Populaire|\nCaisse d'\u00c9pargne|Caisse d'Epargne\nLa Banque Postale|\nBoursoBank|Boursorama\nNatixis|\n#ES Spain\nBanco Santander|Santander\nBBVA|Banco Bilbao Vizcaya Argentaria\nCaixaBank|La Caixa\nBanco Sabadell|Sabadell\nBankinter|\nUnicaja|\nAbanca|\nKutxabank|\n#IT Italy\nIntesa Sanpaolo|Intesa\nUniCredit|\nBanco BPM|BPM\nBPER Banca|BPER\nMonte dei Paschi di Siena|MPS\nMediobanca|\nBanca Mediolanum|Mediolanum\nCredem|\nFinecoBank|Fineco\nBancoPosta|Poste Italiane\n#NL Netherlands\nING|\nRabobank|\nABN AMRO|\nde Volksbank|SNS\nbunq|\nTriodos Bank|Triodos\n#BE Belgium\nKBC|\nBelfius|\nBNP Paribas Fortis|Fortis\nArgenta|\n#LU Luxembourg\nSpuerkeess|BCEE\nBGL BNP Paribas|BGL\nBanque Internationale \u00e0 Luxembourg|BIL\n#CH Switzerland\nUBS|\nRaiffeisen Switzerland|Raiffeisen\nZ\u00fcrcher Kantonalbank|ZKB\nPostFinance|\nJulius Baer|\nPictet|\nLombard Odier|\nVontobel|\nEFG International|EFG\n#AT Austria\nErste Bank|Erste\nRaiffeisen Bank International|RBI\nBank Austria|\nBAWAG|\n#SE Sweden\nNordea|\nSEB|Skandinaviska Enskilda Banken\nHandelsbanken|\nSwedbank|\nKlarna Bank|Klarna\n#DK Denmark\nDanske Bank|Danske\nJyske Bank|Jyske\n#NO Norway\nDNB|\nSpareBank 1|\n#FI Finland\nOP Financial Group|OP\n#IS Iceland\nLandsbankinn|\n\u00cdslandsbanki|Islandsbanki\nArion Bank|Arion\n#PL Poland\nPKO Bank Polski|PKO BP\nBank Pekao|Pekao\nSantander Bank Polska|\nmBank|\nING Bank \u015al\u0105ski|\nAlior Bank|Alior\n#PT Portugal\nCaixa Geral de Dep\u00f3sitos|CGD\nMillennium BCP|BCP\nNovo Banco|\nSantander Totta|\nBanco BPI|BPI\n#GR Greece\nNational Bank of Greece|NBG\nEurobank|\nPiraeus Bank|Piraeus\nAlpha Bank|\n#CZ Czechia\n\u010cesk\u00e1 spo\u0159itelna|Ceska sporitelna\n\u010cSOB|CSOB\nKomer\u010dn\u00ed banka|KB\nMoneta Money Bank|Moneta\n#HU Hungary\nOTP Bank|OTP\n#RO Romania\nBanca Transilvania|BT\nBCR|Banca Comerciala Romana\nBRD Groupe Soci\u00e9t\u00e9 G\u00e9n\u00e9rale|BRD\n#RU Russia\nSberbank|Sber\nVTB Bank|VTB\nGazprombank|\nAlfa-Bank|\nT-Bank|Tinkoff\n#UA Ukraine\nPrivatBank|\nOschadbank|\nmonobank|\n#TR T\u00fcrkiye\nZiraat Bankas\u0131|Ziraat\n\u0130\u015f Bankas\u0131|Is Bankasi\nGaranti BBVA|Garanti\nAkbank|\nYap\u0131 Kredi|Yapi Kredi\nHalkbank|\nVak\u0131fBank|Vakifbank\nQNB T\u00fcrkiye|QNB Finansbank\nDenizBank|\n#AE United Arab Emirates\nEmirates NBD|ENBD\nFirst Abu Dhabi Bank|FAB\nAbu Dhabi Commercial Bank|ADCB\nDubai Islamic Bank|DIB\nMashreq|\nAbu Dhabi Islamic Bank|ADIB\nRAKBANK|National Bank of Ras Al Khaimah\nCommercial Bank of Dubai|CBD\nEmirates Islamic|\nWio Bank|Wio\nLiv.|Liv\n#SA Saudi Arabia\nSaudi National Bank|SNB,Al Ahli\nAl Rajhi Bank|Al Rajhi\nRiyad Bank|\nSaudi Awwal Bank|SAB,SABB\nBanque Saudi Fransi|BSF\nArab National Bank|ANB\nAlinma Bank|Alinma\nBank Albilad|Albilad\nBank AlJazira|AlJazira\nSTC Bank|\n#QA Qatar\nQatar National Bank|QNB\nCommercial Bank of Qatar|CBQ\nDoha Bank|\nQatar Islamic Bank|QIB\nMasraf Al Rayan|\nDukhan Bank|\n#KW Kuwait\nNational Bank of Kuwait|NBK\nKuwait Finance House|KFH\nGulf Bank|\nBurgan Bank|\nBoubyan Bank|\n#OM Oman\nBank Muscat|\nSohar International|\nBank Dhofar|\nNational Bank of Oman|NBO\n#BH Bahrain\nNational Bank of Bahrain|NBB\nBank of Bahrain and Kuwait|BBK\nBahrain Islamic Bank|BisB\n#IL Israel\nBank Leumi|Leumi\nBank Hapoalim|Hapoalim\nIsrael Discount Bank|Discount\nMizrahi-Tefahot|Mizrahi\nFirst International Bank of Israel|FIBI\n#EG Egypt\nNational Bank of Egypt|NBE\nBanque Misr|\nCommercial International Bank|CIB\n#SG Singapore\nDBS Bank|DBS,POSB\nOCBC Bank|OCBC\nUnited Overseas Bank|UOB\nCitibank Singapore|Citi\nStandard Chartered Singapore|StanChart\nMaybank Singapore|Maybank\nTrust Bank|\nGXS Bank|GXS\n#MY Malaysia\nMaybank|Malayan Banking\nCIMB Bank|CIMB\nPublic Bank|\nRHB Bank|RHB\nHong Leong Bank|HLB\nAmBank|\nBank Islam|\nAlliance Bank|\nAffin Bank|\nBank Rakyat|\nBank Simpanan Nasional|BSN\n#ID Indonesia\nBank Central Asia|BCA\nBank Mandiri|Mandiri\nBank Rakyat Indonesia|BRI\nBank Negara Indonesia|BNI\nBank Tabungan Negara|BTN\nCIMB Niaga|\nBank Danamon|Danamon\nPermataBank|Permata\nBank Syariah Indonesia|BSI\nBank Jago|Jago\nSeaBank Indonesia|SeaBank\n#TH Thailand\nBangkok Bank|BBL\nKasikornbank|KBank\nSiam Commercial Bank|SCB\nKrungthai Bank|KTB\nKrungsri|Bank of Ayudhya\nTMBThanachart Bank|ttb\n#PH Philippines\nBDO Unibank|BDO\nBank of the Philippine Islands|BPI\nMetrobank|\nLand Bank of the Philippines|Landbank\nPhilippine National Bank|PNB\nSecurity Bank|\nUnionBank of the Philippines|UnionBank\nRCBC|Rizal Commercial Banking Corporation\nChina Banking Corporation|China Bank\nGoTyme Bank|GoTyme\nMaya Bank|Maya\n#VN Vietnam\nVietcombank|VCB\nVietinBank|\nBIDV|\nAgribank|\nTechcombank|TCB\nVPBank|\nMB Bank|Military Bank\nACB|Asia Commercial Bank\nSacombank|\nTPBank|\n#CN China\nIndustrial and Commercial Bank of China|ICBC\nChina Construction Bank|CCB\nAgricultural Bank of China|ABC\nBank of China|BOC\nBank of Communications|BoCom\nPostal Savings Bank of China|PSBC\nChina Merchants Bank|CMB\nIndustrial Bank|CIB\nChina CITIC Bank|CITIC\nShanghai Pudong Development Bank|SPDB\nChina Minsheng Bank|Minsheng\nChina Everbright Bank|Everbright\nPing An Bank|\nHua Xia Bank|\nBank of Beijing|\nBank of Shanghai|\n#HK Hong Kong\nHSBC Hong Kong|HSBC\nHang Seng Bank|Hang Seng\nBank of China (Hong Kong)|BOCHK\nStandard Chartered Hong Kong|StanChart\nBank of East Asia|BEA\nZA Bank|\n#TW Taiwan\nCathay United Bank|Cathay\nCTBC Bank|CTBC\nTaipei Fubon Bank|Fubon\nE.SUN Bank|ESUN\nMega International Commercial Bank|Mega\nBank of Taiwan|\nTaishin International Bank|Taishin\n#JP Japan\nMUFG Bank|MUFG,Mitsubishi UFJ\nSumitomo Mitsui Banking Corporation|SMBC\nMizuho Bank|Mizuho\nResona Bank|Resona\nJapan Post Bank|Yucho\nSBI Shinsei Bank|Shinsei\nRakuten Bank|Rakuten\nSony Bank|\nPayPay Bank|PayPay\nAeon Bank|\n#KR South Korea\nKB Kookmin Bank|KB,Kookmin\nShinhan Bank|Shinhan\nHana Bank|Hana\nWoori Bank|Woori\nNongHyup Bank|NH\nIndustrial Bank of Korea|IBK\nKakaoBank|Kakao\nToss Bank|Toss\n#KZ Kazakhstan\nHalyk Bank|Halyk\nKaspi Bank|Kaspi\n#LK Sri Lanka\nBank of Ceylon|BOC\nPeople's Bank|\nCommercial Bank of Ceylon|ComBank\nHatton National Bank|HNB\nSampath Bank|Sampath\nSeylan Bank|Seylan\nNational Development Bank|NDB\n#NP Nepal\nNabil Bank|Nabil\nNIC Asia Bank|NIC Asia\nGlobal IME Bank|Global IME\nNepal Investment Mega Bank|NIMB\nEverest Bank|\nHimalayan Bank|\nRastriya Banijya Bank|RBB\nNepal Bank|\nStandard Chartered Nepal|\n#BD Bangladesh\nSonali Bank|\nJanata Bank|\nAgrani Bank|\nRupali Bank|\nBRAC Bank|BRAC\nDutch-Bangla Bank|DBBL\nIslami Bank Bangladesh|IBBL\nThe City Bank|City Bank\nEastern Bank|EBL\nPrime Bank|\nPubali Bank|\n#PK Pakistan\nHBL|Habib Bank\nNational Bank of Pakistan|NBP\nUnited Bank Limited|UBL\nMCB Bank|MCB\nAllied Bank|ABL\nBank Alfalah|Alfalah\nMeezan Bank|Meezan\nBank AL Habib|\nAskari Bank|Askari\nFaysal Bank|Faysal\n#ZA South Africa\nStandard Bank|\nFirst National Bank|FNB\nAbsa|\nNedbank|\nCapitec Bank|Capitec\nInvestec|\nTymeBank|Tyme\nDiscovery Bank|\nAfrican Bank|\n#NG Nigeria\nAccess Bank|\nZenith Bank|Zenith\nGuaranty Trust Bank|GTBank,GTB\nFirst Bank of Nigeria|FirstBank\nUnited Bank for Africa|UBA\nFidelity Bank|\nStanbic IBTC Bank|Stanbic\nUnion Bank of Nigeria|\nWema Bank|ALAT\n#KE Kenya\nEquity Bank|\nKCB Bank|KCB\nCo-operative Bank of Kenya|Co-op Bank\nNCBA Bank|NCBA\nAbsa Bank Kenya|\nStanbic Bank Kenya|\nDiamond Trust Bank|DTB\nI&M Bank|\n#GH Ghana\nGCB Bank|GCB\nEcobank Ghana|Ecobank\n#ET Ethiopia\nCommercial Bank of Ethiopia|CBE\nAwash Bank|\nDashen Bank|\n#TZ Tanzania\nCRDB Bank|CRDB\nNMB Bank|NMB\n#UG Uganda\nStanbic Bank Uganda|\nCentenary Bank|\n#MA Morocco\nAttijariwafa Bank|\nBanque Populaire du Maroc|BCP\nBank of Africa|BMCE\n#MU Mauritius\nMauritius Commercial Bank|MCB\nSBM Bank Mauritius|SBM\n#MX Mexico\nBBVA M\u00e9xico|BBVA Bancomer\nBanorte|\nSantander M\u00e9xico|\nBanamex|Citibanamex\nHSBC M\u00e9xico|\nScotiabank M\u00e9xico|\nBanco Azteca|\nInbursa|\nNu M\u00e9xico|Nu\n#BR Brazil\nIta\u00fa Unibanco|Itau\nBanco do Brasil|BB\nBradesco|\nCaixa Econ\u00f4mica Federal|Caixa\nSantander Brasil|\nBTG Pactual|BTG\nNubank|Nu\nBanco Inter|Inter\nC6 Bank|C6\nBanco Safra|Safra\nSicoob|\nSicredi|\n#AR Argentina\nBanco de la Naci\u00f3n Argentina|BNA\nBanco Galicia|Galicia\nBanco Macro|Macro\nBBVA Argentina|\nSantander Argentina|\nBanco Provincia|\n#CL Chile\nBanco de Chile|\nBancoEstado|\nSantander Chile|\nBCI|Banco de Cr\u00e9dito e Inversiones\nIta\u00fa Chile|\nScotiabank Chile|\n#CO Colombia\nBancolombia|\nBanco de Bogot\u00e1|\nDavivienda|\nBBVA Colombia|\nBanco de Occidente|\n#PE Peru\nBanco de Cr\u00e9dito del Per\u00fa|BCP\nInterbank|\nBBVA Per\u00fa|\nScotiabank Per\u00fa|\n#AU Australia\nCommonwealth Bank|CBA,CommBank\nWestpac|\nNational Australia Bank|NAB\nANZ|Australia and New Zealand Banking Group\nMacquarie Bank|Macquarie\nING Australia|ING\nBendigo Bank|Bendigo\nBank of Queensland|BOQ\nSuncorp Bank|Suncorp\nSt.George Bank|St George\nBankwest|\nUp Bank|Up\nGreat Southern Bank|\n#NZ New Zealand\nANZ New Zealand|ANZ\nASB Bank|ASB\nBank of New Zealand|BNZ\nWestpac New Zealand|\nKiwibank|\nTSB New Zealand|\nHeartland Bank|\n#XX Worldwide\nWise|TransferWise\nRevolut|\nHSBC|\nStandard Chartered|StanChart\nCitibank|Citi";
+let bankIndex = null;
+const bankNorm = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+const BANK_SKIP = new Set(['of', 'the', 'and', 'de', 'la', 'del', 'des', 'du', 'di', 'da', 'do', 'e', 'y', 'et', 'a', 'for']);
+function banks() {
+  if (bankIndex) return bankIndex;
+  bankIndex = [];
+  let cc = '', country = '', rank = 0;
+  for (const line of BANK_DATA.split('\n')) {
+    if (!line.trim()) continue;
+    if (line.startsWith('#')) { cc = line.slice(1, 3); country = line.slice(4).trim(); continue; }
+    const [name, al = ''] = line.split('|');
+    const aliases = al.split(',').map((x) => x.trim()).filter(Boolean);
+    const words = bankNorm(name).split(' ').filter(Boolean);
+    // "SBM Bank India" (a foreign bank's Indian arm): "India" is not part of its initials; "Bank of India" keeps it
+    const iw = / India$/.test(name) && !/ of India$/.test(name) ? words.slice(0, -1) : words;
+    const core = iw.filter((w) => !BANK_SKIP.has(w));
+    bankIndex.push({
+      name, cc, country, rank: rank++, aliases,
+      short: aliases.find((x) => x.length <= 12 && !/ /.test(x)) || name.replace(/\s+(Bank|Co-operative Bank|Small Finance Bank|Payments Bank)(\s+India)?$/i, ''),
+      n: words.join(' '), words, al: aliases.map(bankNorm),
+      ini: [iw.map((w) => w[0]).join(''), core.map((w) => w[0]).join('')],
+    });
+  }
+  return bankIndex;
+}
+/** Best matches for what was typed; empty → popular Indian banks. */
+function bankMatches(q, limit = 30) {
+  const all = banks(), t = bankNorm(q), tc = t.replace(/ /g, '');
+  if (!t) return all.filter((b) => b.cc === 'IN').slice(0, limit);
+  const toks = t.split(' ');
+  const scored = [];
+  for (const b of all) {
+    let sc = 0;
+    if (b.al.some((x) => x === t || x.replace(/ /g, '') === tc)) sc = 100;
+    else if (tc.length >= 2 && b.ini.includes(tc)) sc = 95;
+    else if (b.n.startsWith(t)) sc = 90;
+    else if (b.al.some((x) => x.startsWith(t))) sc = 85;
+    else if (tc.length >= 2 && b.ini.some((x) => x.startsWith(tc))) sc = 78;
+    else if (b.words.some((w) => w.startsWith(t))) sc = 70;
+    else if (toks.length > 1 && toks.every((k) => b.words.some((w) => w.startsWith(k)))) sc = 65;
+    else if (t.length >= 3 && b.n.includes(t)) sc = 40;
+    else if (t.length >= 3 && b.al.some((x) => x.includes(t))) sc = 35;
+    if (!sc) continue;
+    if (b.cc === 'IN') sc += 4; // Indian banks first when equally good
+    scored.push([sc, b]);
+  }
+  return scored.sort((x, y) => y[0] - x[0] || x[1].rank - y[1].rank).slice(0, limit).map((x) => x[1]);
+}
+/** Turns a plain "Bank" text box into the search-as-you-type bank list. */
+function bindBankPicker(form) {
+  const sig = { signal: modalSignal() };
+  for (const inp of $$('input[data-bank-pick]', form)) {
+    const list = document.createElement('div');
+    list.className = 'bank-list'; list.hidden = true; list.setAttribute('role', 'listbox');
+    list.id = `bl_${Math.random().toString(36).slice(2, 8)}`;
+    inp.setAttribute('role', 'combobox'); inp.setAttribute('aria-autocomplete', 'list'); inp.setAttribute('aria-expanded', 'false'); inp.setAttribute('aria-controls', list.id);
+    inp.setAttribute('autocomplete', 'off');
+    (inp.closest('label') || inp).after(list);
+    let items = [], active = -1;
+    const draw = () => {
+      items = bankMatches(inp.value);
+      const typed = inp.value.trim();
+      const exact = items.some((b) => b.name.toLowerCase() === typed.toLowerCase());
+      list.innerHTML = (items.length ? (typed ? '' : '<div class="bank-head">Popular in India</div>') + items.map((b, i) => `<button type="button" role="option" class="bank-opt ${i === active ? 'on' : ''}" data-bank-i="${i}" aria-selected="${i === active}">
+          <span class="bank-name">${esc(b.name)}</span><span class="bank-meta">${esc([b.aliases[0] && b.aliases[0] !== b.name ? b.aliases[0] : '', b.cc === 'IN' ? '' : b.country].filter(Boolean).join(' · '))}</span></button>`).join('')
+        : `<div class="bank-empty">No bank matches "${esc(typed)}".</div>`)
+        + (typed && !exact ? `<button type="button" class="bank-opt bank-own" data-bank-own><i class="fa-solid fa-pen"></i> Use "${esc(typed)}"</button>` : '');
+      list.hidden = false; inp.setAttribute('aria-expanded', 'true');
+    };
+    const close = () => { list.hidden = true; active = -1; inp.setAttribute('aria-expanded', 'false'); };
+    const pick = (b) => {
+      inp.value = b.name; close();
+      // fill the account name if it's still empty: "HDFC Savings", "SBI Card"
+      const nameBox = form.elements.name;
+      if (nameBox && !nameBox.value.trim()) {
+        const kind = $$('select[name="subtype"]', form).find((x) => !x.disabled)?.value;
+        const isCard = form.elements.type?.value === 'credit_card';
+        nameBox.value = `${b.short} ${isCard ? 'Card' : kind && kind !== 'Other' ? kind : 'Savings'}`.trim();
+      }
+      inp.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    inp.addEventListener('focus', draw, sig);
+    inp.addEventListener('input', () => { active = -1; draw(); }, sig);
+    inp.addEventListener('keydown', (e) => {
+      if (list.hidden) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(0, Math.min(items.length - 1, active + (e.key === 'ArrowDown' ? 1 : -1))); draw(); list.querySelector('.on')?.scrollIntoView({ block: 'nearest' }); }
+      else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); pick(items[active]); }
+      else if (e.key === 'Escape') { e.stopPropagation(); close(); }
+    }, sig);
+    list.addEventListener('pointerdown', (e) => e.preventDefault(), sig); // keep focus in the box while tapping
+    list.addEventListener('click', (e) => {
+      const o = e.target.closest('[data-bank-i]');
+      if (o) pick(items[+o.dataset.bankI]);
+      else if (e.target.closest('[data-bank-own]')) close();
+    }, sig);
+    inp.addEventListener('blur', () => setTimeout(close, 120), sig);
+  }
 }
 
 function deleteAccount(a) {
@@ -10590,7 +10815,7 @@ function deleteAccount(a) {
     return false;
   }
   if (!confirm(`Delete ${a.name}? This can't be undone.`)) return false;
-  commit([opDelete('accounts', a.id)], `Delete account ${a.name}`);
+  commit([opDelete('accounts', a.id), ...(db.settings.primaryAccountId === a.id ? [opSettings({ primaryAccountId: '' })] : [])], `Delete account ${a.name}`);
   toast('Account deleted');
 }
 
@@ -10826,25 +11051,73 @@ function toggleSub(id) {
   toast(s.active ? `${s.name} paused` : `${s.name} resumed`);
 }
 
-/* ===== Budgets ===== */
-function openBudgetForm(existing, presetCategory) {
+/* ===== Budgets =====
+   Two kinds: a limit for one category, or an overall budget (a name, the categories it covers,
+   one limit). A category can have its own budget and also be inside an overall one. */
+function openBudgetForm(existing, presetCategory, presetKind) {
   const isNew = !existing;
-  const taken = new Set(db.budgets.filter((b) => b.id !== existing?.id).map((b) => b.category));
-  const cats = uniq([...db.settings.expenseCategories, presetCategory, existing?.category]).filter((c) => !taken.has(c));
-  if (!cats.length) { toast('Every category already has a budget.'); return; }
+  let kind = existing ? (isGroupBudget(existing) ? 'group' : 'single') : (presetKind === 'group' ? 'group' : 'single');
+  const taken = new Set(db.budgets.filter((b) => b.id !== existing?.id && !isGroupBudget(b)).map((b) => b.category));
+  const cats = uniq([...db.settings.expenseCategories, presetCategory, kind === 'single' ? existing?.category : '']).filter((c) => !taken.has(c));
+  const since = addDays(todayStr(), -365); // also offer categories you actually spent in this past year
+  const usedCats = db.transactions.filter((t) => t.type === 'expense' && t.category && t.date >= since).map((t) => t.category);
+  const allCats = uniq([...db.settings.expenseCategories, ...usedCats, ...(existing ? budgetCats(existing) : [])]).filter((c) => !isOtherCategory(c) || usedCats.includes(c));
+  const picked = new Set(kind === 'group' ? budgetCats(existing || {}) : []);
+  if (isNew && !cats.length) kind = 'group'; // every category has its own budget: only an overall one is possible
+  const title = isNew ? 'Add budget' : `Edit ${budgetName(existing)} budget`;
+  const catPicks = allCats.map((c, i) => `<input type="checkbox" id="bc_${i}" data-bcat="${esc(c)}" ${picked.has(c) ? 'checked' : ''}><label for="bc_${i}">${esc(c)}</label>`).join('');
   openModal({
-    title: isNew ? 'Add budget' : `Edit ${existing.category} budget`,
-    body: `${field('Category', select('category', cats, existing?.category || presetCategory || cats[0]))}
+    title,
+    body: `${isNew ? `<div class="seg" role="radiogroup" aria-label="Budget kind">
+        <input type="radio" name="kind" id="bk_single" value="single" ${kind === 'single' ? 'checked' : ''} ${cats.length ? '' : 'disabled'}><label for="bk_single">One category</label>
+        <input type="radio" name="kind" id="bk_group" value="group" ${kind === 'group' ? 'checked' : ''}><label for="bk_group">Overall (several)</label>
+      </div>` : `<input type="hidden" name="kind" value="${kind}">`}
+      ${showFor('single', field('Category', select('category', cats.length ? cats : [''], existing?.category || presetCategory || cats[0])))}
+      ${showFor('group', `${field('Name', input('groupName', kind === 'group' ? existing?.name || '' : '', 'maxlength="40" placeholder="e.g. Monthly spending, Home and food, Fun money"'))}
+        <div><div class="flex items-baseline justify-between gap-2"><span class="lbl">Categories it covers</span>
+          <span class="text-sm whitespace-nowrap"><button type="button" class="link" data-bcat-all>All</button> · <button type="button" class="link" data-bcat-none>None</button></span></div>
+          <div class="cat-picks" role="group" aria-label="Categories">${catPicks}</div>
+          <p class="hint" data-bcat-count></p></div>`)}
       ${field('Monthly limit', moneyInput('monthlyLimit', existing?.monthlyLimit, 'required min="1"'))}`,
     submitLabel: isNew ? 'Add budget' : 'Save changes',
-    onSubmit: (d) => {
-      const rec = { ...(existing || {}), id: existing?.id || uid('bud'), category: d.category, monthlyLimit: round2(num(d.monthlyLimit)) };
-      commit([opUpsert('budgets', rec)], `${isNew ? 'Add' : 'Edit'} budget ${rec.category}`);
+    onOpen: (form) => {
+      bindShowHide(form, 'kind');
+      const sig = { signal: modalSignal() };
+      const boxes = () => $$('[data-bcat]', form);
+      const count = () => {
+        const n = boxes().filter((x) => x.checked).length;
+        const el = $('[data-bcat-count]', form);
+        if (el) el.textContent = n ? `${n} of ${boxes().length} ticked. Spending in any of them counts towards this limit.` : 'Tick the categories this limit covers.';
+      };
+      $('[data-bcat-all]', form)?.addEventListener('click', () => { boxes().forEach((x) => { x.checked = true; }); count(); }, sig);
+      $('[data-bcat-none]', form)?.addEventListener('click', () => { boxes().forEach((x) => { x.checked = false; }); count(); }, sig);
+      form.addEventListener('change', (e) => { if (e.target.matches('[data-bcat]')) count(); }, sig);
+      count();
+    },
+    onSubmit: (d, form) => {
+      const limit = round2(num(d.monthlyLimit));
+      if (d.kind === 'group') {
+        const chosen = $$('[data-bcat]', form).filter((x) => x.checked).map((x) => x.dataset.bcat);
+        if (chosen.length < 1) { toast('Tick at least one category for this budget.', 'error'); return false; }
+        const name = String(d.groupName || '').replace(/\s+/g, ' ').trim() || (chosen.length === allCats.length ? 'All spending' : 'Overall budget');
+        const clash = db.budgets.find((b) => b.id !== existing?.id && budgetName(b).toLowerCase() === name.toLowerCase());
+        if (clash) { toast(`You already have a budget called ${budgetName(clash)}. Pick another name.`, 'error'); return false; }
+        if (allCats.some((c) => c.toLowerCase() === name.toLowerCase())) {
+          toast(`"${name}" is also a category name. Pick a different name for the overall budget.`, 'error'); return false;
+        }
+        const rec = { ...(existing || {}), id: existing?.id || uid('bud'), kind: 'group', name, category: name, categories: chosen, monthlyLimit: limit };
+        commit([opUpsert('budgets', rec)], `${isNew ? 'Add' : 'Edit'} overall budget ${name}`);
+      } else {
+        if (!d.category) { toast('Pick a category.', 'error'); return false; }
+        const { kind: _k, name: _n, categories: _c, ...base } = existing || {};
+        const rec = { ...base, id: existing?.id || uid('bud'), category: d.category, monthlyLimit: limit };
+        commit([opUpsert('budgets', rec)], `${isNew ? 'Add' : 'Edit'} budget ${rec.category}`);
+      }
       toast(isNew ? 'Budget added' : 'Budget saved', 'success');
     },
     onDelete: existing ? () => {
-      if (!confirm(`Delete the ${existing.category} budget?`)) return false;
-      commit([opDelete('budgets', existing.id)], `Delete budget ${existing.category}`);
+      if (!confirm(`Delete the ${budgetName(existing)} budget?`)) return false;
+      commit([opDelete('budgets', existing.id)], `Delete budget ${budgetName(existing)}`);
       toast('Budget deleted');
     } : null,
   });
@@ -10940,7 +11213,7 @@ function exportTables() {
       created_at: s.createdAt || '', updated_at: s.updatedAt || '',
     };
   });
-  const budgets = db.budgets.map((b) => ({ budget_id: b.id, category: b.category, monthly_limit: num(b.monthlyLimit), created_at: b.createdAt || '', updated_at: b.updatedAt || '' }));
+  const budgets = db.budgets.map((b) => ({ budget_id: b.id, category: budgetName(b), kind: isGroupBudget(b) ? 'overall' : 'category', categories: budgetCats(b).join('; '), monthly_limit: num(b.monthlyLimit), created_at: b.createdAt || '', updated_at: b.updatedAt || '' }));
   const categories = [
     ...db.settings.expenseCategories.map((n) => ({ kind: 'expense', name: n })),
     ...db.settings.incomeCategories.map((n) => ({ kind: 'income', name: n })),
@@ -10959,7 +11232,7 @@ const TABLE_COLUMNS = {
   emi_schedule: ['emi_id', 'emi_name', 'installment', 'due_date', 'emi', 'principal', 'interest', 'balance_after', 'paid'],
   subscriptions: ['subscription_id', 'name', 'amount', 'frequency', 'monthly_equivalent', 'yearly_equivalent', 'next_renewal', 'account_id', 'account_name', 'category', 'active', 'auto_record', 'notes', 'created_at', 'updated_at'],
   sips: ['sip_id', 'name', 'fund_account_id', 'fund_name', 'from_account_id', 'from_account_name', 'amount', 'current_amount', 'frequency', 'day_of_month', 'monthly_equivalent', 'start_date', 'next_date', 'end_date', 'step_up_percent', 'active', 'auto_record', 'instalments_recorded', 'amount_invested', 'notes', 'created_at', 'updated_at'],
-  budgets: ['budget_id', 'category', 'monthly_limit', 'created_at', 'updated_at'],
+  budgets: ['budget_id', 'category', 'kind', 'categories', 'monthly_limit', 'created_at', 'updated_at'],
   goals: ['goal_id', 'name', 'target', 'target_date', 'saved', 'percent', 'per_month_needed', 'status'],
   wishlist: ['item_id', 'name', 'price', 'priority', 'want_by', 'status', 'bought_on', 'goal_id', 'link'],
   categories: ['kind', 'name'],
@@ -11437,7 +11710,8 @@ const ACTIONS = {
   'chart-edit': (d) => openChartBuilder(db.charts.find((x) => x.id === d.id)),
   'chart-pin': (d) => toggleChartPin(d.id),
   'chart-move': (d) => moveChart(d.id, d.dir),
-  'add-budget': (d) => openBudgetForm(null, d.category),
+  'add-budget': (d) => openBudgetForm(null, d.category, d.kind),
+  'primary-account': (d) => setPrimaryAccount(isPrimaryAccount(accountById(d.id)) ? '' : d.id),
   'edit-budget': (d) => openBudgetForm(db.budgets.find((b) => b.id === d.id)),
   'export-zip': () => exportZip(),
   'export-json': () => exportJSON(),
@@ -11523,6 +11797,14 @@ function init() {
     const k = e.target.dataset?.nw;
     if (!k) return;
     commit([opSettings({ [k]: e.target.checked })], `Total money ${e.target.checked ? 'includes' : 'leaves out'} ${k === 'nwInvestments' ? 'investments' : 'card dues'}`);
+  });
+
+  // Activity: show or hide investment gains and losses
+  document.addEventListener('change', (e) => {
+    if (!e.target.matches?.('[data-act-gains]')) return;
+    try { localStorage.setItem(ACT_GAINS_KEY, e.target.checked ? '1' : '0'); } catch { /* storage full */ }
+    txFilter.limit = 100;
+    const box = $('#txnResults'); if (box) box.innerHTML = txnResults();
   });
 
   // Filters (month pickers, transaction filters).
@@ -11667,7 +11949,7 @@ const TOURS = {
     { target: '#view .hero', title: 'Total value and profit', text: 'What your investments are worth today and how much you\'ve gained.' },
   ] },
   budgets: { title: 'Budgets', steps: [
-    { page: 'budgets', target: '[data-action="add-budget"], [data-action="budget-add"]', title: 'Set a monthly limit', text: 'Choose a category, like Food, and how much you want to spend on it each month.' },
+    { page: 'budgets', target: '[data-action="add-budget"], [data-action="budget-add"]', title: 'Set a monthly limit', text: 'Choose a category, like Food, and how much you want to spend on it each month. Or make an overall budget that covers several categories at once.' },
     { title: 'Stay on track', text: 'The bar fills up as you spend and turns red if you go over. FinRi warns you before that happens.' },
   ] },
   goals: { title: 'Goals', steps: [
