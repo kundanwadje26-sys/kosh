@@ -40,8 +40,8 @@ h1, .panel-title { font-family: 'Bricolage Grotesque', 'Plus Jakarta Sans', syst
 .link { color: var(--royal); font-weight: 600; }
 .link:hover { text-decoration: underline; }
 
-.skip-link { position: absolute; left: -999px; top: 8px; background: var(--ink); color: #fff; padding: 8px 12px; border-radius: 6px; z-index: 100; }
-.skip-link:focus { left: 8px; }
+.skip-link { position: absolute; left: 8px; top: 8px; transform: translateY(-200%); background: var(--ink); color: #fff; padding: 8px 12px; border-radius: 6px; z-index: 100; }
+.skip-link:focus { transform: none; }
 :focus-visible { outline: 2px solid var(--royal); outline-offset: 2px; }
 
 /* ---------- Structure ---------- */
@@ -984,3 +984,27 @@ header.sticky { background: rgba(246,249,253,.82); backdrop-filter: saturate(160
 }
 .req-row { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: .7rem .8rem; border-radius: 14px; background: #F6F9FD; border: 1px solid #E3ECF6; }
 .req-row .flex-1 { min-width: 12rem; }
+
+/* ================= Never slide sideways =================
+   The page and every form sheet only scroll up and down. Text boxes and dropdowns shrink to fit,
+   long words and links wrap, and wide things (tables, charts, swipe rows) scroll inside their own box. */
+html, body { overflow-x: hidden; max-width: 100%; }
+@supports (overflow: clip) { html, body { overflow-x: clip; } }
+#view, main, #modalWrap, #modalBody, #modalForm, .panel, .modal-card { max-width: 100%; }
+#modalBody, #modalForm { overflow-x: hidden; }
+input, select, textarea, .inp { min-width: 0; max-width: 100%; }
+.flex > .inp:not([class*="w-"]), .flex > input:not([class*="w-"]):not([type=checkbox]):not([type=radio]), .flex > select:not([class*="w-"]) { flex: 1 1 0%; }
+#view p, #view li, #view dd, #modalBody p, #modalBody li, .callout, .hint, .help-body { overflow-wrap: anywhere; }
+img, svg, canvas, video { max-width: 100%; }
+.overflow-x-auto { max-width: 100%; -webkit-overflow-scrolling: touch; }
+/* Finish setting up */
+.setup-card { border: 1px solid #CFE3F4; background: linear-gradient(180deg, #F4F9FE, #fff 70%); }
+.setup-bar { height: 6px; border-radius: 99px; background: #E3ECF6; margin: .75rem 0 .5rem; overflow: hidden; }
+.setup-bar i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #0A86D1, #0E8F47); transition: width .4s ease; }
+.setup-steps { display: grid; gap: .25rem; margin: 0; padding: 0; list-style: none; }
+.setup-steps li { display: flex; align-items: center; gap: .75rem; padding: .6rem 0; border-bottom: 1px solid #EDF1F6; flex-wrap: wrap; }
+.setup-steps li:last-child { border-bottom: 0; }
+.setup-tick { width: 1.6rem; height: 1.6rem; border-radius: 99px; border: 2px solid #C9D4E2; display: grid; place-items: center; flex: none; font-size: .75rem; }
+.setup-steps li.done .setup-tick { background: var(--gain); border-color: var(--gain); color: #fff; }
+.setup-steps li.done b { color: var(--ink-3); text-decoration: line-through; }
+.setup-text { display: block; font-size: .82rem; color: var(--ink-3); margin-top: .1rem; }

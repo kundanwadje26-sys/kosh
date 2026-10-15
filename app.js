@@ -1388,22 +1388,29 @@ function renderDashboard() {
     <div class="text-center mt-8"><button class="btn btn-sm" data-action="dash-customize"><i class="fa-solid fa-sliders"></i> Customize dashboard</button></div>`;
 }
 
+/** "Finish setting up": the first things to do, with what's done ticked. Shows until the
+    required steps are done ("Later" hides it for 3 days). */
+function setupSteps() {
+  const steps = [];
+  if (!isConfigured()) steps.push({ id: 'signin', done: false, title: 'Sign in', text: 'So your data is backed up and works on all your phones.', action: '<button class="btn btn-sm btn-primary" data-action="signin-focus">Sign in</button>' });
+  steps.push({ id: 'bank', done: db.accounts.some((a) => ['bank', 'credit_card'].includes(a.type) && !a.archived), title: 'Add your bank account', text: 'Your bank or card, with today\'s balance.', action: '<button class="btn btn-sm btn-primary" data-action="add-account" data-type="bank">Add account</button>' });
+  steps.push({ id: 'txn', done: db.transactions.some((t) => ['expense', 'income'].includes(t.type) && !t.sharedFrom), title: 'Add your first expense', text: 'Tap + or just say it, like "Spent 250 on lunch".', action: '<button class="btn btn-sm btn-primary" data-action="add-txn" data-type="expense">Add expense</button>' });
+  steps.push({ id: 'budget', optional: true, done: db.budgets.length > 0, title: 'Set a monthly budget', text: 'A spending limit for food, shopping or anything.', action: '<button class="btn btn-sm" data-action="add-budget">Set budget</button>' });
+  return steps;
+}
 function gettingStarted() {
-  const steps = [
-    { done: isConfigured(), text: 'Sign in, so your data is backed up and works on all your phones.', action: '<button class="btn btn-sm" data-action="open-settings">Open settings</button>' },
-    { done: db.accounts.some((a) => a.type !== 'cash' || num(a.openingBalance) !== 0), text: 'Add your bank accounts, credit cards and investments with today\'s balances.', action: '<a class="btn btn-sm" href="#accounts">Add accounts</a>' },
-    { done: db.transactions.length > 0, text: 'Log an expense or income. Balances update on their own from then on.', action: '<button class="btn btn-sm" data-action="add-txn" data-type="expense">Add transaction</button>' },
-  ];
-  if (steps.every((s) => s.done) || localStorage.getItem('kosh.setupHidden')) return '';
-  return `<section class="panel p-5 mb-6">
-    <div class="flex items-start justify-between gap-2 mb-3"><h2 class="panel-title">Get FinRi ready in three steps</h2>
-      <button class="icon-btn sm" data-action="setup-hide" aria-label="Hide these steps" title="Hide"><i class="fa-solid fa-xmark"></i></button></div>
-    <ol class="space-y-3">
-      ${steps.map((s, i) => `<li class="flex items-center gap-3 flex-wrap">
-        <span class="row-icon ${s.done ? 'in' : ''}" style="width:1.75rem;height:1.75rem;font-size:.8rem">${s.done ? '<i class="fa-solid fa-check"></i>' : i + 1}</span>
-        <span class="flex-1 min-w-[12rem] ${s.done ? 'text-ink-3 line-through' : ''}">${s.text}</span>
-        ${s.done ? '' : s.action}
-      </li>`).join('')}
+  const steps = setupSteps(), need = steps.filter((x) => !x.optional);
+  if (need.every((x) => x.done)) return '';
+  if (Date.now() - num(localStorage.getItem('finri.setupLater')) < 3 * 864e5) return '';
+  const done = steps.filter((x) => x.done).length;
+  return `<section class="panel p-5 mb-6 setup-card">
+    <div class="flex items-start justify-between gap-2"><div><h2 class="panel-title">Finish setting up</h2><p class="text-sm text-ink-3 mt-0.5">${done} of ${steps.length} done</p></div>
+      <button class="btn btn-sm" data-action="setup-later">Later</button></div>
+    <div class="setup-bar" aria-hidden="true"><i style="width:${Math.round(done / steps.length * 100)}%"></i></div>
+    <ol class="setup-steps">
+      ${steps.map((x) => `<li class="${x.done ? 'done' : ''}"><span class="setup-tick">${x.done ? '<i class="fa-solid fa-check"></i>' : ''}</span>
+        <span class="flex-1 min-w-0"><b>${esc(x.title)}</b>${x.optional ? ' <span class="pill">optional</span>' : ''}<span class="setup-text">${x.done ? 'Done' : esc(x.text)}</span></span>
+        ${x.done ? '' : x.action}</li>`).join('')}
     </ol>
   </section>`;
 }
@@ -1611,7 +1618,7 @@ function renderAccounts() {
     return `<section class="${type === 'credit_card' ? '' : 'panel p-5'} mt-6 first:mt-0">
       <div class="panel-head">
         <div class="flex items-baseline gap-3"><h2 class="panel-title">${meta.label}</h2><span class="text-sm text-ink-3 num">${list.length ? totalLabel : ''}</span></div>
-        <div class="flex gap-2">${type === 'investment' ? '<a class="btn btn-sm" href="#portfolio"><i class="fa-solid fa-chart-line"></i> Investments & SIPs</a>' : ''}
+        <div class="flex flex-wrap justify-end gap-2">${type === 'investment' ? '<a class="btn btn-sm" href="#portfolio"><i class="fa-solid fa-chart-line"></i> Investments & SIPs</a>' : ''}
         <button class="btn btn-sm" data-action="add-account" data-type="${type}"><i class="fa-solid fa-plus"></i> Add ${meta.single.toLowerCase()}</button></div>
       </div>
       ${body}
@@ -9133,7 +9140,7 @@ const HELP_TOPICS = [
   { id: 'dashboard', page: 'dashboard', group: 'Everyday', icon: 'fa-house', title: 'Home',
     where: 'Bottom bar → Home',
     summary: 'Your money at a glance: total money, a suggestion for you, quick actions, this month\'s money in and out, budgets, insights, what is due soon and recent transactions.',
-    steps: ['Total money adds cash, bank, investments and money people owe you, minus card dues, loans and money you owe.', 'Card dues means the bill outstanding on your cards today. Card EMIs still to pay are not deducted; each instalment counts once it is billed to the card (see them on the EMIs page).', 'Switch off Investments or Card dues on the total money card to see the figure without them.', 'Tap "What makes it up" to see the breakdown.', 'Quick actions: Add expense, Split a bill, I want to buy this, Money health.', 'Customize dashboard (bottom of the page) turns sections on or off: Money health, Investments, Subscriptions and Goals cards, and spending charts.'],
+    steps: ['Total money adds cash, bank, investments and money people owe you, minus card dues, loans and money you owe.', 'Card dues means the bill outstanding on your cards today. Card EMIs still to pay are not deducted; each instalment counts once it is billed to the card (see them on the EMIs page).', 'Switch off Investments or Card dues on the total money card to see the figure without them.', 'Tap "What makes it up" to see the breakdown.', 'Shortcuts under your total: Speak (say an expense), Lend (money given or taken), Split bill, and Health (your money health score).', '"Finish setting up" at the top shows what is left to do (bank account, first expense, budget) until it is done. Customize dashboard (bottom of the page) turns sections on or off: Money health, Investments, Subscriptions and Goals cards, and spending charts.'],
     tips: ['Invitations from family or flatmates appear at the top of the dashboard.', 'Due soon lists the next payments; tap the button next to one to record it.'] },
   { id: 'add', page: 'transactions', group: 'Everyday', icon: 'fa-plus', title: 'Adding an expense or income',
     where: 'The big + in the bottom bar (or Add transaction at the top on a computer)',
@@ -9269,30 +9276,38 @@ const HELP_TOPICS = [
 const HELP_FOR_PAGE = { dashboard: 'dashboard', transactions: 'transactions', import: 'import', calendar: 'calendar', insights: 'insights', health: 'health', accounts: 'accounts', portfolio: 'portfolio', goals: 'goals', planner: 'planner', split: 'split', flat: 'flat', people: 'people', subscriptions: 'recurring', emis: 'emis', budgets: 'budgets', insurance: 'insurance', charts: 'charts', notifications: 'notifications', data: 'data', tax: 'planner', help: 'start' };
 let helpState = { q: '', open: 'start' };
 
-function renderHelp() {
-  const q = helpState.q.trim().toLowerCase();
-  const match = (t) => !q || [t.title, t.where, t.summary, ...t.steps, ...t.tips].join(' ').toLowerCase().includes(q);
-  const list = HELP_TOPICS.filter(match);
-  const groups = [...new Set(list.map((t) => t.group))];
-  return `<div class="page-top"><p class="page-intro">Short guides for everything in FinRi. Tap "Show me how" for a quick walkthrough.</p></div>
-    <button type="button" class="tour-banner" data-action="tour" data-id="welcome"><span class="tour-banner-ico"><i class="fa-solid fa-route"></i></span><span><b>Take the welcome tour</b><span>A 1-minute walk through the app</span></span><i class="fa-solid fa-chevron-right"></i></button>
-    <input class="inp mb-4" type="search" data-help-search value="${esc(helpState.q)}" placeholder="Search help, e.g. fuel, SIP, statement, split" aria-label="Search help">
-    ${list.length ? groups.map((g) => `<h2 class="section-title mt-5 mb-2">${esc(g)}</h2><div class="space-y-2">${list.filter((t) => t.group === g).map((t) => `
-      <details class="help-topic panel" id="help-${t.id}" ${helpState.open === t.id || (q && list.length <= 4) ? 'open' : ''}>
+/** One help topic (collapsible). */
+function helpTopicHtml(t, open) {
+  return `<details class="help-topic panel" id="help-${t.id}" ${open ? 'open' : ''}>
         <summary><span class="help-ico"><i class="fa-solid ${t.icon}"></i></span><span class="flex-1"><b>${esc(t.title)}</b><span class="help-where">${esc(t.where)}</span></span><i class="fa-solid fa-chevron-down help-chev"></i></summary>
         <div class="help-body">
           <p>${esc(t.summary)}</p>
-          <ol>${t.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
-          ${t.tips.length ? `<div class="help-tips"><b>Tips</b><ul>${t.tips.map((s) => `<li>${esc(s)}</li>`).join('')}</ul></div>` : ''}
+          <ol>${t.steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>
+          ${t.tips.length ? `<div class="help-tips"><b>Tips</b><ul>${t.tips.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
           ${TOUR_FOR_HELP[t.id] ? `<button type="button" class="btn btn-sm btn-primary mt-3 mr-2" data-action="tour" data-id="${TOUR_FOR_HELP[t.id]}"><i class="fa-solid fa-hand-pointer"></i> Show me how</button>` : ''}
           ${t.page && t.page !== 'help' ? `<a class="btn btn-sm mt-3" href="#${t.page}"><i class="fa-solid fa-arrow-right"></i> Open ${esc(PAGES[t.page]?.title || t.title)}</a>` : ''}
-        </div></details>`).join('')}</div>`).join('') : emptyState('fa-magnifying-glass', 'No help topic matches that. Try another word.')}`;
+        </div></details>`;
+}
+function renderHelp() {
+  const q = helpState.q.trim().toLowerCase();
+  const match = (t) => !q || [t.title, t.where, t.summary, ...t.steps, ...t.tips].join(' ').toLowerCase().includes(q);
+  // Opened with ? from a page: that page's help comes first, open, at the top of the screen
+  const pinned = !q && helpState.pin ? HELP_TOPICS.find((t) => t.id === helpState.pin) : null;
+  const list = HELP_TOPICS.filter((t) => match(t) && t !== pinned);
+  const groups = [...new Set(list.map((t) => t.group))];
+  return `${pinned ? `<h2 class="section-title mb-2">Help for this page</h2><div class="mb-5">${helpTopicHtml(pinned, true)}</div>` : '<div class="page-top"><p class="page-intro">Short guides for everything in FinRi. Tap "Show me how" for a quick walkthrough.</p></div>'}
+    <button type="button" class="tour-banner" data-action="tour" data-id="welcome"><span class="tour-banner-ico"><i class="fa-solid fa-route"></i></span><span><b>Take the welcome tour</b><span>A 1-minute walk through the app</span></span><i class="fa-solid fa-chevron-right"></i></button>
+    <input class="inp mb-4" type="search" data-help-search value="${esc(helpState.q)}" placeholder="Search help, e.g. fuel, SIP, statement, split" aria-label="Search help">
+    ${list.length ? groups.map((g) => `<h2 class="section-title mt-5 mb-2">${esc(g)}</h2><div class="space-y-2">${list.filter((t) => t.group === g).map((t) => helpTopicHtml(t, helpState.open === t.id || (q && list.length <= 4))).join('')}</div>`).join('') : emptyState('fa-magnifying-glass', 'No help topic matches that. Try another word.')}`;
 }
 /** The ? button: open help at the topic for the current page. */
+// Leaving Help forgets the pinned topic, so Help from the menu shows everything
+window.addEventListener('hashchange', () => { if (location.hash !== '#help' && typeof helpState !== 'undefined') helpState.pin = ''; });
 function openHelpFor(page) {
-  helpState = { q: '', open: HELP_FOR_PAGE[page] || 'start' };
-  location.hash = '#help';
-  setTimeout(() => { const el = document.getElementById(`help-${helpState.open}`); if (el) window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 80); }, 80);
+  const topic = HELP_FOR_PAGE[page] || 'start';
+  helpState = { q: '', open: '', pin: topic }; // this page's help first, at the top
+  if (location.hash === '#help') render(); else location.hash = '#help';
+  requestAnimationFrame(() => window.scrollTo(0, 0)); setTimeout(() => window.scrollTo(0, 0), 60);
 }
 
 /* ===== Speak and log =====
@@ -11357,7 +11372,9 @@ const ACTIONS = {
   'cool-decide': (d) => openCoolDecide(d.id),
   'cool-skip': (d) => coolSkip(d.id),
   'cool-keep': (d) => coolKeep(d.id),
-  'setup-hide': (d, el) => { localStorage.setItem('kosh.setupHidden', '1'); el.closest('section')?.remove(); toast('Hidden. The steps are also in the README.'); },
+  'setup-hide': (d, el) => { localStorage.setItem('finri.setupLater', String(Date.now())); el.closest('section')?.remove(); },
+  'setup-later': (d, el) => { localStorage.setItem('finri.setupLater', String(Date.now())); el.closest('section')?.remove(); toast('Okay. We\'ll remind you in a few days.'); },
+  'signin-focus': () => { const u = document.querySelector('.signin-card [name="user"]'); if (u) { u.scrollIntoView({ block: 'center', behavior: 'smooth' }); setTimeout(() => u.focus(), 350); } else openSettings(); },
   'cal-go': (d) => { calMonth = d.m; render(); },
   'cal-day': (d) => openCalendarDay(d.date),
   'cal-add': (d) => { closeModal(); openTxnForm(null, { type: d.type, date: d.date }); },
@@ -11586,16 +11603,18 @@ const openForm = (fn) => async () => { closeModal(); fn(); await wait(250); };
 
 const TOURS = {
   welcome: { title: 'Welcome tour', steps: [
-    { title: 'Welcome to FinRi 👋', text: 'Let\'s take a quick 1-minute tour of the app. You can skip it any time.', page: 'dashboard' },
+    { title: 'Welcome to FinRi 👋', text: 'Let\'s take a quick 1-minute tour, and set up your first account and expense on the way. You can skip it any time.', page: 'dashboard' },
     { target: '.signin-card', when: () => !isConfigured(), title: 'Sign in first', text: 'If someone gave you a username and password, type them here. Your money data stays private to you.' },
+    { target: '.setup-card', title: 'Your first steps', text: 'What\'s left to set up. Each step gets a green tick when it\'s done, and this card goes away once you\'ve finished.' },
     { target: '.hero', title: 'Your total money', text: 'All your money in one number: bank, cash and investments, minus what you owe on cards and loans. Tap "What makes it up" to see the details.' },
     { target: '.quick-actions', title: 'Shortcuts', text: 'One tap to speak an expense, record money you lent, split a bill, or check your money health.' },
-    { target: () => (isPhone() ? '.tab-add' : 'header [data-action="add-txn"]'), shape: 'circle', title: 'Add money in or out', text: 'Tap + to add an expense, income or money you lent someone. Tip: press and hold + to just say it, like "Spent 250 on lunch".' },
-    { target: '#tabbar a[href="#transactions"]', when: isPhone, title: 'Your activity', text: 'Every rupee you added, day by day. Search, filter and download a statement here.' },
+    { page: 'accounts', target: '[data-action="add-account"][data-type="bank"]', title: 'Step 1: add your bank account', text: 'Tap "Add bank account", pick your bank and type today\'s balance from your bank app. Add credit cards and cash the same way on this page.' },
+    { page: 'dashboard', target: () => (isPhone() ? '.tab-add' : 'header [data-action="add-txn"]'), shape: 'circle', title: 'Step 2: add an expense', text: 'Spent money? Tap + and type the amount, pick what it was for, and save. Your balance updates by itself. Tip: press and hold + to just say it, like "Spent 250 on lunch".' },
+    { target: '#tabbar a[href="#transactions"]', when: isPhone, title: 'Your activity', text: 'Every rupee you added, day by day. Tap any entry to change or delete it, or download a statement.' },
     { target: '#tabbar [data-action="nav-more"]', when: isPhone, title: 'Everything else', text: 'Accounts, lend & borrow, investments, bills, insurance and more live here.' },
     { target: 'header [data-action="help"]', shape: 'circle', title: 'Stuck? Tap ?', text: 'On any page, ? explains that page. You can also replay any of these tours from there.' },
-    { title: 'You\'re all set 🎉', text: 'Start by adding today\'s spends with the + button. Help → "Show me how" has a short tour for every feature.' },
-  ] },
+    { title: 'You\'re all set 🎉', text: 'Now add your bank account and your first expense: the "Finish setting up" card on Home shows what\'s left. Help → "Show me how" has a short tour for every feature.' },
+  ], after: () => { if (!['', '#dashboard'].includes(location.hash)) location.hash = '#dashboard'; } },
   add: { title: 'Add an expense', steps: [
     { before: openForm(() => openTxnForm(null)), target: '#modalForm .seg[aria-label="Transaction type"]', title: 'What kind of entry?', text: 'Expense for money you spent, Income for money you got, Transfer to move money between your own accounts, Lend for money given to or taken from someone, Tax for tax you paid.' },
     { target: '#modalForm [name="amount"]', title: 'How much', text: 'Type the amount in rupees.' },
