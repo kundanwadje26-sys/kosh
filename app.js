@@ -250,6 +250,7 @@ const isFirstRun = !localStorage.getItem(STORAGE_KEYS.db);
 function persist() {
   writeLS(STORAGE_KEYS.db, db);
   writeLS(STORAGE_KEYS.pending, pending);
+  if (typeof queuePhoneAlerts === 'function') queuePhoneAlerts(); // keep the phone's reminders up to date
 }
 
 /* ----- Op builders ----- */
@@ -1154,6 +1155,7 @@ const PAGES = {
   import:        { title: 'Import statement', short: 'Import', icon: 'fa-file-import', group: 'Tools' },
   charts:        { title: 'Charts',           icon: 'fa-chart-simple',    group: 'Tools' },
   notifications: { title: 'Reminders',    icon: 'fa-bell',            group: 'Tools' },
+  permissions:   { title: 'Permissions',  icon: 'fa-user-shield',     group: 'Tools' },
   data:          { title: 'Backup & export',  short: 'Backup', icon: 'fa-file-export', group: 'Tools' },
   help:          { title: 'Help',             icon: 'fa-circle-question', group: 'Tools' },
   tax:           { title: 'Tax helper',       icon: 'fa-file-invoice',    hidden: true }, // now a tab in Calculators
@@ -1186,7 +1188,7 @@ function render() {
   $$('[data-brand]').forEach((el) => { el.textContent = brand; });
   const view = $('#view');
   const fn = {
-    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, health: renderHealth, planner: renderPlanner, split: renderSplit, flat: renderFlat, insurance: renderInsurance, help: renderHelp, notifications: renderNotifications, transactions: renderTransactions,
+    dashboard: renderDashboard, accounts: renderAccounts, portfolio: renderPortfolio, charts: renderCharts, people: renderPeople, goals: renderGoals, insights: renderInsights, import: renderImport, tax: renderTax, calendar: renderCalendar, health: renderHealth, planner: renderPlanner, split: renderSplit, flat: renderFlat, insurance: renderInsurance, help: renderHelp, notifications: renderNotifications, permissions: renderPermissions, transactions: renderTransactions,
     emis: renderEmis, subscriptions: renderSubscriptions, budgets: renderBudgets, data: renderData,
   }[page];
   view.innerHTML = fn();
@@ -1344,6 +1346,7 @@ function renderDashboard() {
     ${sharedRequestsCard()}
     ${installCard()}
     ${gettingStarted()}
+    ${remindersInvite()}
     ${logNudge()}
     ${netWorthPanel(T)}
     ${dashOn('quick') ? `<div class="quick-actions" aria-label="Shortcuts">
@@ -5951,13 +5954,15 @@ function renderNotifications() {
   const upToDate = topic && scheduleUpToDate();
   return `
     <div class="page-top">
-      <p class="page-intro">Get reminders on your phone at the time you choose: bills due, yesterday's spending, your balance, or your own notes.</p>
+      <p class="page-intro">Get reminders ${isNative() ? 'from FinRi' : 'on your phone'} at the time you choose: bills due, yesterday's spending, your balance, or your own notes.</p>
       <div class="flex gap-2 flex-wrap">${list.length ? '' : '<button class="btn" data-action="ntf-recommended"><i class="fa-solid fa-wand-magic-sparkles"></i> Add a recommended set</button>'}
         <button class="btn btn-primary" data-action="ntf-add"><i class="fa-solid fa-plus"></i> Add notification</button></div>
     </div>
 
-    <section class="panel p-5 mb-6">
-      <div class="panel-head"><h2 class="panel-title">Your phone</h2>
+    ${isNative() ? `<div id="phoneRemView">${phoneRemindersPanel()}</div>` : ''}
+    ${isNative() ? '<details class="panel p-5 mb-6 ntfy-more"><summary class="font-semibold">Also send to other devices (ntfy app, optional)</summary><div class="mt-4">' : ''}
+    <section class="${isNative() ? '' : 'panel p-5 mb-6'}">
+      <div class="panel-head"><h2 class="panel-title">${isNative() ? 'ntfy' : 'Your phone'}</h2>
         ${topic ? `<span class="pill ${upToDate ? 'in' : 'due'}">${upToDate ? 'Schedule up to date' : notifyState.syncing ? 'Updating…' : 'Schedule needs updating'}</span>` : ''}</div>
       <ol class="list-decimal ml-5 space-y-3 text-sm">
         <li>Install the free <b>ntfy</b> app (App Store or Play Store) and allow notifications.</li>
@@ -5971,6 +5976,7 @@ function renderNotifications() {
       </ol>
       <p class="hint mt-3">The job starts ${NOTIFY_LEAD_MIN} minutes early and sends each message at the exact time (on a busy day GitHub can start it late; then it is sent as soon as it runs). On iPhone, allow notifications for the ntfy app and keep Background App Refresh on. Messages pass through ntfy.sh; anyone who knows the topic could read them, so keep it private, or tick <b>Hide amounts</b> on a notification.</p>
     </section>
+    ${isNative() ? '</div></details>' : ''}
 
     ${list.length ? `<section class="panel p-5"><div class="divider">${list.map(notifyRow).join('')}</div></section>`
       : `<section class="panel">${emptyState('fa-bell', 'No notifications yet. Add the ones you want, or start with the recommended set.', '<button class="btn btn-primary" data-action="ntf-recommended">Add the recommended set</button>')}</section>`}`;
@@ -9303,6 +9309,10 @@ const HELP_TOPICS = [
     summary: 'Make your own charts: bar, line, pie and more, from spending, income, investments, total money and other measures.',
     steps: ['New chart: choose the type, what to show, the period and options.', 'Pin a chart to show it on the dashboard; use the arrows to reorder.'],
     tips: ['Each chart can have its own filters, such as period or account.'] },
+  { id: 'permissions', page: 'permissions', group: 'Tools', icon: 'fa-user-shield', title: 'Permissions (phone app)', where: 'More → Permissions',
+    summary: 'See and change what FinRi may use: the microphone (for Speak to add) and notifications (reminders).',
+    steps: ['Allow asks the phone for that permission.', 'If it says Blocked, tap Open FinRi settings → Permissions and allow it there.', 'Voice shows which speech engine Speak to add uses. Phones without their own speech service use FinRi\'s built-in engine, which works offline.'],
+    tips: ['Reminders on this phone can be switched off here or on the Reminders page without changing your reminder list.'] },
   { id: 'notifications', page: 'notifications', group: 'Tools', icon: 'fa-bell', title: 'Reminders on your phone',
     where: 'More → Reminders',
     summary: 'Messages on your phone at times you choose: balances, yesterday\'s spending, bills due, budget alerts, fun money, emergency savings, card usage, summaries or your own reminders.',
@@ -9975,7 +9985,8 @@ function openVoice(opts = {}) {
       const sig = { signal: modalSignal() };
       modalSignal().addEventListener('abort', () => stopListening(true));
       const box = form.elements.voiceText;
-      $('[data-voice-mic]', form).addEventListener('click', () => (voice.listening ? stopListening() : startListening(form)), sig);
+      $('[data-voice-mic]', form).addEventListener('click', () => { if (builtinVoice.busy) return; voice.listening ? stopListening() : startListening(form); }, sig);
+      if (isNative()) { let k = ''; try { k = sessionStorage.getItem(VOICE_ENGINE_KEY) || ''; } catch { /* blocked */ } if (k === 'builtin') loadBuiltinVoice().catch(() => {}); } // warm up
       $('[data-voice-parse]', form).addEventListener('click', () => understand(form, box.value), sig);
       $('[data-voice-clear]', form).addEventListener('click', () => { box.value = ''; voice.drafts = []; renderVoiceResults(form); box.focus(); }, sig);
       form.addEventListener('click', (e) => {
@@ -10018,10 +10029,14 @@ function voiceFinish(form, said, alts = [], finals = '') {
     let best = said, bestScore = -1;
     for (const c of candidates) { const sc = draftScore(VoiceParser.parse(c, ctx).drafts); if (sc > bestScore) { best = c; bestScore = sc; } }
     box.value = best; understand(form, best);
-  } else if (status && !/blocked|internet|turned off|microphone was|not available|catch that|busy/.test(status.textContent)) status.textContent = 'Tap the mic to try again, or type below.';
+  } else if (status && !/blocked|internet|turned off|service is off|microphone was|not available|catch that|busy/.test(status.textContent)) status.textContent = 'Tap the mic to try again, or type below.';
 }
 function startListening(form) {
-  if (typeof isNative === 'function' && isNative()) return startNativeListening(form); // the phone's own speech recognition
+  if (typeof isNative === 'function' && isNative()) {
+    // the phone's own speech service when it has one; otherwise FinRi's built-in engine
+    let known = ''; try { known = sessionStorage.getItem(VOICE_ENGINE_KEY) || ''; } catch { /* storage blocked */ }
+    return known === 'builtin' ? startBuiltinListening(form) : startNativeListening(form);
+  }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const box = form.elements.voiceText, status = $('[data-voice-status]', form), mic = $('[data-voice-mic]', form);
   if (!SR) { box.disabled = false; box.focus(); return; }
@@ -10058,6 +10073,7 @@ function startListening(form) {
   try { rec.start(); } catch { status.textContent = 'Couldn\'t start listening. Tap the mic again.'; box.disabled = false; }
 }
 function stopListening(abort = false) {
+  if (builtinVoice.active) { builtinVoice.stop?.(abort ? 'abort' : 'tap'); return; }
   if (typeof isNative === 'function' && isNative()) return stopNativeListening(abort);
   if (!voice.rec) return;
   try { abort ? voice.rec.abort() : voice.rec.stop(); } catch { /* already stopped */ }
@@ -10219,7 +10235,9 @@ async function nativeSaveAndShare(filename, content, mime = 'text/plain') {
    raw error). If speech can't start, the text box is ready for typing or the keyboard's mic. */
 const nativeVoice = { listeners: [], timer: 0, hard: 0, matches: [], gotAny: false };
 const VOICE_MSG = {
-  unavailable: 'Speech recognition isn\'t available on this phone right now. Type below, or tap the mic on your keyboard.',
+  unavailable: () => (nativePlatform() === 'android'
+    ? 'This phone\'s voice service is off, so FinRi can\'t listen. To turn it on: Settings → Apps → Google → Enable (and update it in Play Store). Also check Settings → search "Voice input" → choose Google. Until then, type below.'
+    : 'Speech recognition isn\'t available on this phone right now. Type below, or tap the mic on your keyboard.'),
   blocked: () => (nativePlatform() === 'ios'
     ? 'Microphone or speech recognition is blocked. iPhone: Settings → FinRi → turn on Microphone and Speech Recognition.'
     : 'Microphone is blocked. Android: Settings → Apps → FinRi → Permissions → Microphone → Allow.'),
@@ -10235,7 +10253,7 @@ function voiceProblem(err) {
   if (/network|internet|offline|server/i.test(s)) return VOICE_MSG.internet;
   if (/no.?match|no speech|speech.?timeout|didn.t understand/i.test(s)) return VOICE_MSG.nothing;
   if (/busy|audio/i.test(s)) return VOICE_MSG.busy;
-  if (/not available|unavailable|not implemented|no recogni|service/i.test(s)) return VOICE_MSG.unavailable;
+  if (/not available|unavailable|not implemented|no recogni|service/i.test(s)) return VOICE_MSG.unavailable();
   return VOICE_MSG.other;
 }
 /** Calls a plugin method; any failure or empty answer comes back as null instead of an error. */
@@ -10248,14 +10266,17 @@ async function startNativeListening(form) {
   const box = form.elements.voiceText, status = $('[data-voice-status]', form), mic = $('[data-voice-mic]', form);
   const fail = (msg) => {
     voice.listening = false; mic.classList.remove('on'); box.disabled = false; status.textContent = msg;
+    voiceFixButton(form, msg === VOICE_MSG.blocked() ? 'mic' : '');
     setTimeout(() => box.focus(), 50); // ready for typing or the keyboard's mic
   };
-  if (!SR) return fail(VOICE_MSG.unavailable);
+  const useBuiltin = () => { voice.listening = false; mic.classList.remove('on'); removeNativeVoiceListeners(); return startBuiltinListening(form); };
+  voiceFixButton(form, '');
+  if (!SR) return useBuiltin();
   try {
     mic.classList.add('on'); status.textContent = 'Getting the microphone ready…';
     // Is speech on this phone? Only a clear "no" stops here; no answer means: just try.
     const avail = await voiceAsk(SR, 'available');
-    if (avail && avail.available === false) return fail(VOICE_MSG.unavailable);
+    if (avail && avail.available === false) return useBuiltin(); // no speech service on this phone: FinRi's own engine
     let perm = await voiceAsk(SR, 'checkPermissions');
     if (perm?.speechRecognition !== 'granted') perm = (await voiceAsk(SR, 'requestPermissions')) || perm;
     if (perm?.speechRecognition === 'denied') return fail(VOICE_MSG.blocked());
@@ -10282,6 +10303,7 @@ async function startNativeListening(form) {
     await listen('listeningState', (data) => { if (data?.status === 'stopped' || data?.state === 'stopped') finish(); });
     await listen('error', (data) => { problem = voiceProblem(data); if (!nativeVoice.gotAny) finish(); });
     voice.listening = true; status.textContent = 'Listening… say the amount and what it was for.';
+    try { sessionStorage.setItem(VOICE_ENGINE_KEY, 'device'); } catch { /* blocked */ }
     navigator.vibrate?.(12);
     nativeVoice.hard = setTimeout(finish, 15000); // never listen for more than 15 seconds
     nativeVoice.timer = setTimeout(() => { if (!nativeVoice.gotAny) { problem = problem || VOICE_MSG.nothing; finish(); } }, 7000); // nothing said
@@ -10293,7 +10315,9 @@ async function startNativeListening(form) {
     console.warn('Speech start:', e);
     clearTimeout(nativeVoice.timer); clearTimeout(nativeVoice.hard);
     removeNativeVoiceListeners();
-    fail(voiceProblem(e));
+    const msg = voiceProblem(e);
+    if (msg === VOICE_MSG.unavailable()) return useBuiltin();
+    fail(msg);
   }
 }
 async function stopNativeListening(abort = false) {
@@ -10305,6 +10329,374 @@ async function stopNativeListening(abort = false) {
 }
 function removeNativeVoiceListeners() {
   for (const l of nativeVoice.listeners.splice(0)) { try { l.remove(); } catch { /* gone */ } }
+}
+
+/* ===== FinRi's own voice engine (built in, works offline) =====
+   Used automatically when the phone has no speech service of its own (some phones ship without
+   one, or have it switched off). FinRi records with the microphone and turns speech into text on
+   the phone with Moonshine (MIT licence), bundled in the app under voice/ (about 38 MB, added by
+   scripts/voice-engine.mjs at build time). Nothing you say leaves the phone. */
+const VOICE_ENGINE_DIR = 'voice/';
+const VOICE_ENGINE_KEY = 'finri.voiceEngine'; // 'device' or 'builtin', once known for this session
+const builtinVoice = { model: null, loading: null, active: false, busy: false, stop: null };
+function loadBuiltinVoice() {
+  if (builtinVoice.model) return Promise.resolve(builtinVoice.model);
+  if (!builtinVoice.loading) {
+    builtinVoice.loading = (async () => {
+      const base = new URL(VOICE_ENGINE_DIR, document.baseURI).href;
+      const M = await import(`${base}finri-voice.js`);
+      M.Settings.BASE_ASSET_PATH.MOONSHINE = base;
+      M.Settings.BASE_ASSET_PATH.ONNX_RUNTIME = `${base}ort/`;
+      const model = new M.MoonshineModel('model/tiny', 'quantized');
+      await model.loadModel();
+      builtinVoice.model = model;
+      return model;
+    })().catch((e) => { builtinVoice.loading = null; throw e; });
+  }
+  return builtinVoice.loading;
+}
+/** Average down to 16 kHz (what the engine expects). */
+function voiceTo16k(x, rate) {
+  if (Math.round(rate) === 16000) return x;
+  const ratio = rate / 16000, out = new Float32Array(Math.floor(x.length / ratio));
+  for (let i = 0; i < out.length; i++) {
+    const a = Math.floor(i * ratio), b = Math.min(x.length, Math.floor((i + 1) * ratio));
+    let t = 0; for (let j = a; j < b; j++) t += x[j];
+    out[i] = t / Math.max(1, b - a);
+  }
+  return out;
+}
+/** Keeps the spoken part with a little air on each side; null if nothing was said. */
+function voiceTrim(x) {
+  const win = 320, e = []; let peak = 0; // 20 ms windows
+  for (let i = 0; i + win <= x.length; i += win) { let t = 0; for (let j = i; j < i + win; j++) t += x[j] * x[j]; const r = Math.sqrt(t / win); e.push(r); peak = Math.max(peak, r); }
+  const thr = Math.max(0.006, peak * 0.08);
+  const a0 = e.findIndex((r) => r > thr);
+  if (a0 < 0 || peak < 0.01) return null;
+  let b0 = e.length - 1; while (b0 > a0 && e[b0] <= thr) b0--;
+  const a = Math.max(0, a0 * win - 4000), b = Math.min(x.length, (b0 + 1) * win + 5600);
+  const pad = 4800, out = new Float32Array(b - a + 2 * pad);
+  out.set(x.subarray(a, b), pad);
+  return out;
+}
+/* The recorder runs on the browser's audio thread (AudioWorklet), so no sound is lost while the
+   app is busy (for example loading the voice engine). Old WebViews fall back to ScriptProcessor. */
+const VOICE_WORKLET = `class FinriRec extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = new Float32Array(2048); this.n = 0; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch) for (let i = 0; i < ch.length; i++) { this.buf[this.n++] = ch[i]; if (this.n === 2048) { this.port.postMessage(this.buf); this.buf = new Float32Array(2048); this.n = 0; } }
+    return true;
+  }
+}
+registerProcessor('finri-rec', FinriRec);`;
+/** Records until you pause (or tap the mic). Resolves with 16 kHz mono audio. */
+async function voiceRecord(stream, { onLevel } = {}) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  let ctx, src;
+  try { ctx = new AC({ sampleRate: 16000 }); src = ctx.createMediaStreamSource(stream); }
+  catch { try { ctx?.close?.(); } catch { /* */ } ctx = new AC(); src = ctx.createMediaStreamSource(stream); }
+  let node = null, worklet = false;
+  try {
+    if (!ctx.audioWorklet) throw new Error('no worklet');
+    const url = URL.createObjectURL(new Blob([VOICE_WORKLET], { type: 'text/javascript' }));
+    await ctx.audioWorklet.addModule(url); URL.revokeObjectURL(url);
+    node = new AudioWorkletNode(ctx, 'finri-rec', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
+    worklet = true;
+  } catch { node = ctx.createScriptProcessor(2048, 1, 1); }
+  return new Promise((resolve) => {
+    const rate = ctx.sampleRate;
+    const chunks = []; let samples = 0, n = 0, heard = false, lastLoud = 0, floor = 1, done = false;
+    const finish = (why) => {
+      if (done) return; done = true;
+      try { node.disconnect(); src.disconnect(); if (worklet) node.port.onmessage = null; } catch { /* gone */ }
+      stream.getTracks().forEach((tr) => tr.stop());
+      try { ctx.close(); } catch { /* closed */ }
+      builtinVoice.stop = null;
+      const all = new Float32Array(chunks.reduce((k, c) => k + c.length, 0));
+      let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+      resolve({ audio: voiceTo16k(all, rate), heard, why });
+    };
+    const take = (d) => {
+      if (done) return;
+      chunks.push(d); samples += d.length; n++;
+      const t = samples / rate; // time counted in samples, so a busy app can't make it guess wrong
+      let q = 0; for (let i = 0; i < d.length; i++) q += d[i] * d[i];
+      const rms = Math.sqrt(q / d.length);
+      if (n <= 4) floor = Math.min(floor, rms);           // the quietest moment at the start = the room
+      const thr = Math.max(0.012, Math.min(0.05, floor * 3));
+      onLevel?.(Math.min(1, rms / (thr * 5)));
+      if (rms > thr) { heard = true; lastLoud = t; }
+      if (heard && t - lastLoud > 1.4) finish('pause');   // you stopped talking
+      else if (!heard && t > 7) finish('silence');        // nothing said
+      else if (t > 15) finish('max');
+    };
+    if (worklet) node.port.onmessage = (e) => take(e.data);
+    else node.onaudioprocess = (e) => take(new Float32Array(e.inputBuffer.getChannelData(0)));
+    src.connect(node); node.connect(ctx.destination); // output stays silent
+    ctx.resume?.();
+    builtinVoice.stop = (why = 'tap') => finish(why);
+  });
+}
+async function startBuiltinListening(form) {
+  const box = form.elements.voiceText, status = $('[data-voice-status]', form), mic = $('[data-voice-mic]', form);
+  if (!box || builtinVoice.active || builtinVoice.busy) return;
+  const fail = (msg, fix = '') => {
+    builtinVoice.active = false; voice.listening = false;
+    mic.classList.remove('on', 'busy'); mic.style.removeProperty('--lvl');
+    box.disabled = false; status.textContent = msg; voiceFixButton(form, fix);
+    setTimeout(() => box.focus(), 50);
+  };
+  voiceFixButton(form, '');
+  try { sessionStorage.setItem(VOICE_ENGINE_KEY, 'builtin'); } catch { /* blocked */ }
+  const ready = loadBuiltinVoice(); ready.catch(() => {});      // loads while you speak
+  mic.classList.add('on'); status.textContent = 'Getting the microphone ready…';
+  if (isNative()) {
+    let p = await micPermissionState();
+    if (p !== 'granted') p = await requestMicPermission();
+    if (p === 'denied') return fail(VOICE_MSG.blocked(), 'mic');
+    if (p !== 'granted' && p !== 'unknown') return fail('FinRi needs the microphone to hear you. Tap the mic and choose Allow.');
+  }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
+  catch (e) {
+    const name = String(e?.name || e);
+    if (/NotAllowed|Security|Permission/i.test(name)) return fail(VOICE_MSG.blocked(), 'mic');
+    return fail(/NotFound|Overconstrained/i.test(name) ? 'No microphone was found. Type below.' : VOICE_MSG.busy);
+  }
+  builtinVoice.active = true; voice.listening = true;
+  status.textContent = 'Listening… say the amount and what it was for. Tap the mic when you\'re done.';
+  navigator.vibrate?.(12);
+  const rec = await voiceRecord(stream, { onLevel: (l) => mic.style.setProperty('--lvl', l.toFixed(2)) });
+  builtinVoice.active = false; voice.listening = false;
+  mic.classList.remove('on'); mic.style.removeProperty('--lvl');
+  if (rec.why === 'abort') { box.disabled = false; return; }
+  const audio = rec.heard ? voiceTrim(rec.audio) : null;
+  if (!audio) return fail(VOICE_MSG.nothing);
+  builtinVoice.busy = true; mic.classList.add('busy');
+  status.textContent = builtinVoice.model ? 'Understanding…' : 'Getting the voice engine ready (a few seconds the first time)…';
+  try {
+    const model = await ready;
+    status.textContent = 'Understanding…';
+    const text = String((await model.generate(audio)) || '').replace(/\s+/g, ' ').trim();
+    builtinVoice.busy = false; mic.classList.remove('busy');
+    if (!text) return fail(VOICE_MSG.nothing);
+    box.value = text;
+    voiceFinish(form, text, []);
+  } catch (e) {
+    console.warn('Voice engine:', e);
+    builtinVoice.busy = false;
+    fail('The voice engine couldn\'t start on this phone. Type below.');
+  }
+}
+/** "Open FinRi settings" under the voice status, when the microphone is blocked. */
+function voiceFixButton(form, kind) {
+  let b = $('[data-voice-fix]', form);
+  if (!kind || !isNative()) { b?.remove(); return; }
+  if (!b) {
+    b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn btn-sm voice-fix'; b.dataset.voiceFix = '';
+    b.innerHTML = '<i class="fa-solid fa-gear" aria-hidden="true"></i> Open FinRi settings';
+    b.addEventListener('click', () => openAppSettings('app'));
+    $('.voice-top', form)?.after(b);
+  }
+}
+
+/* ===== Permissions (phone app) =====
+   FinRi asks only when a feature needs it, says why first, and shows a way out when blocked. */
+const normPerm = (v) => (v === 'granted' ? 'granted' : v === 'denied' ? 'denied' : /^prompt/.test(String(v || '')) ? 'prompt' : 'unknown');
+async function micPermissionState() {
+  if (isNative()) return normPerm((await voiceAsk(nativePlugin('SpeechRecognition'), 'checkPermissions'))?.speechRecognition);
+  try { return normPerm((await navigator.permissions.query({ name: 'microphone' })).state); } catch { return 'unknown'; }
+}
+async function requestMicPermission() {
+  if (isNative()) {
+    const r = await voiceAsk(nativePlugin('SpeechRecognition'), 'requestPermissions');
+    if (r) return normPerm(r.speechRecognition);
+  }
+  try { const st = await navigator.mediaDevices.getUserMedia({ audio: true }); st.getTracks().forEach((x) => x.stop()); return 'granted'; }
+  catch (e) { return /NotAllowed|Permission/i.test(String(e?.name)) ? 'denied' : 'unknown'; }
+}
+async function notifyPermissionState() {
+  if (!isNative()) return 'unknown';
+  return normPerm((await voiceAsk(nativePlugin('LocalNotifications'), 'checkPermissions'))?.display);
+}
+async function requestNotifyPermission() {
+  const p = normPerm((await voiceAsk(nativePlugin('LocalNotifications'), 'requestPermissions'))?.display);
+  if (p === 'granted') {
+    try { localStorage.setItem(PHONE_ALERTS_KEY, '1'); } catch { /* blocked */ }
+    if (!db.notifications.some((n) => n.enabled !== false)) addStarterReminders();
+    queuePhoneAlerts(0);
+  }
+  return p;
+}
+async function openAppSettings(kind = 'app') {
+  try {
+    await nativePlugin('NativeSettings').open({ optionAndroid: kind === 'notify' ? 'app_notification' : 'application_details', optionIOS: kind === 'notify' ? 'appNotification' : 'app' });
+    return;
+  } catch (e) { console.warn('Open settings:', e); }
+  toast(nativePlatform() === 'ios' ? 'Open Settings → FinRi.' : 'Open Settings → Apps → FinRi → Permissions.');
+}
+
+/* ===== Reminders on this phone =====
+   FinRi schedules its own notifications from your reminder rules (Reminders page), worked out
+   by the same code as the alert job. Summaries (spending, balances) are scheduled one at a time
+   and recalculated whenever FinRi opens or your data changes; date reminders (bills, card dues,
+   your own notes) a week ahead. Times are approximate to a few minutes (no exact alarms). */
+const PHONE_ALERTS_KEY = 'finri.phoneAlerts.v1';
+const ALERT_CHANNEL = 'finri-reminders';
+const DATED_ALERTS = new Set(['log_reminder', 'upcoming', 'card_due', 'custom', 'cooloff', 'month_report', 'units', 'goals']);
+const ALERT_PAGE = { upcoming: 'calendar', card_due: 'accounts', budgets: 'budgets', balances: 'accounts', low_balance: 'accounts', credit_use: 'accounts',
+  yesterday: 'transactions', today: 'transactions', week: 'transactions', big_spend: 'transactions', month_pace: 'insights', month_report: 'insights',
+  net_worth: 'dashboard', portfolio: 'portfolio', units: 'portfolio', goals: 'goals', cooloff: 'goals', people: 'people', runway: 'health', fun_money: 'budgets', log_reminder: 'dashboard', custom: 'dashboard' };
+const PHONE_STARTER = [{ type: 'upcoming', time: '09:00', days: 1 }, { type: 'card_due', time: '10:00' }, { type: 'budgets', time: '20:30' }, { type: 'log_reminder', time: '21:00' }];
+const phoneAlerts = { timer: 0, running: null, again: false, count: 0, next: null };
+const phoneAlertsOn = () => { try { return localStorage.getItem(PHONE_ALERTS_KEY) !== '0'; } catch { return true; } };
+function queuePhoneAlerts(delay = 2500) {
+  if (!isNative()) return;
+  clearTimeout(phoneAlerts.timer);
+  phoneAlerts.timer = setTimeout(() => { schedulePhoneAlerts(); }, delay);
+}
+const alertId = (key) => { let h = 7; for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) | 0; return (Math.abs(h) % 2000000000) + 1; };
+/** What this phone should show over the next week (newest data, same rules as the alert job). */
+function plannedPhoneAlerts(now = new Date()) {
+  const out = [];
+  for (const n of db.notifications.filter((x) => x.enabled !== false)) {
+    const [h, m] = String(n.time || '09:00').split(':').map(Number);
+    let seen = 0;
+    for (let k = 0; k < 8; k++) {
+      const when = new Date(now.getFullYear(), now.getMonth(), now.getDate() + k, h || 0, m || 0, 0, 0);
+      if (when <= now) continue;
+      const day = `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}-${String(when.getDate()).padStart(2, '0')}`;
+      if (!koshNotifyDay(n, day)) continue;
+      if (seen && !DATED_ALERTS.has(n.type)) break;
+      seen++;
+      let msg = null;
+      try { msg = koshNotifyEngine(db, new Date(when.getTime() - when.getTimezoneOffset() * 60000), n); } catch { msg = null; }
+      if (msg) out.push({ id: alertId(`${n.id}|${day}`), title: msg.title, body: msg.message, at: when, page: ALERT_PAGE[n.type] || 'dashboard' });
+    }
+  }
+  return out.sort((a, b) => a.at - b.at).slice(0, 60);
+}
+async function schedulePhoneAlerts() {
+  const P = nativePlugin('LocalNotifications');
+  if (!isNative() || !P) return 0;
+  if (phoneAlerts.running) { phoneAlerts.again = true; return phoneAlerts.running; }
+  phoneAlerts.running = (async () => {
+    try {
+      const perm = await notifyPermissionState();
+      const pend = await voiceAsk(P, 'getPending');
+      const old = (pend?.notifications || []).filter((x) => x.extra?.finri);
+      if (old.length) await P.cancel({ notifications: old.map((x) => ({ id: x.id })) });
+      if (perm !== 'granted' || !phoneAlertsOn()) { phoneAlerts.count = 0; phoneAlerts.next = null; return 0; }
+      if (nativePlatform() === 'android') {
+        try { await P.createChannel({ id: ALERT_CHANNEL, name: 'Reminders', description: 'Bills due, card dues, budgets and your own reminders', importance: 4, visibility: 1 }); } catch { /* exists */ }
+      }
+      const list = plannedPhoneAlerts();
+      if (list.length) {
+        await P.schedule({ notifications: list.map((x) => ({
+          id: x.id, title: x.title, body: x.body, largeBody: x.body,
+          schedule: { at: x.at, allowWhileIdle: true }, channelId: ALERT_CHANNEL,
+          smallIcon: 'ic_stat_finri', iconColor: '#127A49', extra: { finri: 1, page: x.page },
+        })) });
+      }
+      phoneAlerts.count = list.length; phoneAlerts.next = list[0]?.at || null;
+      return list.length;
+    } catch (e) { console.warn('Phone reminders:', e); return 0; }
+    finally {
+      const again = phoneAlerts.again; phoneAlerts.running = null; phoneAlerts.again = false;
+      if (again) queuePhoneAlerts(500);
+      if (location.hash === '#permissions' || location.hash === '#notifications') refreshPermissionsView();
+    }
+  })();
+  return phoneAlerts.running;
+}
+function addStarterReminders() {
+  const ops = PHONE_STARTER.filter((r) => !db.notifications.some((n) => n.type === r.type)).map((r) => {
+    const T = NOTIFY_TYPES[r.type];
+    const extra = Object.fromEntries((T.opts || []).map(([k, kind, , a, b]) => [k, kind === 'select' ? b : a]));
+    return opUpsert('notifications', { id: uid('ntf'), repeat: T.repeat || 'daily', weekday: T.weekday, monthDay: T.monthDay, ...extra, ...r, enabled: true });
+  });
+  if (ops.length) commit(ops, 'Add starter reminders');
+}
+async function turnOnPhoneReminders() {
+  const before = await notifyPermissionState();
+  if (before === 'denied') { openAppSettings('notify'); return; }
+  const p = before === 'granted' ? 'granted' : await requestNotifyPermission();
+  permState.notify = p;
+  if (p === 'granted') {
+    try { localStorage.setItem(PHONE_ALERTS_KEY, '1'); } catch { /* blocked */ }
+    if (!db.notifications.some((n) => n.enabled !== false)) addStarterReminders();
+    await schedulePhoneAlerts();
+    toast('Reminders are on. FinRi will remind you before bills are due.', 'success');
+  } else if (p === 'denied') toast('Notifications are blocked. Use "Open FinRi settings" to allow them.');
+  render();
+}
+
+/* ----- Permissions page ----- */
+const permState = { mic: 'unknown', notify: 'unknown', engine: '' };
+async function refreshPermissionsView() {
+  permState.mic = await micPermissionState();
+  permState.notify = await notifyPermissionState();
+  try { permState.engine = sessionStorage.getItem(VOICE_ENGINE_KEY) || ''; } catch { /* blocked */ }
+  if (location.hash === '#permissions' || location.hash === '#notifications') {
+    const v = $('#permView'); if (v) v.innerHTML = permissionsBody();
+    const r = $('#phoneRemView'); if (r) r.innerHTML = phoneRemindersPanel();
+  }
+}
+const PERM_PILL = { granted: ['in', 'Allowed'], denied: ['out', 'Blocked'], prompt: ['', 'Not allowed yet'], unknown: ['', 'Not checked'] };
+const permPill = (st) => `<span class="pill ${PERM_PILL[st][0]}">${PERM_PILL[st][1]}</span>`;
+function permRow({ icon, title, why, st, allow, settings }) {
+  const btn = st === 'granted' ? ''
+    : st === 'denied' ? `<button class="btn btn-sm" data-action="perm-settings" data-kind="${settings}"><i class="fa-solid fa-gear"></i> Open FinRi settings</button>`
+    : `<button class="btn btn-sm btn-primary" data-action="${allow}">Allow</button>`;
+  return `<div class="perm-row"><span class="insight-icon"><i class="fa-solid ${icon}"></i></span>
+    <div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2"><b>${title}</b> ${permPill(st)}</div>
+      <p class="text-sm text-ink-2 mt-1">${why}</p>
+      ${st === 'denied' ? '<p class="hint mt-1">You said no earlier, so the phone won\'t ask again. Open FinRi settings → Permissions and allow it there.</p>' : ''}
+      ${btn ? `<div class="mt-2">${btn}</div>` : ''}</div></div>`;
+}
+function permissionsBody() {
+  if (!isNative()) {
+    return `<section class="panel p-5"><p class="text-sm text-ink-2">These settings are for the FinRi phone app. In a browser, the browser asks for the microphone when you tap Speak, and you can change it from the lock icon next to the address.</p></section>`;
+  }
+  const eng = permState.engine === 'builtin' ? 'FinRi\'s built-in voice engine. It works offline and nothing you say leaves the phone.'
+    : permState.engine === 'device' ? 'Your phone\'s speech service.' : 'Chosen the first time you tap the mic: your phone\'s speech service if it has one, otherwise FinRi\'s built-in engine.';
+  return `<section class="panel p-5 mb-5"><div class="divider">
+      ${permRow({ icon: 'fa-microphone', title: 'Microphone', why: 'Only while you use Speak to add. FinRi never listens in the background.', st: permState.mic, allow: 'perm-mic', settings: 'app' })}
+      ${permRow({ icon: 'fa-bell', title: 'Notifications', why: 'Reminders before bills and card payments are due, budget alerts, and the reminders you set. Shown by FinRi on this phone; nothing is sent anywhere.', st: permState.notify, allow: 'perm-notify', settings: 'notify' })}
+    </div></section>
+    <section class="panel p-5 mb-5"><h2 class="panel-title mb-2">Voice</h2>
+      <p class="text-sm text-ink-2">Speak to add uses: ${eng}</p>
+      <button class="btn btn-sm mt-3" data-action="voice"><i class="fa-solid fa-microphone"></i> Try Speak to add</button></section>
+    ${permState.notify === 'granted' ? `<section class="panel p-5"><div class="flex items-center justify-between gap-3"><div><b>Reminders on this phone</b>
+        <p class="text-sm text-ink-2 mt-1">${phoneAlertsOn() ? (phoneAlerts.count ? `${phoneAlerts.count} coming up in the next week.` : 'Nothing due in the next week.') : 'Off on this phone.'} <a class="link" href="#notifications">Choose reminders</a></p></div>
+        <label class="switch"><input type="checkbox" data-phone-alerts ${phoneAlertsOn() ? 'checked' : ''} aria-label="Reminders on this phone"><span></span></label></div></section>` : ''}`;
+}
+function renderPermissions() {
+  setTimeout(refreshPermissionsView, 0);
+  return `<p class="page-intro mb-5">FinRi asks only for what a feature needs. You can change these any time.</p><div id="permView">${permissionsBody()}</div>`;
+}
+/** Reminders page, phone app: notifications from FinRi itself (no other app needed). */
+function phoneRemindersPanel() {
+  const st = permState.notify;
+  if (st !== 'granted') {
+    return `<section class="panel p-5 mb-6"><div class="panel-head"><h2 class="panel-title">On this phone</h2>${permPill(st)}</div>
+      <p class="text-sm text-ink-2 mb-3">Allow notifications and FinRi will remind you right here. No other app needed.</p>
+      ${st === 'denied' ? '<button class="btn btn-primary" data-action="perm-settings" data-kind="notify"><i class="fa-solid fa-gear"></i> Open FinRi settings</button>' : '<button class="btn btn-primary" data-action="phone-rem-on"><i class="fa-solid fa-bell"></i> Turn on reminders</button>'}</section>`;
+  }
+  return `<section class="panel p-5 mb-6"><div class="flex items-center justify-between gap-3"><div><h2 class="panel-title">On this phone</h2>
+      <p class="text-sm text-ink-2 mt-1">${phoneAlertsOn() ? (phoneAlerts.count ? `${phoneAlerts.count} reminder${phoneAlerts.count === 1 ? '' : 's'} coming up in the next week${phoneAlerts.next ? `, next ${phoneAlerts.next.toLocaleString('en-IN', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}.` : 'On. Nothing due in the next week.') : 'Off on this phone.'}</p></div>
+    <label class="switch"><input type="checkbox" data-phone-alerts ${phoneAlertsOn() ? 'checked' : ''} aria-label="Reminders on this phone"><span></span></label></div></section>`;
+}
+/** Home: ask for notifications at a useful moment, once, and let people say not now. */
+function remindersInvite() {
+  if (!isNative() || permState.notify === 'granted' || permState.notify === 'denied' || permState.notify === 'unknown') return '';
+  let later = 0; try { later = +localStorage.getItem('finri.remInvite') || 0; } catch { /* */ }
+  if (Date.now() < later) return '';
+  return `<section class="panel p-4 mb-5 rem-invite"><span class="insight-icon"><i class="fa-solid fa-bell"></i></span>
+    <div class="min-w-0 flex-1"><b>Never miss a bill</b><p class="text-sm text-ink-2 mt-0.5">Get a reminder before card bills, EMIs and subscriptions are due.</p>
+      <div class="flex gap-2 mt-3"><button class="btn btn-sm btn-primary" data-action="phone-rem-on">Turn on reminders</button><button class="btn btn-sm" data-action="rem-invite-later">Not now</button></div></div></section>`;
 }
 
 /* ----- app shell: back button, status bar, splash, screen edges ----- */
@@ -10321,7 +10713,17 @@ function initNative() {
     App.exitApp();
   });
   // returning to the app: refresh data from storage
-  App?.addListener('appStateChange', ({ isActive }) => { if (isActive && isConfigured()) Promise.resolve(runSync()).catch(() => {}); });
+  App?.addListener('appStateChange', ({ isActive }) => {
+    if (!isActive) return;
+    if (isConfigured()) Promise.resolve(runSync()).catch(() => {});
+    refreshPermissionsView(); queuePhoneAlerts(800); // back from settings: show the new state
+  });
+  // tapping a FinRi reminder opens the right page
+  nativePlugin('LocalNotifications')?.addListener?.('localNotificationActionPerformed', (a) => {
+    const pg = a?.notification?.extra?.page; if (pg && PAGES[pg]) location.hash = `#${pg}`;
+  })?.catch?.(() => {});
+  refreshPermissionsView().then(() => { if (location.hash === '' || location.hash === '#dashboard') render(); }).catch(() => {});
+  queuePhoneAlerts(1500);
   setTimeout(() => Splash?.hide().catch(() => {}), 250);
 }
 
@@ -11581,6 +11983,11 @@ const ACTIONS = {
   'rem-test': () => sendTestNotification($('#modalForm [name="ntfyTopic"]')?.value),
   'rem-on': () => { const f = $('#modalForm'); const topic = f.querySelector('[name="ntfyTopic"]').value || randomTopic(); f.querySelector('[name="ntfyTopic"]').value = topic; setupPhoneReminders(topic, f.querySelector('[name="reminderTime"]').value || '21:00'); },
   'rem-off': () => removePhoneReminders(),
+  'perm-mic': async () => { const p = await requestMicPermission(); if (p === 'denied') toast('Microphone is blocked. Use "Open FinRi settings" to allow it.'); refreshPermissionsView(); },
+  'perm-notify': () => turnOnPhoneReminders(),
+  'perm-settings': (d) => openAppSettings(d.kind || 'app'),
+  'phone-rem-on': () => turnOnPhoneReminders(),
+  'rem-invite-later': () => { try { localStorage.setItem('finri.remInvite', String(Date.now() + 14 * 864e5)); } catch { /* */ } render(); },
   'install-hide': (d, el) => { localStorage.setItem('kosh.installHidden', '1'); el.closest('.nudge')?.remove(); },
   'install-app': async (d, el) => { if (!installPrompt) return; installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; el.closest('.nudge')?.remove(); },
   'tax-add': () => openTaxItem(),
@@ -11797,6 +12204,13 @@ function init() {
     const k = e.target.dataset?.nw;
     if (!k) return;
     commit([opSettings({ [k]: e.target.checked })], `Total money ${e.target.checked ? 'includes' : 'leaves out'} ${k === 'nwInvestments' ? 'investments' : 'card dues'}`);
+  });
+
+  // Reminders on this phone: on/off (this phone only)
+  document.addEventListener('change', (e) => {
+    if (!e.target.matches?.('[data-phone-alerts]')) return;
+    try { localStorage.setItem(PHONE_ALERTS_KEY, e.target.checked ? '1' : '0'); } catch { /* */ }
+    schedulePhoneAlerts().then(() => toast(e.target.checked ? 'Reminders on for this phone.' : 'Reminders off for this phone.'));
   });
 
   // Activity: show or hide investment gains and losses

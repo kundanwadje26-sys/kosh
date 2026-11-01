@@ -1092,3 +1092,18 @@ button.link { background: none; border: 0; padding: 0; cursor: pointer; font: in
 .bank-empty { padding: .7rem .85rem; font-size: .88rem; color: var(--ink-3); }
 .icon-btn.primary-star.on, .icon-btn.primary-star.on i { color: #E0A21B !important; }
 .row > .row-actions .icon-btn.primary-star { flex: none; }
+
+/* ================= v37: built-in voice engine, permissions, phone reminders ================= */
+.voice-mic.on { box-shadow: 0 0 0 calc(4px + var(--lvl, 0) * 18px) rgba(10, 111, 176, .16); transition: box-shadow .09s linear; }
+.voice-mic.busy { pointer-events: none; }
+.voice-mic.busy i { animation: finriSpinPulse 1s ease-in-out infinite; }
+@keyframes finriSpinPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .45; transform: scale(.88); } }
+@media (prefers-reduced-motion: reduce) { .voice-mic.busy i { animation: none; } .voice-mic.on { transition: none; } }
+.voice-fix { margin: -.25rem 0 .75rem; }
+.perm-row { display: flex; gap: .85rem; align-items: flex-start; padding: .9rem 0; }
+.perm-row:first-child { padding-top: 0; } .perm-row:last-child { padding-bottom: 0; }
+.rem-invite { display: flex; gap: .85rem; align-items: flex-start; background: linear-gradient(135deg, #F2FBF6, #FFFFFF); border: 1px solid #CDEBD9; }
+.ntfy-more > summary { cursor: pointer; list-style: none; color: var(--ink-2); }
+.ntfy-more > summary::before { content: '\25B8'; display: inline-block; margin-right: .5rem; transition: transform .15s; }
+.ntfy-more[open] > summary::before { transform: rotate(90deg); }
+.ntfy-more > summary::-webkit-details-marker { display: none; }
