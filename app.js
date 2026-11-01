@@ -9934,7 +9934,8 @@ const VOICE_EXAMPLES = [
   'Moved 10,000 from HDFC to SBI',
   '200 on groceries and 50 on tea',
 ];
-const voiceSupported = () => (typeof isNative === 'function' && isNative()) || !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+const voiceSupported = () => (typeof isNative === 'function' && isNative()) || !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+  || !!(typeof voiceCloudUrl === 'function' && voiceCloudUrl() && navigator.mediaDevices?.getUserMedia);
 const voiceOn = () => db.settings.voiceOn !== false;
 const voice = { rec: null, listening: false, drafts: [], text: '', alts: [], pending: null };
 
@@ -10039,7 +10040,7 @@ function startListening(form) {
   }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const box = form.elements.voiceText, status = $('[data-voice-status]', form), mic = $('[data-voice-mic]', form);
-  if (!SR) { box.disabled = false; box.focus(); return; }
+  if (!SR) { if (voiceCloudUrl() && navigator.mediaDevices?.getUserMedia) return startBuiltinListening(form); box.disabled = false; box.focus(); return; }
   stopListening(true);
   let rec;
   try { rec = new SR(); } catch { box.disabled = false; status.textContent = voiceUnsupportedText(); return; }
@@ -10337,6 +10338,12 @@ function removeNativeVoiceListeners() {
    the phone with Moonshine (MIT licence), bundled in the app under voice/ (about 38 MB, added by
    scripts/voice-engine.mjs at build time). Nothing you say leaves the phone. */
 const VOICE_ENGINE_DIR = 'voice/';
+/* FinRi's online voice service (Cloudflare Worker running Whisper Large v3 Turbo; see
+   cloudflare/finri-voice-worker.js). Much more accurate than the offline engine, and free.
+   Paste the Worker address between the quotes, e.g. 'https://finri-voice.yourname.workers.dev'.
+   (Or set window.FINRI_VOICE_URL in finri-config.js.) Leave empty to use only the offline engine. */
+const VOICE_CLOUD_URL = 'https://finri-voice.akapindustries.workers.dev';
+const voiceCloudUrl = () => String(window.FINRI_VOICE_URL || VOICE_CLOUD_URL || '').trim().replace(/\/+$/, '');
 const VOICE_ENGINE_KEY = 'finri.voiceEngine'; // 'device' or 'builtin', once known for this session
 const builtinVoice = { model: null, loading: null, active: false, busy: false, stop: null };
 function loadBuiltinVoice() {
@@ -10427,7 +10434,7 @@ async function voiceRecord(stream, { onLevel } = {}) {
       const thr = Math.max(0.012, Math.min(0.05, floor * 3));
       onLevel?.(Math.min(1, rms / (thr * 5)));
       if (rms > thr) { heard = true; lastLoud = t; }
-      if (heard && t - lastLoud > 1.4) finish('pause');   // you stopped talking
+      if (heard && t - lastLoud > 1.2) finish('pause');   // you stopped talking
       else if (!heard && t > 7) finish('silence');        // nothing said
       else if (t > 15) finish('max');
     };
@@ -10449,10 +10456,13 @@ async function startBuiltinListening(form) {
   };
   voiceFixButton(form, '');
   try { sessionStorage.setItem(VOICE_ENGINE_KEY, 'builtin'); } catch { /* blocked */ }
-  const ready = loadBuiltinVoice(); ready.catch(() => {});      // loads while you speak
+  const cloudFirst = !!voiceCloudUrl() && navigator.onLine !== false;
+  let ready = null;
+  const engine = () => { if (!ready) { ready = loadBuiltinVoice(); ready.catch(() => {}); } return ready; };
+  if (!cloudFirst) engine();                                      // offline: load the engine while you speak
   mic.classList.add('on'); status.textContent = 'Getting the microphone ready…';
-  if (isNative()) {
-    let p = await micPermissionState();
+  if (isNative() || !(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+    let p = isNative() ? await micPermissionState() : 'granted';
     if (p !== 'granted') p = await requestMicPermission();
     if (p === 'denied') return fail(VOICE_MSG.blocked(), 'mic');
     if (p !== 'granted' && p !== 'unknown') return fail('FinRi needs the microphone to hear you. Tap the mic and choose Allow.');
@@ -10474,11 +10484,16 @@ async function startBuiltinListening(form) {
   const audio = rec.heard ? voiceTrim(rec.audio) : null;
   if (!audio) return fail(VOICE_MSG.nothing);
   builtinVoice.busy = true; mic.classList.add('busy');
-  status.textContent = builtinVoice.model ? 'Understanding…' : 'Getting the voice engine ready (a few seconds the first time)…';
+  status.textContent = 'Understanding…';
   try {
-    const model = await ready;
-    status.textContent = 'Understanding…';
-    const text = String((await model.generate(audio)) || '').replace(/\s+/g, ' ').trim();
+    let text = cloudFirst ? await voiceCloud(audio) : null;  // accurate online service
+    if (text === null) {                                      // offline or unreachable: the engine on the phone
+      if (!builtinVoice.model) status.textContent = cloudFirst ? 'No connection. Using the offline voice engine…' : 'Getting the voice engine ready (a few seconds the first time)…';
+      const model = await engine();
+      status.textContent = 'Understanding…';
+      text = String((await model.generate(audio)) || '');
+    }
+    text = text.replace(/\s+/g, ' ').trim();
     builtinVoice.busy = false; mic.classList.remove('busy');
     if (!text) return fail(VOICE_MSG.nothing);
     box.value = text;
@@ -10488,6 +10503,44 @@ async function startBuiltinListening(form) {
     builtinVoice.busy = false;
     fail('The voice engine couldn\'t start on this phone. Type below.');
   }
+}
+/** 16 kHz mono 16-bit WAV, the format the voice service expects. */
+function voiceWav(x) {
+  const n = x.length, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) { const t = Math.max(-1, Math.min(1, x[i])); v.setInt16(44 + i * 2, t < 0 ? t * 0x8000 : t * 0x7fff, true); }
+  return buf;
+}
+/** Words to expect, so names come out right: your accounts, people and categories. */
+function voiceHint() {
+  const c = voiceContext(), list = (arr, k) => uniq(arr).slice(0, k).join(', ');
+  return [
+    'Money entry in Indian English. Amounts in rupees.',
+    `Accounts: ${list(c.accounts.filter((a) => !a.archived).map((a) => a.name), 8)}.`,
+    c.people.length ? `People: ${list(c.people.map((x) => x.name), 12)}.` : '',
+    `Categories: ${list(c.expenseCategories, 12)}.`,
+    'Spent, paid, received, lent, gave, borrowed, UPI, EMI, petrol, lakh.',
+  ].filter(Boolean).join(' ').slice(0, 560);
+}
+/** Sends the clip to FinRi's voice service. Text (maybe empty) on success; null if unreachable. */
+async function voiceCloud(audio) {
+  const url = voiceCloudUrl();
+  if (!url || navigator.onLine === false) return null;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 9000);
+  try {
+    const r = await fetch(`${url}/transcribe`, {
+      method: 'POST', body: voiceWav(audio), signal: ctl.signal,
+      headers: { 'Content-Type': 'audio/wav', 'X-FinRi-App': 'finri', 'X-FinRi-Hint': encodeURIComponent(voiceHint()), 'X-FinRi-Lang': String(db.settings.voiceLang || 'en-IN').slice(0, 2) },
+    });
+    if (!r.ok) { console.warn('Voice service:', r.status); return null; }
+    const j = await r.json();
+    return typeof j?.text === 'string' ? j.text.trim() : null;
+  } catch (e) { console.warn('Voice service:', e?.name || e); return null; }
+  finally { clearTimeout(timer); }
 }
 /** "Open FinRi settings" under the voice status, when the microphone is blocked. */
 function voiceFixButton(form, kind) {
@@ -10660,7 +10713,7 @@ function permissionsBody() {
   if (!isNative()) {
     return `<section class="panel p-5"><p class="text-sm text-ink-2">These settings are for the FinRi phone app. In a browser, the browser asks for the microphone when you tap Speak, and you can change it from the lock icon next to the address.</p></section>`;
   }
-  const eng = permState.engine === 'builtin' ? 'FinRi\'s built-in voice engine. It works offline and nothing you say leaves the phone.'
+  const eng = permState.engine === 'builtin' ? (voiceCloudUrl() ? 'FinRi\'s voice service (accurate; your short clip is sent securely, turned into text and not stored). Without internet, the built-in engine on the phone.' : 'FinRi\'s built-in voice engine. It works offline and nothing you say leaves the phone.')
     : permState.engine === 'device' ? 'Your phone\'s speech service.' : 'Chosen the first time you tap the mic: your phone\'s speech service if it has one, otherwise FinRi\'s built-in engine.';
   return `<section class="panel p-5 mb-5"><div class="divider">
       ${permRow({ icon: 'fa-microphone', title: 'Microphone', why: 'Only while you use Speak to add. FinRi never listens in the background.', st: permState.mic, allow: 'perm-mic', settings: 'app' })}
